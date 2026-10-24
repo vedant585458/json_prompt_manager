@@ -140,21 +140,21 @@ shares the same landmarks, focus behaviour, and navigation; `*` is a child of th
 URL still gets navigation), while the recovery screen is the layout's `errorElement` and therefore
 renders even if the shell itself throws.
 
-| Path                            | Screen                | State                                              |
-| ------------------------------- | --------------------- | -------------------------------------------------- |
-| `/`                             | Dashboard             | **Implemented** (TASK-010)                         |
-| `/library`                      | Library               | **Implemented** (TASK-011)                         |
-| `/prompts/:promptId`            | Prompt workspace      | **Implemented** (TASK-014/015; Preview tab in 021) |
-| `/prompts/:promptId/history`    | Version history       | **Implemented** (TASK-019)                         |
-| `/prompts/:promptId/playground` | Variable playground   | **Implemented** (TASK-021)                         |
-| `/prompts/:promptId/lab`        | Prompt laboratory     | **Implemented** (TASK-022)                         |
-| `/composer`                     | Composer              | Scaffold → TASK-017                                |
-| `/templates`                    | Templates             | Template catalog, preview, custom templates        |
-| `/validation`                   | Validation            | Scaffold → TASK-016                                |
-| `/health`                       | Health                | Scaffold → TASK-025                                |
-| `/settings`                     | Settings              | **Implemented** (theme, density, autosave)         |
-| `/design`                       | Design system gallery | **Implemented** (TASK-003/004)                     |
-| `*`                             | Not found             | **Implemented** (recovery links)                   |
+| Path                            | Screen                | State                                                 |
+| ------------------------------- | --------------------- | ----------------------------------------------------- |
+| `/`                             | Dashboard             | **Implemented** (TASK-010)                            |
+| `/library`                      | Library               | **Implemented** (TASK-011)                            |
+| `/prompts/:promptId`            | Prompt workspace      | **Implemented** (014/015; Preview 021, Blueprint 023) |
+| `/prompts/:promptId/history`    | Version history       | **Implemented** (TASK-019)                            |
+| `/prompts/:promptId/playground` | Variable playground   | **Implemented** (TASK-021)                            |
+| `/prompts/:promptId/lab`        | Prompt laboratory     | **Implemented** (TASK-022)                            |
+| `/composer`                     | Composer              | Scaffold → TASK-017                                   |
+| `/templates`                    | Templates             | Template catalog, preview, custom templates           |
+| `/validation`                   | Validation            | Scaffold → TASK-016                                   |
+| `/health`                       | Health                | Scaffold → TASK-025                                   |
+| `/settings`                     | Settings              | **Implemented** (theme, density, autosave)            |
+| `/design`                       | Design system gallery | **Implemented** (TASK-003/004)                        |
+| `*`                             | Not found             | **Implemented** (recovery links)                      |
 
 - **One navigation model.** `src/components/layout/navigation.ts` declares every destination once
   (path, label, description, icon). The rail, the drawer, the breadcrumbs, and the document title all
@@ -684,6 +684,39 @@ rendered texts line by line.
   playground inputs (which is exactly what the playground reads on mount), and the playground's
   remembered inputs can seed a new case; anything that cannot be parsed into the declared type is
   reported rather than dropped.
+
+## Prompt blueprint (TASK-023)
+
+The **Blueprint** tab in the prompt workspace draws the draft as a layered dependency graph and lists the same
+nodes for keyboard and narrow-screen use.
+
+| Piece                                       | Responsibility                                                                      |
+| ------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `src/domain/graph.ts`                       | Derivation (nodes, edges, unresolved flags), fixed-grid layout, legend, node counts |
+| `src/features/blueprint/BlueprintPanel.tsx` | The tab: view toggle, zoom steps, suppression, truncation notice, legend            |
+| `src/features/blueprint/BlueprintGraph.tsx` | The deterministic SVG drawing; `aria-hidden`, no handlers of its own                |
+| `src/features/blueprint/GraphList.tsx`      | The accessible list: per-column regions of node buttons, compact or full            |
+| `src/features/blueprint/GraphInspector.tsx` | Details of the selected node, what needs fixing, and the link to its source         |
+| `src/lib/commands/coreCommands.ts`          | `blueprint.open` — opens the tab from the palette                                   |
+| `src/routes/editor/EditorRoute.tsx`         | The tab itself, `?panel=blueprint`, and jumping the editor to a section's field     |
+
+**Rules the blueprint follows.**
+
+- **Derived on every render (ADR-108).** `buildBlueprint` is pure and takes the draft document plus the
+  prompt's snippets, schema, and metadata; nothing is persisted, and the drawing cannot disagree with the
+  document it describes.
+- **Deterministic geometry.** Columns are fixed (inputs → structure → output), positions come from the row
+  index, and ordering is by name and path, so the same document always produces the same coordinates.
+- **The drawing carries no information the list does not.** The SVG is `aria-hidden` and unfocusable; every
+  node is a button in `GraphList`, which is rendered on wide screens as a compact list and below `md` as the
+  only representation.
+- **Unresolved is never colour-only.** A badge glyph, the word "Unresolved", a `Problem` row in the inspector,
+  and a link to the place where the reference is fixed.
+- **No pan and no wheel zoom.** The viewBox fits the graph, the container scrolls horizontally, and zoom is
+  five bounded button steps — chosen so the page keeps scrolling on touch screens (ADR-108).
+- **Honest edges.** Fewer than three meaningful nodes is suppressed with an offer to draw anyway, a capped
+  graph reports how many nodes and edges it dropped, and a dangling template id is shown as unresolved rather
+  than guessed from the document.
 
 ## Commands and keyboard
 

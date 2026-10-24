@@ -730,3 +730,92 @@ describe('preview tab (TASK-021)', () => {
     );
   });
 });
+
+describe('blueprint tab (TASK-023)', () => {
+  function blueprintPrompt(): Prompt {
+    return makePrompt({
+      id: 'alpha',
+      title: 'Invoice parser',
+      content: createBlankDocument({
+        name: 'Invoice parser',
+        role: 'Bookkeeper',
+        objective: 'Extract {{customer}} from the invoice.',
+        instructions: ['Read the invoice.', 'Return JSON.'],
+        constraints: ['Never guess a total.'],
+        variables: [{ name: 'customer', type: 'string', required: true }],
+      }),
+    });
+  }
+
+  beforeEach(() => {
+    usePreferencesStore.setState({ autosaveEnabled: false });
+    window.localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  it('draws the draft from a Blueprint tab', async () => {
+    const user = userEvent.setup();
+    await openEditor({ prompts: [blueprintPrompt()] });
+
+    await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
+    await user.click(screen.getByRole('tab', { name: 'Blueprint' }));
+
+    expect(await screen.findByRole('heading', { name: 'Blueprint' })).toBeVisible();
+    expect(screen.getByText(/1 input, 5 sections, 1 output node\./)).toBeVisible();
+    // The drawing itself is decorative; the list carries the content.
+    expect(document.querySelector('[data-blueprint-graph="true"]')).not.toBeNull();
+    expect(
+      within(screen.getByRole('region', { name: /Inputs/ })).getByRole('button', {
+        name: /customer/,
+      }),
+    ).toBeVisible();
+  });
+
+  it('opens the tab from a ?panel= link and clears the parameter afterwards', async () => {
+    const harness = await openEditor({
+      prompts: [blueprintPrompt()],
+      path: '/prompts/alpha?panel=blueprint',
+    });
+
+    expect(await screen.findByRole('heading', { name: 'Blueprint' })).toBeVisible();
+    expect(screen.getByRole('tab', { name: 'Blueprint' })).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(harness.router.state.location.search).toBe(''));
+  });
+
+  it('jumps the editor to the field a node names', async () => {
+    const user = userEvent.setup();
+    await openEditor({ prompts: [blueprintPrompt()], path: '/prompts/alpha?panel=blueprint' });
+
+    await screen.findByRole('heading', { name: 'Blueprint' });
+    const structure = screen.getByRole('region', { name: /Structure/ });
+    await user.click(within(structure).getByRole('button', { name: /Objective/ }));
+    await user.click(screen.getByRole('button', { name: /Jump to “Objective” in the editor/ }));
+
+    // The caret lands on the line holding the objective, which the status bar reports.
+    const lines = Array.from(document.querySelectorAll('.cm-line')).map(
+      (line) => line.textContent ?? '',
+    );
+    const objectiveLine = lines.findIndex((line) => line.includes('"objective"')) + 1;
+    expect(objectiveLine).toBeGreaterThan(1);
+    expect(
+      await screen.findByLabelText(new RegExp(`^Caret at line ${objectiveLine}, column \\d+$`)),
+    ).toBeVisible();
+  });
+
+  it('says why it cannot draw an invalid draft', async () => {
+    const user = userEvent.setup();
+    await openEditor({ prompts: [blueprintPrompt()] });
+
+    const editor = await screen.findByRole('textbox', {
+      name: 'JSON document for Invoice parser',
+    });
+    await user.click(editor);
+    await user.keyboard('x');
+    await screen.findByText(/This is not valid JSON/);
+
+    await user.click(screen.getByRole('tab', { name: 'Blueprint' }));
+
+    expect(await screen.findByText(/The blueprint needs valid JSON/)).toBeVisible();
+    expect(document.querySelector('[data-blueprint-graph="true"]')).toBeNull();
+  });
+});

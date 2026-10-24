@@ -185,6 +185,23 @@ describe('TASK-013 commands', () => {
     expect(navigate).toHaveBeenCalledWith('/prompts/abc/playground');
   });
 
+  it('opens the blueprint tab from a prompt', () => {
+    const blueprint = byId.get('blueprint.open');
+    if (!blueprint) throw new Error('Missing blueprint command');
+
+    expect(isCommandAvailable(blueprint, createTestContext({ pathname: '/prompts/abc' }))).toBe(
+      true,
+    );
+    expect(isCommandAvailable(blueprint, createTestContext({ pathname: '/library' }))).toBe(false);
+    expect(
+      isCommandAvailable(blueprint, createTestContext({ pathname: '/prompts/abc/history' })),
+    ).toBe(false);
+
+    const navigate = vi.fn();
+    run('blueprint.open', { pathname: '/prompts/abc', navigate });
+    expect(navigate).toHaveBeenCalledWith('/prompts/abc?panel=blueprint');
+  });
+
   it('opens the laboratory and a new test case from a prompt', () => {
     const open = byId.get('lab.open');
     const newCase = byId.get('lab.new-case');

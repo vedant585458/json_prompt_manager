@@ -239,6 +239,15 @@ export function createCoreCommands(): readonly CommandDefinition[] {
       },
     },
     {
+      id: 'blueprint.open',
+      title: 'Open the prompt blueprint',
+      group: 'Workspace',
+      description: 'Draws how this prompt is assembled from variables, snippets, and sections.',
+      keywords: searchTerms('blueprint graph diagram structure dependencies sections variables'),
+      when: (context) => /^\/prompts\/[^/]+$/.test(context.pathname),
+      run: (context) => context.navigate(`${context.pathname}?panel=blueprint`),
+    },
+    {
       id: 'library.favorites',
       title: 'Show favorite prompts',
       group: 'Workspace',

@@ -99,7 +99,7 @@ src/
   components/playground/  variable form and rendered preview, shared by the route and the editor
   lib/commands/   registry, shortcut parsing/matching, core commands, React bindings
   components/     ui primitives, layout, and domain components
-  features/       feature modules (organization, save pipeline, revisions, diff, lab, ...)
+  features/       feature modules (organization, save pipeline, revisions, diff, lab, blueprint, ...)
   domain/         pure TypeScript domain logic and types (no React, no storage)
   data/           repository interfaces, IndexedDB + in-memory adapters, migrations,
                   typed storage errors, write queue, cross-tab announcements
@@ -340,6 +340,31 @@ the repeatable version of the playground: the values are stored with the prompt 
   are reported, not dropped.
 - **What it is not.** Local rendering only: no AI model provider is connected, nothing is sent anywhere,
   nothing is scored, and no count is called a token count. The banner saying so is permanent.
+
+## Prompt blueprint
+
+The **Blueprint** tab in the prompt workspace answers "what is this prompt made of, and what is it missing?"
+It draws the draft as a dependency graph: the sections the document fills, the variables it declares, the
+snippets it includes, the schema attached to it, and where it came from.
+
+- **Derived, never stored.** The picture is rebuilt from the draft on every render — sections, variables,
+  snippets, schema, and template origin. It cannot go stale and it never edits anything.
+- **Three columns.** Inputs (variables, snippets, references) feed the document's structure, which feeds the
+  output. Edges show what refers to what, with containment drawn differently from reference.
+- **Missing pieces are named, not just coloured.** A placeholder with no declaration, a snippet that no longer
+  exists, a snippet writing to a section the blueprint does not know, and a schema id that points at nothing
+  are all flagged with an icon, the word "Unresolved", and an explanation of what to fix and a link to where
+  to fix it.
+- **Details on click.** Every node opens an inspector with its value or details and one "open the source"
+  action: a variable goes to the playground, a snippet to the composer where snippets live, a schema to the
+  validation studio, and a section to that field in the JSON editor.
+- **The list is the real content.** The drawing is decorative to assistive technology; the same nodes are
+  always available as a keyboard-operable, per-column list, and narrow screens get that list instead of the
+  drawing. A "List view" toggle is available at every width.
+- **Zoom without traps.** Fit-to-view plus five zoom steps (70 %–130 %) from buttons, inside a scrollable
+  container — no wheel handler and no drag canvas, so the page keeps scrolling on a phone.
+- **Honest about small prompts.** Fewer than three meaningful nodes and the tab says the prompt is simple and
+  offers to draw it anyway. A truncated blueprint (60 nodes, 120 edges) says how much it left out.
 
 ## Guided composer
 

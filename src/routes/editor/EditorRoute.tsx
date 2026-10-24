@@ -10,6 +10,7 @@ import { EditorToolbar } from '@/components/editor/EditorToolbar';
 import { JsonErrorPanel } from '@/components/editor/JsonErrorPanel';
 import { TreeView } from '@/components/editor/TreeView';
 import { PlaygroundPanel } from '@/components/playground/PlaygroundPanel';
+import { BlueprintPanel } from '@/features/blueprint/BlueprintPanel';
 import { PromptSummaryCard } from '@/components/prompts/PromptSummaryCard';
 import { SnapshotDialog } from '@/components/revisions/SnapshotDialog';
 import {
@@ -64,6 +65,15 @@ const JsonEditor = lazy(() => import('@/components/editor/JsonEditor'));
 
 const EMPTY_CARET = { line: 1, column: 1 };
 
+/** The editor's tabs. `?panel=blueprint` can select the last one (TASK-023). */
+type EditorView = 'raw' | 'tree' | 'preview' | 'blueprint';
+
+const VIEWS: readonly EditorView[] = ['raw', 'tree', 'preview', 'blueprint'];
+
+function isEditorView(value: string | null): value is EditorView {
+  return value !== null && (VIEWS as readonly string[]).includes(value);
+}
+
 function EditorFallback() {
   return (
     <div
@@ -86,6 +96,8 @@ export function EditorRoute() {
   const revisions = store((state) => state.revisions);
   const folders = store((state) => state.folders);
   const collections = store((state) => state.collections);
+  const snippets = store((state) => state.snippets);
+  const templates = store((state) => state.templates);
   const status = store((state) => state.status);
   const error = store((state) => state.error);
   const hydrate = store((state) => state.hydrate);
@@ -101,7 +113,7 @@ export function EditorRoute() {
   const now = useMemo(() => new Date(), []);
   const prompt = promptId ? (prompts.find((candidate) => candidate.id === promptId) ?? null) : null;
 
-  const [view, setView] = useState<'raw' | 'tree' | 'preview'>('raw');
+  const [view, setView] = useState<EditorView>('raw');
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [snapshotOpen, setSnapshotOpen] = useState(false);
   const [caret, setCaret] = useState(EMPTY_CARET);
@@ -273,6 +285,40 @@ export function EditorRoute() {
     searchParams,
     setSearchParams,
   ]);
+
+  // The Blueprint tab's "jump to field" action (TASK-023): find the section key
+  // in the draft text and put the caret on it. The key is searched as JSON, not
+  // as free text, so a mention of the word inside a sentence is not a match.
+  const openDocumentPath = useCallback(
+    (path: string) => {
+      const root = path.split(/[.[]/)[0] ?? path;
+      const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const index = save.text.search(new RegExp(`"${escaped}"\\s*:`));
+
+      if (index < 0) {
+        toast.info({
+          title: 'That field is not in the draft',
+          description: `“${root}” has no key in this document yet.`,
+        });
+        return;
+      }
+
+      focusOffset(index);
+    },
+    [focusOffset, save.text, toast],
+  );
+
+  // A palette command or a link can ask for a tab; the request is honoured once
+  // and removed from the URL so it cannot fight a later tab switch.
+  const requestedPanel = searchParams.get('panel');
+  useEffect(() => {
+    if (!prompt || !isEditorView(requestedPanel)) return;
+
+    setView(requestedPanel);
+    const next = new URLSearchParams(searchParams);
+    next.delete('panel');
+    setSearchParams(next, { replace: true });
+  }, [prompt, requestedPanel, searchParams, setSearchParams]);
 
   // Command palette: "Validate this prompt" opens the studio for this prompt.
   useEffect(
@@ -515,12 +561,13 @@ export function EditorRoute() {
 
           <Tabs
             value={view}
-            onValueChange={(value) => setView(value as 'raw' | 'tree' | 'preview')}
+            onValueChange={(value) => setView(isEditorView(value) ? value : 'raw')}
           >
             <TabsList aria-label="Editor view">
               <TabsTrigger value="raw">Raw JSON</TabsTrigger>
               <TabsTrigger value="tree">Tree view</TabsTrigger>
               <TabsTrigger value="preview">Preview</TabsTrigger>
+              <TabsTrigger value="blueprint">Blueprint</TabsTrigger>
             </TabsList>
 
             <TabsContent value="raw" className="space-y-3">
@@ -593,6 +640,35 @@ export function EditorRoute() {
                     {syntaxError
                       ? 'The preview needs valid JSON, and the draft currently has a syntax error. Fix it and this tab fills in.'
                       : 'The draft parses as JSON but does not match the prompt document shape, so no variables can be read from it. The document must be an object with a version, a metadata object, and the expected sections.'}
+                  </p>
+                </Alert>
+              )}
+            </TabsContent>
+
+            <TabsContent value="blueprint">
+              {draftDocument ? (
+                <div className="space-y-3">
+                  <p className="text-2xs leading-relaxed text-ink-muted">
+                    This blueprint follows the draft, not the saved prompt. It is derived on every
+                    render and cannot edit anything.
+                  </p>
+                  <BlueprintPanel
+                    document={draftDocument}
+                    promptId={prompt.id}
+                    attachedSchema={attachedSchema}
+                    attachedSchemaId={prompt.schemaId}
+                    snippets={snippets}
+                    templates={templates}
+                    metadata={prompt.metadata}
+                    onOpenPath={openDocumentPath}
+                  />
+                </div>
+              ) : (
+                <Alert tone="info" title="There is nothing to draw yet">
+                  <p className="text-xs leading-relaxed">
+                    {syntaxError
+                      ? 'The blueprint needs valid JSON, and the draft currently has a syntax error. Fix it and this tab fills in.'
+                      : 'The draft parses as JSON but does not match the prompt document shape, so its sections and variables cannot be read.'}
                   </p>
                 </Alert>
               )}

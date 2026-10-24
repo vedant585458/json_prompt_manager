@@ -4,7 +4,7 @@
 **Created:** 2026-10-24
 **Repository:** `vedant585458/json_prompt_manager`
 **Branch:** `arena/3b0d1d76-json-prompt-manager`
-**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-022 is the latest completed task.
+**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-023 is the latest completed task.
 **Authoritative status source:** This file. One status per task, maintained here only.
 
 ---
@@ -604,7 +604,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-020 — Structural diff explorer — High — deps: 019
 - [x] TASK-021 — Variable playground and prompt preview — High — deps: 015
 - [x] TASK-022 — Prompt laboratory with saved test cases — Medium — deps: 021
-- [ ] TASK-023 — Blueprint dependency graph — Medium — deps: 016, 019
+- [x] TASK-023 — Blueprint dependency graph — Medium — deps: 016, 019
 - [ ] TASK-024 — Quality inspector — Medium — deps: 016, 021
 - [ ] TASK-025 — Health dashboard and activity timeline — Medium — deps: 016, 019
 - [ ] TASK-026 — Import and export — High — deps: 012, 019
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 22 of 31 tasks complete. TASK-001 through TASK-022 were completed on 2026-10-24.
+**Progress:** 23 of 31 tasks complete. TASK-001 through TASK-022 were completed on 2026-10-24; TASK-023 on 2026-10-25.
 
 ---
 
@@ -1465,7 +1465,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-023 — Blueprint dependency graph
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** Medium
 - **Dependencies:** TASK-016, TASK-019
 - **Objective:** Visualize how a prompt is assembled — sections, variables, schema references, and snippets — with unresolved references highlighted and full keyboard/list fallbacks.
@@ -1485,6 +1485,22 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Unit tests for derivation and layout coordinates; component tests for fallback list and unresolved styling; manual pan/zoom and mobile checks; typecheck/lint/tests/build.
 - **Deliverables:** `src/domain/graph.ts`, `src/features/blueprint/{BlueprintGraph,GraphList,GraphInspector}.tsx`, editor tab integration, tests.
 - **Out of scope:** Editing directly in the graph, external graph libraries, cross-prompt global dependency map.
+
+- **Completion record (2026-10-25):** Completed after explicit user authorization.
+  - **Derivation (`src/domain/graph.ts`):** `buildBlueprint({ document, promptId, attachedSchema, attachedSchemaId, snippets, templates, metadata })` is pure and returns `{ nodes, edges, width, height, unresolvedCount, truncated, droppedNodes, droppedEdges }`. Nodes are drafted in a fixed order — filled sections (document order), declared variables (declaration order), snippets (`includes`, sorted by name), undeclared placeholders, unusable placeholders, the template origin, then the output nodes (format, attached schema, missing schema, `schemaRef`) — and the 60-node cap therefore drops placeholders before it can drop structure. Node kinds are `variable | snippet | reference | section | format | schema | origin`; edges are `reference` (variable/snippet/undeclared token → the section that uses it) or `contains` (section → its output nodes), so direction is explicit. `BlueprintTarget` values (`section`, `playground`, `snippets`, `validation`, `templates`) are emitted instead of hrefs, because the domain must not know the route table.
+  - **Unresolved references:** an undeclared placeholder, an unusable placeholder (`{{1 + 1}}`, `{{#each}}`), an included snippet that no longer exists, a snippet whose `targetPath` has no section (`SNIPPET_TARGET_SECTIONS`, test-enforced against `SNIPPET_TARGETS`), an attachment pointing at a deleted schema, a document `schemaRef` that disagrees with the attachment, and a dangling `metadata.templateId` all produce `unresolved: true` plus a `Problem` meta row and a destination where the reference is fixed.
+  - **Layout:** three fixed columns (inputs → structure → output) with `x = padding + index * (nodeWidth + columnGap)`, rows stacked by index and each column vertically centred, integer coordinates, and canvas size computed from the grid — so geometry is a function of ordering alone and a test builds the graph twice to prove identical coordinates. No layout library, no randomness, no measurement.
+  - **Screen (`src/features/blueprint/BlueprintPanel.tsx`):** the tab shows a one-line summary (`describeBlueprint`), a Graph/List toggle, five bounded zoom steps (70 %–130 %, disabled at the ends, percentage announced politely), a legend, the truncation notice when the cap bites, and the inspector. Below three meaningful nodes it shows "This prompt is simple — no blueprint needed" with "View the blueprint anyway". The drawing lives in a horizontally scrollable container; no wheel or drag handlers exist, so page scroll is never trapped.
+  - **Drawable vs. readable (`BlueprintGraph` / `GraphList`):** the SVG is `aria-hidden`, unfocusable, and deterministic (`viewBox` from the graph, `data-node-id`/`data-selected` attributes, dashed containment edges, a `!` badge on unresolved nodes). Every node is also a `<button aria-pressed>` in a labelled per-column region of a semantic list, rendered compactly under the drawing on wide screens and as the only representation below `md`; the list is the keyboard path and carries the same labels, kinds, and details.
+  - **Inspector (`GraphInspector`):** the selected node's kind, label, resolved state, meta rows, a "What needs fixing" warning for unresolved nodes, and one concrete action per target — section → that field in the JSON editor, variable → `/prompts/:id/playground`, snippet → `/prompts/:id/compose`, schema → `/validation?prompt=:id`, template → `/templates`.
+  - **Integration:** the editor gained a "Blueprint" tab (with a note that it follows the draft, not the saved prompt) and an invalid-draft explanation; `?panel=blueprint` selects the tab and is then cleared from the URL; the palette gained `blueprint.open`; the domain barrel and `purity.test.ts` register `graph.ts`.
+  - **Tests added (49 cases; whole suite 96 files / 1,505 tests):** `src/domain/graph.test.ts` 32, `src/features/blueprint/BlueprintPanel.test.tsx` 12, `src/routes/editor/EditorRoute.test.tsx` +4, `src/lib/commands/coreCommands.test.ts` +1.
+  - **Validation executed:** `npx tsc --noEmit` exit 0; `npx eslint .` exit 0 with 0 warnings; `npx vitest run` — **96 files / 1,505 tests passed, 0 failures**; `npx vitest run --coverage` — thresholds pass (all files 96.29/90.39/97.29/97.17; `src/domain` 96.54/91.66/98.46/97.11 with `graph.ts` at 97.6/80.43/96.66/97.81); `npx prettier --check .` clean; `npm run check:contrast` — 64 pairings pass in both themes; `npm run build` exit 0 — CSS 59.48 kB (13.93 kB gzip), app JS 1,072.69 kB (307.24 kB gzip, +24.9 kB over TASK-022's 1,047.77 kB) with the pre-existing >500 kB chunk warning.
+  - **Not performed (stated honestly):** no browser binary exists in this environment, so the requested **manual pan/zoom and mobile checks did not happen** — no 390 px walkthrough, no pointer, pinch, or wheel pass on a device, and no screenshot. There is nothing to pan: the component implements no drag or wheel handlers by design. The responsive and scroll claims rest on the `md` breakpoint, the `overflow-x-auto` container, and jsdom tests against the real panel and route.
+  - **Deviations recorded:** (1) the scope's "collapse/expand section nodes" is **not implemented**: a collapsed section node has nothing meaningful to hide (its children are the output and referenced-snippet nodes, which are already reachable in one hop and are shared with other sections), so no control was added rather than a control that only rearranges the drawing (ADR-108). (2) The scope said "snippet → snippets page"; there is no `/snippets` route, so the action opens the composer, where snippets are managed. (3) "Pan/zoom limited to fit-to-view and modest zoom" is implemented as fit + five button steps with horizontal scrolling, not a pannable canvas. (4) The graph is **not** a second source of truth: it re-derives on every render and has no persistence, unlike the stored test cases of TASK-022.
+  - **Known limitations:** the edge cap (120) is enforced but unreachable in tests; two guards in `graph.ts` (lines 386-388, 456) are uncovered because the draft ordering makes them unreachable; template origin appears only when `metadata` names a template (a prompt created another way shows none); zoom is not persisted and there is no "centre on node"; the view toggle does not follow the breakpoint; the summary counts nodes, not importance.
+  - **Docs:** `docs/DECISIONS.md` gained ADR-108 and a TASK-023 verification log; `docs/ARCHITECTURE.md` gained a "Prompt blueprint (TASK-023)" section and an updated workspace route row; `README.md` gained a "Prompt blueprint" section and a `features/` entry; `tasks.md` updated.
+
 
 ---
 

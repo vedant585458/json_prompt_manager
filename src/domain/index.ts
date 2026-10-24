@@ -25,3 +25,4 @@ export * from '@/domain/render';
 export * from '@/domain/templates';
 export * from '@/domain/renderDiff';
 export * from '@/domain/lab';
+export * from '@/domain/graph';

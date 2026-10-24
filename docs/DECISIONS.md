@@ -3031,3 +3031,110 @@ the two palette commands; and the absence of any network call during a run.
 - **`ActivityType` gained no lab member.** Saving, renaming, duplicating, and deleting a case record no activity
   event; the activity log therefore does not mention case changes. Widening the union needs a dashboard decision
   (TASK-025).
+
+## ADR-108 — The blueprint is derived on every render, drawn as a fixed grid, and never the only way to read it
+
+**Context.** TASK-023 asks for a dependency graph of a prompt: sections, declared variables, referenced
+snippets, the attached schema, and (when known) where the document came from. Two shortcuts were available.
+Store the layout with the prompt, so node positions survive a reload — that adds a persisted structure that
+goes stale the moment the document is edited, and it can disagree with the document it claims to describe. Or
+reach for a graph layout library with force simulation — that adds a dependency the scope forbids, produces
+different coordinates on different runs, and makes geometry untestable in jsdom.
+
+**Decision.** `src/domain/graph.ts` derives the whole blueprint, geometry included, from
+`(PromptDocument, promptId, attachedSchema, snippets, templates, metadata)`. `buildBlueprint` is a pure
+function that returns nodes with integer `x`/`y`, edges with pre-computed endpoints, and the canvas size. It
+reads no store, imports no React, and returns `BlueprintTarget` values (`{kind:'section',path}`,
+`{kind:'playground',promptId}`, `{kind:'snippets',promptId}`, `{kind:'validation'}`, `{kind:'templates'}`)
+rather than hrefs, so the domain never learns the route table.
+
+- **Three fixed columns: inputs → structure → output.** `x = padding + columnIndex * (nodeWidth + columnGap)`
+  and `y` from the row index inside the column, so positions are a function of the ordering and nothing else.
+  Sections are drafted first, then variables, snippets, unresolved references, unusable placeholders, template
+  origin, and finally the output nodes; the node cap therefore drops placeholders before it can drop the
+  document's own structure. `BLUEPRINT_LIMITS` caps the drawing at 60 nodes and 120 edges, and a truncated
+  graph says how many nodes it dropped instead of pretending to be complete.
+- **Deterministic ordering is a product feature, not an implementation detail.** Snippets and problems are
+  sorted by name and by path, so the same document always yields the same picture; a test builds the same
+  graph twice and compares coordinates.
+- **Unresolved is a fact the graph carries.** A variable used but never declared, an included snippet that no
+  longer exists, a snippet whose target section is not recognised, an attachment pointing at a deleted schema,
+  a document `schemaRef` that disagrees with the attachment, and an unusable placeholder all become nodes with
+  `unresolved: true` and a `Problem` meta row. The drawing marks them with a badge, not only a colour, and the
+  inspector lists what to fix and where to fix it.
+- **The drawing is decoration; the list is the content.** The SVG is `aria-hidden`, focusless, and carries no
+  interactive elements beyond `onClick` on a group. Every node is also a `<button>` inside a real `<ul>`, in
+  one labelled region per column, and those buttons are the only keyboard path — which keeps the graph out of
+  the tab order without hiding information from it. Narrow screens hide the drawing
+  (`hidden md:block`) and show the list; on wide screens the list is still rendered, compactly, underneath.
+- **No pan or wheel handlers.** Panning and wheel-zoom on a canvas inside a scrolling page traps page scroll on
+  touch, and doing it correctly needs pointer capture and a browser to verify. Instead the viewBox fits the
+  content, the drawing sits in a horizontally scrollable container, and zoom is five bounded steps (70 %–130 %)
+  driven by buttons with a polite live percentage. Reduced-motion safety comes for free: the component defines
+  no transitions of its own, so the global reduced-motion rule has nothing to disable.
+- **A prompt with fewer than three nodes is suppressed** behind `hasEnoughStructure`, with the message and a
+  "View the blueprint anyway" action, rather than drawing a two-box diagram that says nothing.
+- **The template origin is never invented.** `Prompt` has no origin column, so a `origin:template` node appears
+  only when `metadata.templateId`/`metadata.template` names a template that exists; a dangling id becomes an
+  unresolved node. `SNIPPET_TARGET_SECTIONS` mirrors `SNIPPET_TARGETS` from the composer and a test fails if
+  a composer target has no blueprint column.
+
+**Alternatives rejected.** Persisting layout (stale, and a storage migration for a drawing); a force-directed
+layout library (new dependency, non-deterministic, untestable); making the SVG focusable and interactive
+(a second keyboard model for the same information); hiding the graph entirely on narrow screens (the list view
+toggle is what makes the fallback discoverable on a desktop).
+
+### Known limitations and honesty notes
+
+- **No browser binary exists in this environment**, so the requested manual pan/zoom and mobile checks were
+  **not performed**: no 390 px walkthrough, no pointer pass, no pinch or scroll test on a device, no
+  screenshot. There is nothing to pan — the component implements no drag or wheel handlers by design — and the
+  responsive and scroll claims rest on the `md` breakpoint, the `overflow-x-auto` container, and jsdom tests.
+- **The edge cap is enforced but never reached in a test.** 120 edges needs a document far past the 60-node
+  cap, so the guard is defensive; the node cap is tested with an 80-variable document.
+- **Two guards in `graph.ts` are uncovered** (`386-388`, deduplicating drafts; `456`, skipping an edge whose
+  endpoint was dropped by the cap). They are unreachable with the current draft ordering and are kept as
+  defences.
+- **Template origin is metadata-only.** A prompt created from a template without that metadata shows no origin
+  node; nothing reconstructs one from the document.
+- **The snippet target is a link to the composer**, not a snippets page: there is no `/snippets` route, so
+  `{kind:'snippets'}` resolves to `/prompts/:id/compose` where snippets are managed.
+- **Zoom is not persisted and not per-node.** It resets on unmount, the graph re-fits at 100 %, and there is no
+  "centre on this node".
+- **The view toggles are independent of width.** Choosing "List view" keeps the list on a desktop; the drawing
+  hiding below `md` does not flip the toggle back.
+- **The node count in the summary is structural, not semantic.** "5 sections, 1 output node" counts nodes, not
+  importance, and a truncated graph counts what it kept.
+
+## Verification log — TASK-023
+
+**Scope verified:** derivation from a document fixture for every node kind (filled sections in document order,
+declared variables with their declaration and usage, referenced snippets by name, undeclared references,
+unusable placeholders, attached/missing/mismatched schemas, template origin, output format and schemaRef);
+deterministic ordering and integer geometry (column x, stacked rows, canvas size, edge endpoints, no repeats,
+no edges to undrawn nodes); suppression and the node cap; the panel's graph/list toggle, unresolved wording,
+inspector details and every "open source" destination, zoom bounds, and the suppression message; and the editor
+tab via click, via `?panel=blueprint`, via the palette command, and its invalid-draft state.
+
+### Tests added (49 cases)
+
+| File                                             | Cases | Covers                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------ | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/graph.test.ts`                       | 32    | Section selection and descriptions (including context metadata and extras), section→variable usage, `sectionIdForPath`, variable declaration and default summaries, unused variables, undeclared and unusable placeholders, snippet edges, missing snippets, unrecognised targets, the `SNIPPET_TARGETS` map, template origin, schema attachment and mismatch, `schemaRef`, identical geometry, column/row placement, canvas sizing, edge endpoints, edge rules, suppression, node cap, `describeBlueprint`, legend/kind labels |
+| `src/features/blueprint/BlueprintPanel.test.tsx` | 12    | Summary and both representations, `aria-hidden` drawing with a keyboard-reachable list, list view, inspector details plus editor jumps, unresolved wording and icon, "What needs fixing" with fix links, variable→playground and schema→validation links, snippet→composer link, template→templates link, suppression and "view anyway", zoom bounds and disabled ends, selection from the list                                                                                                                                 |
+| `src/routes/editor/EditorRoute.test.tsx`         | +4    | Blueprint tab renders the draft, `?panel=` deep link selects it and is cleared, "Jump to …" moves the status-bar caret to the named line, invalid draft explains itself with no drawing                                                                                                                                                                                                                                                                                                                                         |
+| `src/lib/commands/coreCommands.test.ts`          | +1    | `blueprint.open` availability and its `?panel=blueprint` destination                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `src/domain/purity.test.ts`                      | +0    | `graph.ts` registered as a pure module and exported from the barrel                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+
+### Gates executed
+
+| Gate                        | Result                                                                                                                                                              |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npx tsc --noEmit`          | exit 0                                                                                                                                                              |
+| `npx eslint .`              | exit 0, 0 warnings                                                                                                                                                  |
+| `npx vitest run`            | **96 files / 1,505 tests passed, 0 failures**                                                                                                                       |
+| `npx vitest run --coverage` | thresholds pass — all files 96.29/90.39/97.29/97.17; `src/domain` 96.54/91.66/98.46/97.11 (`graph.ts` 97.6/80.43/96.66/97.81) (statements/branches/functions/lines) |
+| `npx prettier --check .`    | clean                                                                                                                                                               |
+| `npm run check:contrast`    | 64 pairings pass in both themes                                                                                                                                     |
+| `npm run build`             | exit 0 — CSS 59.48 kB (13.93 kB gzip), app JS 1,072.69 kB (307.24 kB gzip); the pre-existing >500 kB chunk warning remains                                          |
+| network spy                 | no new network code: the panel takes documents, snippets, and schemas as props and calls no `fetch`                                                                 |

@@ -9,7 +9,7 @@
  */
 
 import { ALL_NAV } from '@/components/layout/navigation';
-import { hasPromptValidation } from '@/lib/commands/promptActions';
+import { hasPromptSnapshot, hasPromptValidation } from '@/lib/commands/promptActions';
 import { commandRegistry, type CommandRegistry } from '@/lib/commands/registry';
 import type { CommandDefinition } from '@/lib/commands/types';
 
@@ -158,6 +158,28 @@ export function createCoreCommands(): readonly CommandDefinition[] {
       // palette never offers a command that would do nothing.
       when: (context) => /^\/prompts\/[^/]+$/.test(context.pathname) && hasPromptValidation(),
       run: (context) => context.validatePrompt(),
+    },
+    {
+      id: 'history.snapshot',
+      title: 'Save a snapshot of the open prompt',
+      group: 'Workspace',
+      description:
+        'Captures the document, title, description, tags, and variables in this browser.',
+      keywords: searchTerms('snapshot revision version history save checkpoint'),
+      // Registered by the mounted prompt screen, so the command cannot act on a
+      // prompt that is not on screen.
+      when: (context) =>
+        /^\/prompts\/[^/]+(\/history)?$/.test(context.pathname) && hasPromptSnapshot(),
+      run: (context) => context.saveSnapshot(),
+    },
+    {
+      id: 'history.open',
+      title: 'Open the version history',
+      group: 'Workspace',
+      description: 'Shows the snapshots of the prompt in the workspace.',
+      keywords: searchTerms('history revisions snapshots versions timeline restore'),
+      when: (context) => /^\/prompts\/[^/]+$/.test(context.pathname),
+      run: (context) => context.navigate(`${context.pathname}/history`),
     },
     {
       id: 'library.favorites',

@@ -2587,3 +2587,111 @@ re-run after the create dialog switched to `instantiateTemplate`).
 - `src/data/db/templates.ts` is exported from the `@/data` barrel: it is shipped _data_ the seed and tests
   both read, and it is not an adapter or a raw database module.
 - A duplicated `## Validation studio` heading in `README.md` was removed while editing the document list.
+
+## ADR-99 — History is a screen selected by `?revision=`, not a drawer inside the editor
+
+**Context.** TASK-019 needs a snapshot list, a read-only viewer, and a restore flow. The editor already
+holds a CodeMirror instance, an inspector column, a save pipeline, a recovery draft, and a block-leave
+guard. A history drawer would have to coexist with all of that — including a read-only second editor inside
+a dirty draft's screen.
+
+**Decision.** History lives at `/prompts/:promptId/history`. The list occupies the left column and the
+viewer the right; the selected snapshot is `?revision=<id>`. `RevisionViewer` still renders the shared
+`JsonEditor` in `readOnly` mode, so highlighting, search, and monospace formatting are identical to the
+editor without a second implementation. The route owns no draft: reading history cannot conflict with a
+pending edit, and leaving history cannot trip the editor's unsaved-changes guard.
+
+**Consequences.** A snapshot is linkable and Back closes the viewer instead of leaving the screen. The cost is
+one navigation to compare a snapshot with the current document; the restore dialog compensates by listing
+the exact field-level changes before you commit. Restoring navigates back to the editor, which re-reads the
+stored prompt — "a refreshed editor" is a mount, not a state patch, so no stale draft survives a restore.
+
+## ADR-100 — A restore writes its safety snapshot first and compensates if the write fails
+
+**Context.** Restoring replaces the document, title, description, tags, and variables at once. The plan
+requires that restoration "cannot lose newer work" and that a failure leaves data untouched. There is no
+multi-record transaction in IndexedDB here, and a revision plus a prompt write are two records.
+
+**Decision.** `restoreRevision(id)` creates a `restore-safety` revision of the _current_ prompt first, then
+writes the restored state with the prompt's `expectedVersion`, then records an activity event. If the
+prompt write throws, the safety revision is deleted again (best effort, failures swallowed so the original
+error is what surfaces) and nothing else changes. Restores never delete a revision and never renumber one:
+the safety snapshot takes `max(revisionNumber) + 1`, so history is append-only. Restored content and
+variables are deep-copied through JSON, so the stored revision and the prompt never share a reference.
+
+**Consequences.** The worst case is a leftover safety snapshot describing a restore that did not happen —
+visible, labelled, and harmless — rather than an unexplained gap. Because the safety snapshot is written
+before the prompt, the undo of a restore is always already recorded when the restore becomes visible.
+`revisions.deleteByPrompt` still runs on prompt deletion, so history never outlives its prompt.
+
+## ADR-101 — Pruning is explicit, non-renumbering, and never automatic
+
+**Context.** Each revision stores a full document copy. The plan asks for a warning when the count is high
+and an optional prune with explicit confirmation and counts.
+
+**Decision.** `REVISION_WARNING_THRESHOLD` is 25. Past it, the history screen shows a warning with a prune
+action, and a `Prune` control is always available on a non-empty history. The dialog states the exact
+removal count and the numbers being removed before the button is enabled; there is no automatic pruning and
+no setting that prunes silently. `pruneRevisions(promptId, keep)` keeps the newest N (floor 1), removes only
+the oldest, and renumbers nothing — the next snapshot continues from the highest number the prompt ever had.
+The repository gained an idempotent `revisions.deleteMany(ids)` so a prune is one call and unknown ids are
+not an error.
+
+**Consequences.** History is monotonic: numbers are stable identifiers that never point at different
+content, and gaps are honest evidence that old snapshots were removed. The cost is that a pruned history
+cannot be "compacted" into a tidy v1..vN sequence — deliberately, because renumbering would make an exported
+or bookmarked reference point at different content. Snapshots remain in local storage only; deleting the
+prompt deletes its history.
+
+## Verification log — TASK-019
+
+**Scope verified:** snapshot creation with an optional label (dialog warns about a dirty draft and offers to
+save it first), per-prompt ordering, the list's metadata (number, label or "No label", kind as a worded badge,
+relative time with the absolute time in `title` and the accessible name, size), the read-only viewer,
+field-level restore confirmation, the safety revision, failure compensation, the retention warning, opt-in
+pruning with counts, and both palette commands. Autosave not creating revisions is covered by the existing
+save-pipeline tests plus the history suite's empty-state case.
+
+### Tests added (59 cases)
+
+| File                                                | Cases | Covers                                                                                                                                                                                                                            |
+| --------------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/revisions.test.ts`                      | 21    | ordering, filtering by prompt, lookup, summaries (kind words, size, hash, captured counts), size phrasing, restore impact (changed/unchanged/noop), label normalisation and checks, prune plan (floor, counts), warning threshold |
+| `src/store/revisions.test.ts`                       | 25    | snapshot numbering and payload, labels, activity, restore (safety first, deep copy, activity, unchanged fields, version guard, failure compensation), prune (counts, floor, no renumbering, other prompts untouched)              |
+| `src/routes/history/HistoryRoute.test.tsx`          | 8     | newest-first list with kind/time, deep-linked selection, unknown id correction, labelled snapshot save, restore + safety toast, retention warning and prune, empty state and first snapshot, missing prompt                       |
+| `src/routes/editor/EditorRoute.test.tsx` (extended) | +3    | history link with "none", snapshot count, snapshot from the header                                                                                                                                                                |
+| `src/lib/commands/coreCommands.test.ts` (extended)  | +1    | snapshot command exists only while registered; history command only from a prompt; navigation target                                                                                                                              |
+| `src/data/repositories/contract.ts` (extended)      | +1    | `deleteMany` removes exactly the requested revisions and ignores unknown ids                                                                                                                                                      |
+
+### Gates
+
+| Gate                        | Result                                                                                                                       |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `npx tsc --noEmit`          | exit 0                                                                                                                       |
+| `npx eslint .`              | exit 0, 0 warnings                                                                                                           |
+| `npx vitest run`            | **82 files / 1227 tests passed, 0 failures**                                                                                 |
+| `npx vitest run --coverage` | thresholds pass — all files 96.06/90.29/97.24/96.95 (`src/domain` and `src/store` thresholds both satisfied)                 |
+| `npx prettier --check .`    | clean                                                                                                                        |
+| `npm run check:contrast`    | 64 pairings pass in both themes                                                                                              |
+| `npm run build`             | exit 0 — CSS 56.51 kB (13.60 kB gzip), app JS 944.08 kB (274.24 kB gzip), lazy `JsonEditor` chunk 427.66 kB (138.58 kB gzip) |
+
+### Known limitations and honesty notes
+
+- **No browser binary exists in this environment.** There was no manual pass at 390 px, no keyboard
+  walkthrough of the list, viewer, or dialogs on a real device, and no screenshot. Responsive and keyboard
+  claims rest on the grid collapsing to one column below `lg`, native buttons, focus-visible outlines, and
+  jsdom tests against the real route.
+- **There is no diff yet.** The viewer shows a snapshot on its own and says where the diff lives (TASK-020).
+  "Matches the stored prompt" is a hash comparison, not a line-by-line one.
+- **Restore and prune are not undoable from the UI.** A restore can be undone by restoring its safety
+  snapshot; a prune cannot be undone at all. Both dialogs say so.
+- **Pruning is per prompt and manual.** There is no global retention setting and no automatic cleanup, so a
+  library with many prompts can still accumulate many snapshots.
+- **The list is not virtualised.** A prompt with several hundred snapshots will render every row; the
+  retention warning exists partly for that reason.
+- **Copy uses the clipboard API only.** In environments without `navigator.clipboard` the copy button
+  reports failure rather than silently pretending to copy, matching the shared `CopyButton` behaviour.
+- **The editor's snapshot dialog saves the draft first when asked**, because a snapshot captures stored
+  state; a draft that was never saved is not part of any snapshot, and the dialog says so.
+- **Numbers are stable across pruning and deletion of other prompts**, but deleting the prompt itself
+  removes its history, so a restore cannot resurrect a deleted prompt.

@@ -19,6 +19,7 @@ export function createTestContext(overrides: Partial<CommandContext> = {}): Comm
     focusLibrarySearch: () => undefined,
     togglePromptFavorite: () => undefined,
     validatePrompt: () => undefined,
+    saveSnapshot: () => undefined,
     ...overrides,
   };
 }

@@ -9,9 +9,11 @@
 
 type FavoriteToggle = () => void;
 type ValidationOpen = () => void;
+type SnapshotOpen = () => void;
 
 let favoriteToggle: FavoriteToggle | null = null;
 let validationOpen: ValidationOpen | null = null;
+let snapshotOpen: SnapshotOpen | null = null;
 
 /** Registers the open workspace's favorite toggle. Returns its cleanup. */
 export function registerPromptFavoriteToggle(handler: FavoriteToggle | null): () => void {
@@ -52,5 +54,26 @@ export function hasPromptValidation(): boolean {
 export function openPromptValidation(): boolean {
   if (!validationOpen) return false;
   validationOpen();
+  return true;
+}
+
+/** Registers the mounted screen's "save a snapshot" dialog opener (TASK-019). */
+export function registerPromptSnapshot(handler: SnapshotOpen | null): () => void {
+  snapshotOpen = handler;
+
+  return () => {
+    if (snapshotOpen === handler) snapshotOpen = null;
+  };
+}
+
+/** True when a prompt screen has registered a snapshot opener. */
+export function hasPromptSnapshot(): boolean {
+  return snapshotOpen !== null;
+}
+
+/** Opens the snapshot dialog for the mounted prompt; false when none is. */
+export function openPromptSnapshot(): boolean {
+  if (!snapshotOpen) return false;
+  snapshotOpen();
   return true;
 }

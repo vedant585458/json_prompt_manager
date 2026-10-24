@@ -9,6 +9,7 @@ export * from '@/domain/types';
 export * from '@/domain/errors';
 export * from '@/domain/invariants';
 export * from '@/domain/promptDocument';
+export * from '@/domain/revisions';
 export * from '@/domain/serialization';
 export * from '@/domain/factories';
 export * from '@/domain/search';

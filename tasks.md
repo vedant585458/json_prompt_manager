@@ -600,7 +600,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-016 — Validation engine and validation studio — High — deps: 015
 - [x] TASK-017 — Guided prompt composer with JSON synchronization — High — deps: 015
 - [x] TASK-018 — Template catalog and custom templates — Medium — deps: 012, 017
-- [ ] TASK-019 — Version history and safe restoration — High — deps: 015
+- [x] TASK-019 — Version history and safe restoration — High — deps: 015
 - [ ] TASK-020 — Structural diff explorer — High — deps: 019
 - [ ] TASK-021 — Variable playground and prompt preview — High — deps: 015
 - [ ] TASK-022 — Prompt laboratory with saved test cases — Medium — deps: 021
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 18 of 31 tasks complete. TASK-001 through TASK-018 were completed on 2026-10-24.
+**Progress:** 19 of 31 tasks complete. TASK-001 through TASK-019 were completed on 2026-10-24.
 
 ---
 
@@ -1316,7 +1316,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-019 — Version history and safe restoration
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-015
 - **Objective:** Give prompts a trustworthy revision history with named snapshots, restoration that cannot lose newer work, and clear metadata.
@@ -1336,6 +1336,18 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Unit tests for revision numbering and snapshot payload; integration tests for snapshot → edit → restore → safety revision existence, restore failure atomicity, autosave-no-revision; manual history panel check; typecheck/lint/tests/build.
 - **Deliverables:** `src/features/revisions/*`, revision panels, restore dialog, repository methods/tests, palette commands.
 - **Out of scope:** Diff visualization (TASK-020), branch/merge workflows, multi-prompt bulk snapshots.
+
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Rules (`src/domain/revisions.ts`):** `sortRevisionsNewestFirst`, `revisionsForPrompt`, `findRevision`, `summariseRevision` (version label, title, kind words and description, JSON characters, tags, variable/required/instruction/constraint counts, content hash), `describeRevisionSize`, `restoreImpact` (per-field before/after, unchanged fields, and a `noop` flag when nothing would change), `normaliseRevisionLabel` / `checkRevisionLabel` (trimmed, length-limited), `prunePlan` (newest N kept, floor of 1, removal count), `needsPruneWarning`, and the `REVISION_WARNING_THRESHOLD` of 25. Exported from `src/domain/index.ts` and covered by the purity test's module lists.
+  - **Storage (`src/data/repositories/*`):** `RevisionRepository` gained `deleteMany(ids)`, implemented in the in-memory and IndexedDB adapters and specified in the shared contract ("deletes exactly the requested revisions, ignoring unknown ids"). Pruning is one call; a compensating delete after a failed restore is idempotent.
+  - **Store (`src/store/dataStore.ts`):** `snapshotPrompt(promptId, label)`, `restoreRevision(revisionId)`, and `pruneRevisions(promptId, keep)`, each returning a typed result (`RestoreResult` / `PruneRevisionsResult`). Restore writes the `restore-safety` revision **first**, applies the restored document through `applyEdit` with the prompt's `expectedVersion`, records a `restored` activity event, and deletes the safety revision again if the prompt write throws (a cleanup failure is swallowed so the original error surfaces) — no revision is ever deleted or renumbered by a restore (ADR-100). Prune keeps the newest N (floor 1), removes only the oldest, renumbers nothing, and records a `snapshot` activity summary (ADR-101).
+  - **Screen (`src/routes/history/HistoryRoute.tsx`, `src/components/revisions/*`):** header with the snapshot count and "Save snapshot"; the list (number, label or an honest "No label", worded kind badge, relative time with the absolute time in `title` and the accessible name, size, and per-row View/Restore/Copy as siblings of the row button); the read-only viewer (`JsonEditor` gained `readOnly`, plus a `dl` of number, saving time, document size, captured state, and the saved title/description, and a sentence saying whether it matches the stored prompt); restore confirmation with field-level before/after and a "what stays as it is" list, naming the safety snapshot the button will create and disabling itself for a no-op; the retention warning past 25 snapshots; the prune dialog with exact counts and numbers. The selection lives in `?revision=<id>`, an unknown id is dropped once hydration finishes (a deep link is not lost while loading), and the empty state states plainly that autosave never adds a snapshot. Responsive single column below `lg`.
+  - **Wiring:** the editor header gained "Save snapshot" and a **History** link carrying the snapshot count (or "none"); `SnapshotDialog` warns when the draft is dirty and saves it first on request, because a snapshot captures stored state. The palette gained `history.snapshot` (available only while a mounted prompt screen registers the dialog, via `registerPromptSnapshot`) and `history.open` (only from a prompt workspace, not from the history screen itself) (ADR-99).
+  - **Tests added (59 new cases; whole suite 1227 across 82 files):** `src/domain/revisions.test.ts` 21, `src/store/revisions.test.ts` 25, `src/routes/history/HistoryRoute.test.tsx` 8, `src/routes/editor/EditorRoute.test.tsx` +3, `src/lib/commands/coreCommands.test.ts` +1, `src/data/repositories/contract.ts` +1.
+  - **Validation executed:** `npx tsc --noEmit` exit 0; `npx eslint .` exit 0 with 0 warnings; `npx vitest run` — **82 files / 1227 tests passed, 0 failures**; `npx vitest run --coverage` — thresholds pass (all files 96.06 statements / 90.29 branches / 97.24 functions / 96.95 lines); `npx prettier --check .` clean; `npm run check:contrast` — 64 pairings pass in both themes; `npm run build` exit 0 — CSS 56.51 kB (13.60 kB gzip), app JS 944.08 kB (274.24 kB gzip), lazy `JsonEditor` chunk 427.66 kB (138.58 kB gzip).
+  - **Not performed (stated honestly):** no browser binary exists in this environment, so there was no manual pass at 390 px, no pointer or keyboard walkthrough of the list, viewer, or dialogs on a real device, and no screenshot. Responsive and keyboard claims rest on the single-column collapse below `lg`, native buttons with focus-visible outlines, and jsdom tests against the real route.
+  - **Deviations recorded:** history is a route (`/prompts/:promptId/history`) rather than a drawer inside the editor, so reading history cannot collide with a dirty draft and the editor's leave guard (ADR-99); restore, prune, and snapshot are methods on the existing data store rather than a new revisions store; the viewer reuses `JsonEditor` in `readOnly` mode instead of a second highlighter; the palette's snapshot command is gated on a registered opener so it cannot act on a prompt that is not mounted; a revision's number is never reused, including after pruning.
+  - **Docs:** `docs/DECISIONS.md` gained ADR-99…ADR-101 and a TASK-019 verification log; `docs/ARCHITECTURE.md` gained a "Version history (TASK-019)" section and the route row; `docs/PERSISTENCE.md` records `revisions.deleteMany`; `README.md` gained a version-history section; `tasks.md` updated.
 
 ---
 

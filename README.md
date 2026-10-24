@@ -240,8 +240,30 @@ inspector.
   and a Find action that moves the caret. A draft is checked without being saved; document warnings
   never block a save. The scope note says plainly that validity is syntax and structure, not prompt
   quality.
-- **Not here yet.** Revision history arrives in TASK-019 and variables in TASK-021; no control pretends
+- **Snapshots.** "Save snapshot" in the header (or the palette) captures the stored document, title,
+  description, tags, and variables together, with an optional label. Autosave never creates one, so
+  history stays the record of decisions rather than of keystrokes.
+- **Not here yet.** Variables arrive in TASK-021 and the structural diff in TASK-020; no control pretends
   otherwise. CodeMirror is a lazy chunk, so the rest of the app does not pay for it.
+
+## Version history
+
+`/prompts/:promptId/history` (the **History** link in the editor header, with the snapshot count) lists
+this prompt's snapshots newest first and shows the selected one in a read-only, highlighted viewer.
+
+- **What a snapshot holds.** The document, title, description, tags, and variables — the five fields a
+  restore replaces. Folder, collections, status, favorite, pin, archive, and the schema reference stay as
+  they are, and the dialog says so.
+- **Restoring is reversible.** The confirmation lists every field that would change with its before and
+  after, and names the safety snapshot that is created first. A restore never deletes or renumbers
+  history, so the state it replaced is always one restore away.
+- **Pruning is your call.** Past 25 snapshots the screen suggests pruning. The dialog states exactly how
+  many will be removed and which numbers before the button is enabled; numbers are never renumbered, so
+  gaps are honest. Nothing is pruned automatically.
+- **Honest labels.** Each row carries a worded kind: "Snapshot" for a manual capture, "Safety snapshot"
+  for an automatic pre-restore capture, "Imported" when an import created it — never colour alone.
+- **Palette.** "Save a snapshot of the open prompt" appears only while a prompt screen has registered the
+  dialog; "Open the version history" appears only from a prompt workspace.
 
 ## Guided composer
 

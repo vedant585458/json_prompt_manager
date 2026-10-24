@@ -271,6 +271,11 @@ export function createInMemoryRepositories(seed: InMemorySeed = {}): Repositorie
         return cloneRecord(revision);
       },
 
+      deleteMany: async (ids) => {
+        assertOpen();
+        for (const id of ids) revisionRows.delete(id);
+      },
+
       deleteByPrompt: async (promptId) => {
         assertOpen();
         for (const [id, revision] of revisionRows) {

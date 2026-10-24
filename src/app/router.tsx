@@ -7,6 +7,7 @@ import { DashboardRoute } from '@/routes/dashboard/DashboardRoute';
 import { DesignGallery } from '@/routes/design/DesignGallery';
 import { EditorRoute } from '@/routes/editor/EditorRoute';
 import { HealthRoute } from '@/routes/health/HealthRoute';
+import { HistoryRoute } from '@/routes/history/HistoryRoute';
 import { LibraryRoute } from '@/routes/library/LibraryRoute';
 import { NotFoundRoute } from '@/routes/not-found/NotFoundRoute';
 import { RouteErrorScreen } from '@/routes/route-error/RouteErrorScreen';
@@ -32,6 +33,7 @@ export const routes: RouteObject[] = [
       { path: 'library', element: <LibraryRoute /> },
       { path: 'prompts/:promptId', element: <EditorRoute /> },
       { path: 'prompts/:promptId/compose', element: <ComposerEditRoute /> },
+      { path: 'prompts/:promptId/history', element: <HistoryRoute /> },
       { path: 'composer', element: <ComposerRoute /> },
       { path: 'templates', element: <TemplatesRoute /> },
       { path: 'validation', element: <ValidationRoute /> },

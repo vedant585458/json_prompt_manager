@@ -73,6 +73,8 @@ export interface CommandContext {
    * mounted (TASK-016).
    */
   validatePrompt: () => void;
+  /** Opens the snapshot dialog for the open prompt (TASK-019). */
+  saveSnapshot: () => void;
 }
 
 export interface CommandDefinition {

@@ -103,6 +103,13 @@ export interface RevisionRepository {
   get: (id: string) => Promise<PromptRevision | null>;
   /** Rejects duplicate `(promptId, revisionNumber)` pairs. */
   create: (revision: PromptRevision) => Promise<PromptRevision>;
+  /**
+   * Removes specific revisions (TASK-019).
+   *
+   * Used to prune an old history and to compensate a failed restore, so it is
+   * idempotent: ids that are already gone resolve without error.
+   */
+  deleteMany: (ids: readonly string[]) => Promise<void>;
   deleteByPrompt: (promptId: string) => Promise<void>;
   countByPrompt: (promptId: string) => Promise<number>;
 }

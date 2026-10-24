@@ -50,6 +50,7 @@ import {
   normalizeTitle,
 } from '@/domain/invariants';
 import { RuleViolationError } from '@/domain/errors';
+import { prunePlan } from '@/domain/revisions';
 import {
   builtInTemplateIssue,
   checkTemplateName,
@@ -155,6 +156,21 @@ export interface DeletedPrompts {
   readonly prompts: readonly Prompt[];
   readonly revisions: readonly PromptRevision[];
   readonly testCases: readonly TestCase[];
+}
+
+/** What a restore wrote, including the snapshot taken before it (TASK-019). */
+export interface RestoreResult {
+  readonly prompt: Prompt;
+  /** The revision that was restored. */
+  readonly restoredFrom: PromptRevision;
+  /** Snapshot of the state the restore replaced, taken before any write. */
+  readonly safetyRevision: PromptRevision;
+}
+
+/** What a prune removed and what it left behind. */
+export interface PruneRevisionsResult {
+  readonly removed: number;
+  readonly kept: number;
 }
 
 /** How many stored prompts a tag operation rewrote. */
@@ -265,6 +281,23 @@ export interface DataState {
   restoreDeletedPrompts: (snapshot: DeletedPrompts) => Promise<number>;
   /** Saves a manual snapshot revision for a prompt. */
   snapshotPrompt: (id: string, label?: string | null) => Promise<PromptRevision>;
+  /**
+   * Restores a snapshot (TASK-019).
+   *
+   * The order is what makes it safe: the current state is snapshotted as a
+   * `restore-safety` revision **first**, then the prompt is written. If the write
+   * fails, that safety revision is removed again, so a failed restore leaves
+   * both the prompt and the history exactly as they were. No revision is ever
+   * deleted by a restore.
+   */
+  restoreRevision: (revisionId: string) => Promise<RestoreResult>;
+  /**
+   * Removes all but the newest `keep` snapshots of one prompt.
+   *
+   * Pruning renumbers nothing: `revisionNumber` is a historical label, so the
+   * remaining revisions keep the numbers they were created with.
+   */
+  pruneRevisions: (promptId: string, keep: number) => Promise<PruneRevisionsResult>;
 
   addFolder: (name: string, parentId?: string | null) => Promise<Folder>;
   updateFolder: (id: string, changes: FolderEdit) => Promise<Folder>;
@@ -436,6 +469,11 @@ function copyTitle(title: string, prompts: readonly Prompt[]): string {
 
 function plural(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`;
+}
+
+/** `1 snapshot` / `4 snapshots`, used in activity summaries. */
+function removedLabel(count: number): string {
+  return plural(count, 'snapshot', 'snapshots');
 }
 
 /**
@@ -1051,6 +1089,112 @@ export function createDataStore(options: DataStoreOptions = {}) {
             promptTitle: prompt.title,
           });
           return saved;
+        }),
+
+      restoreRevision: async (revisionId) =>
+        run(async (repos) => {
+          const revision = await repos.revisions.get(revisionId);
+          if (!revision) throw new RecordNotFoundError(`Snapshot ${revisionId} no longer exists.`);
+
+          const current = await repos.prompts.get(revision.promptId);
+          if (!current) {
+            throw new RecordNotFoundError(
+              `Prompt ${revision.promptId} no longer exists, so its snapshot cannot be restored.`,
+            );
+          }
+
+          // 1. Snapshot the state this restore is about to replace. Nothing has
+          //    changed yet, so a failure here (for example a duplicate number
+          //    from a racing write) leaves the prompt untouched.
+          const existing = await repos.revisions.listByPrompt(current.id);
+          const safety = createRevision(
+            current,
+            {
+              revisionNumber: nextRevisionNumber(existing),
+              kind: 'restore-safety',
+              label: `Before restoring v${revision.revisionNumber}`,
+            },
+            dependencies,
+          );
+          await repos.revisions.create(safety);
+
+          try {
+            // 2. Write the snapshot back. A deep copy keeps the stored revision
+            //    independent of the prompt it was just copied into.
+            const restoredContent = JSON.parse(
+              JSON.stringify(revision.contentSnapshot),
+            ) as PromptDocument;
+            const next = applyEdit(
+              current,
+              {
+                title: revision.titleSnapshot,
+                description: revision.descriptionSnapshot,
+                tags: revision.tagsSnapshot,
+                content: restoredContent,
+                variables: JSON.parse(
+                  JSON.stringify(revision.variablesSnapshot),
+                ) as readonly VariableDefinition[],
+              },
+              dependencies.now().toISOString(),
+            );
+            const saved = await repos.prompts.update(next, {
+              expectedVersion: current.version,
+            });
+
+            set((state) => ({
+              prompts: upsertPrompt(state.prompts, saved),
+              revisions: [safety, ...state.revisions],
+            }));
+            await recordActivity({
+              type: 'restored',
+              summary: `Restored v${revision.revisionNumber} of "${saved.title}"; the previous state is v${safety.revisionNumber}`,
+              promptId: saved.id,
+              promptTitle: saved.title,
+            });
+
+            return { prompt: saved, restoredFrom: revision, safetyRevision: safety };
+          } catch (error) {
+            // 3. The restore did not happen, so the safety snapshot must not
+            //    remain: a revision claiming to protect a change that never
+            //    occurred would be a lie. If this cleanup itself fails, the
+            //    original failure is still the one reported.
+            try {
+              await repos.revisions.deleteMany([safety.id]);
+            } catch {
+              // Deliberately ignored: the restore already failed, and the extra
+              // safety revision is harmless compared to masking that failure.
+            }
+            throw error;
+          }
+        }),
+
+      pruneRevisions: async (promptId, keep) =>
+        run(async (repos) => {
+          const prompt = await repos.prompts.get(promptId);
+          if (!prompt) throw new RecordNotFoundError(`Prompt ${promptId} no longer exists.`);
+
+          const all = await repos.revisions.listByPrompt(promptId);
+          const plan = prunePlan(all, keep);
+          if (plan.removalCount === 0) {
+            return { removed: 0, kept: all.length };
+          }
+
+          const removeIds = plan.remove.map((candidate) => candidate.id);
+          await repos.revisions.deleteMany(removeIds);
+
+          const removeSet = new Set(removeIds);
+          set((state) => ({
+            revisions: state.revisions.filter((candidate) => !removeSet.has(candidate.id)),
+          }));
+
+          await recordActivity({
+            type: 'snapshot',
+            summary: `Pruned ${removedLabel(plan.removalCount)} from "${prompt.title}", keeping the newest ${plan.keep.length}`,
+            promptId: prompt.id,
+            promptTitle: prompt.title,
+          });
+
+          return { removed: plan.removalCount, kept: plan.keep.length };
         }),
 
       addFolder: async (name, parentId = null) =>

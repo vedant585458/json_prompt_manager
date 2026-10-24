@@ -140,18 +140,19 @@ shares the same landmarks, focus behaviour, and navigation; `*` is a child of th
 URL still gets navigation), while the recovery screen is the layout's `errorElement` and therefore
 renders even if the shell itself throws.
 
-| Path                 | Screen                | State                                       |
-| -------------------- | --------------------- | ------------------------------------------- |
-| `/`                  | Dashboard             | **Implemented** (TASK-010)                  |
-| `/library`           | Library               | **Implemented** (TASK-011)                  |
-| `/prompts/:promptId` | Prompt workspace      | **Implemented** (TASK-014, saved in 015)    |
-| `/composer`          | Composer              | Scaffold → TASK-017                         |
-| `/templates`         | Templates             | Template catalog, preview, custom templates |
-| `/validation`        | Validation            | Scaffold → TASK-016                         |
-| `/health`            | Health                | Scaffold → TASK-025                         |
-| `/settings`          | Settings              | **Implemented** (theme, density, autosave)  |
-| `/design`            | Design system gallery | **Implemented** (TASK-003/004)              |
-| `*`                  | Not found             | **Implemented** (recovery links)            |
+| Path                         | Screen                | State                                       |
+| ---------------------------- | --------------------- | ------------------------------------------- |
+| `/`                          | Dashboard             | **Implemented** (TASK-010)                  |
+| `/library`                   | Library               | **Implemented** (TASK-011)                  |
+| `/prompts/:promptId`         | Prompt workspace      | **Implemented** (TASK-014, saved in 015)    |
+| `/prompts/:promptId/history` | Version history       | **Implemented** (TASK-019)                  |
+| `/composer`                  | Composer              | Scaffold → TASK-017                         |
+| `/templates`                 | Templates             | Template catalog, preview, custom templates |
+| `/validation`                | Validation            | Scaffold → TASK-016                         |
+| `/health`                    | Health                | Scaffold → TASK-025                         |
+| `/settings`                  | Settings              | **Implemented** (theme, density, autosave)  |
+| `/design`                    | Design system gallery | **Implemented** (TASK-003/004)              |
+| `*`                          | Not found             | **Implemented** (recovery links)            |
 
 - **One navigation model.** `src/components/layout/navigation.ts` declares every destination once
   (path, label, description, icon). The rail, the drawer, the breadcrumbs, and the document title all
@@ -518,6 +519,40 @@ The route announces its filtered count in a `role="status"` line, and empty stat
 stored, no custom templates yet (with the action that creates one), and no search results (with "Clear
 filters"). The preview lives in the URL so it is deep-linkable and Back closes it; filters are component
 state because they describe a visit.
+
+## Version history (TASK-019)
+
+A revision is a full copy of one prompt's editable state — document, title, description, tags, and
+variables — plus a number, a kind, and an optional label. History is per prompt, append-only, and lives in
+the same local database as the prompt.
+
+| Piece                                          | Responsibility                                                                                                               |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/revisions.ts`                      | Pure rules: ordering, per-prompt lookup, summaries, `restoreImpact`, label checks, `prunePlan`, the retention threshold      |
+| `src/store/dataStore.ts`                       | `snapshotPrompt`, `restoreRevision` (safety snapshot first, compensating delete), `pruneRevisions`                           |
+| `src/features/revisions/useRevisionHistory.ts` | Wraps those three actions as outcomes (`{ ok: true, value }` / `{ ok: false, error }`) plus a `busy` flag                    |
+| `src/components/revisions/*`                   | `SnapshotDialog`, `RevisionList`, `RevisionViewer` (read-only `JsonEditor`), `RestoreRevisionDialog`, `PruneRevisionsDialog` |
+| `src/routes/history/HistoryRoute.tsx`          | List, viewer, warning, and the three dialogs; selection lives in `?revision=` (ADR-99)                                       |
+
+**Rules the screen follows.**
+
+- **Only three things write history.** Saving a snapshot, restoring, and importing. Autosave, typing, and
+  formatting never create a revision; the empty state says so in as many words.
+- **A restore cannot lose newer work.** The current state is saved as a `restore-safety` revision before the
+  prompt write, and that revision is deleted again if the write throws. A restore never deletes or renumbers
+  a revision (ADR-100).
+- **Numbers are stable identifiers.** Pruning removes the oldest snapshots and leaves gaps; nothing is
+  renumbered, and the next snapshot continues from the highest number the prompt ever had (ADR-101).
+- **The viewer is read-only, not a second editor.** `JsonEditor` gains `readOnly`, so highlighting, search,
+  and the monospace rendering match the editor while `onChange` is not wired at all.
+- **Colour is never the only status.** Each kind is a worded badge ("Snapshot", "Safety snapshot",
+  "Imported"), the timestamp is text with the exact time in `title`, and a match with the stored prompt is a
+  sentence.
+- **The confirmation lists fields.** `restoreImpact` produces a field-level before/after for the five
+  captured fields and a "what stays as it is" list for folder, collections, status, favorite, pinned,
+  archived, and the schema reference; a no-op restore disables its own button.
+- **Pruning is opt-in.** The warning appears past 25 snapshots and states the count; the dialog shows exactly
+  how many will be removed and which numbers, and the button is disabled when the answer is zero.
 
 ## Commands and keyboard
 

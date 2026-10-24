@@ -331,6 +331,16 @@ async function createRevisionRepository(db: Database) {
         return revision;
       }),
 
+    deleteMany: (ids: readonly string[]) =>
+      withStorageErrors('revisions.deleteMany', async () => {
+        if (ids.length === 0) return;
+        // One transaction: a prune either removes the whole planned set or none
+        // of it, so the count the dialog reported is the count that happened.
+        const transaction = db.transaction(STORE.revisions, 'readwrite');
+        await Promise.all(ids.map((id) => transaction.store.delete(id)));
+        await transaction.done;
+      }),
+
     deleteByPrompt: (promptId: string) =>
       withStorageErrors('revisions.deleteByPrompt', async () => {
         const transaction = db.transaction(STORE.revisions, 'readwrite');

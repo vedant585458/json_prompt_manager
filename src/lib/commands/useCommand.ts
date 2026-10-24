@@ -14,7 +14,11 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import { useTheme } from '@/app/providers/theme-context';
 import { focusLibrarySearch } from '@/lib/commands/librarySearchFocus';
-import { openPromptValidation, togglePromptFavorite } from '@/lib/commands/promptActions';
+import {
+  openPromptSnapshot,
+  openPromptValidation,
+  togglePromptFavorite,
+} from '@/lib/commands/promptActions';
 import { isWithinOverlay } from '@/lib/overlay';
 import {
   commandRegistry,
@@ -70,6 +74,9 @@ export function useCommandEnvironment(): CommandEnvironment {
       },
       validatePrompt: () => {
         openPromptValidation();
+      },
+      saveSnapshot: () => {
+        openPromptSnapshot();
       },
     };
   }, [navigate, pathname, platform, setPreference]);

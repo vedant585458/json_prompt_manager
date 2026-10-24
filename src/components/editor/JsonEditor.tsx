@@ -2,6 +2,7 @@ import { redo, undo } from '@codemirror/commands';
 import { json } from '@codemirror/lang-json';
 import { indentUnit } from '@codemirror/language';
 import { openSearchPanel } from '@codemirror/search';
+import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import CodeMirror from '@uiw/react-codemirror';
 import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef } from 'react';
@@ -38,7 +39,8 @@ export interface JsonEditorHandle {
 
 export interface JsonEditorProps {
   readonly value: string;
-  readonly onChange: (next: string) => void;
+  /** Omitted only when `readOnly` is set. */
+  readonly onChange?: (next: string) => void;
   /** Indent width in spaces, from the saved preference. */
   readonly indent: 2 | 4;
   /** Accessible name for the editable document. */
@@ -48,10 +50,17 @@ export interface JsonEditorProps {
   readonly onReady?: (view: EditorView) => void;
   /** Reports the caret position (1-based) for the status bar. */
   readonly onCaretChange?: (position: { line: number; column: number }) => void;
+  /**
+   * Renders the document for reading only (TASK-019).
+   *
+   * The text is still selectable and searchable, which is what a revision
+   * viewer needs; only edits and the history keymap are disabled.
+   */
+  readonly readOnly?: boolean;
 }
 
 export const JsonEditor = forwardRef<JsonEditorHandle, JsonEditorProps>(function JsonEditor(
-  { value, onChange, indent, ariaLabel, className, onReady, onCaretChange },
+  { value, onChange, indent, ariaLabel, className, onReady, onCaretChange, readOnly = false },
   ref,
 ) {
   const viewRef = useRef<EditorView | null>(null);
@@ -59,6 +68,7 @@ export const JsonEditor = forwardRef<JsonEditorHandle, JsonEditorProps>(function
   const extensions = useMemo(
     () => [
       json(),
+      ...(readOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
       indentUnit.of(' '.repeat(indent)),
       EditorView.contentAttributes.of({
         'aria-label': ariaLabel,
@@ -78,7 +88,7 @@ export const JsonEditor = forwardRef<JsonEditorHandle, JsonEditorProps>(function
       }),
       ...promptForgeEditorExtensions,
     ],
-    [ariaLabel, indent, onCaretChange],
+    [ariaLabel, indent, onCaretChange, readOnly],
   );
 
   const handleCreate = useCallback(
@@ -144,7 +154,7 @@ export const JsonEditor = forwardRef<JsonEditorHandle, JsonEditorProps>(function
     >
       <CodeMirror
         value={value}
-        onChange={onChange}
+        onChange={readOnly ? undefined : onChange}
         onCreateEditor={handleCreate}
         extensions={extensions}
         height="100%"
@@ -159,7 +169,7 @@ export const JsonEditor = forwardRef<JsonEditorHandle, JsonEditorProps>(function
           highlightSelectionMatches: true,
           autocompletion: false,
           searchKeymap: true,
-          history: true,
+          history: !readOnly,
           indentOnInput: true,
           tabSize: indent,
         }}

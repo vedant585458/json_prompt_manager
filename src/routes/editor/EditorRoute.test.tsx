@@ -11,6 +11,7 @@ import {
   createFolder,
   createPrompt,
   createPromptSchema,
+  createRevision,
 } from '@/domain/factories';
 import { createBlankDocument } from '@/domain/promptDocument';
 import { formatDocument } from '@/domain/serialization';
@@ -590,5 +591,56 @@ describe('composer handoff (TASK-017)', () => {
       'href',
       '/prompts/alpha/compose',
     );
+  });
+});
+
+describe('revision history entry points (TASK-019)', () => {
+  const prompt = makePrompt({ id: 'alpha', title: 'Invoice parser' });
+
+  beforeEach(() => {
+    usePreferencesStore.setState({ autosaveEnabled: false });
+    window.localStorage.clear();
+  });
+
+  it('links to the history and says when there is none', async () => {
+    await openEditor({ prompts: [prompt], mode: 'durable' });
+
+    const link = await screen.findByRole('link', { name: /History/ });
+    expect(link).toHaveAttribute('href', '/prompts/alpha/history');
+    expect(link).toHaveTextContent('none');
+  });
+
+  it('counts the stored snapshots in the header', async () => {
+    const revision = createRevision(prompt, { revisionNumber: 1, kind: 'manual', label: 'First' });
+    const repositories = createInMemoryRepositories({
+      prompts: [prompt],
+      revisions: [revision],
+      settings: { ...createDefaultSettings(), onboardedAt: COMPLETED_ONBOARDING },
+    });
+    const harness = renderAppWithData({
+      repositories,
+      path: '/prompts/alpha',
+      mode: 'durable',
+    });
+    await waitFor(() => expect(harness.store.getState().status).toBe('ready'));
+
+    expect(await screen.findByRole('link', { name: /History/ })).toHaveTextContent('1');
+  });
+
+  it('saves a snapshot from the header and toasts its number', async () => {
+    usePreferencesStore.setState({ autosaveEnabled: false });
+    const user = userEvent.setup();
+    const { repositories } = await openEditor({ prompts: [prompt], mode: 'durable' });
+
+    await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
+    await user.click(screen.getByRole('button', { name: 'Save snapshot' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Save a snapshot' });
+    await user.click(within(dialog).getByRole('button', { name: 'Save snapshot' }));
+
+    expect(await screen.findByText('Snapshot v1 saved')).toBeInTheDocument();
+    await waitFor(async () => {
+      await expect(repositories.revisions.countByPrompt('alpha')).resolves.toBe(1);
+    });
   });
 });

@@ -1,4 +1,4 @@
-import { FileJson } from 'lucide-react';
+import { Camera, FileJson, History } from 'lucide-react';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
@@ -10,6 +10,7 @@ import { EditorToolbar } from '@/components/editor/EditorToolbar';
 import { JsonErrorPanel } from '@/components/editor/JsonErrorPanel';
 import { TreeView } from '@/components/editor/TreeView';
 import { PromptSummaryCard } from '@/components/prompts/PromptSummaryCard';
+import { SnapshotDialog } from '@/components/revisions/SnapshotDialog';
 import {
   Alert,
   Button,
@@ -28,10 +29,12 @@ import type { JsonEditorHandle } from '@/components/editor/JsonEditor';
 import type { JsonSyntaxError } from '@/domain/jsonText';
 import { formatJsonText, minifyJsonText } from '@/domain/jsonText';
 import { validateJsonText } from '@/domain/validation';
+import { revisionsForPrompt } from '@/domain/revisions';
 import { useSavePipeline } from '@/features/save/useSavePipeline';
 import { findLineForPath, type ValidationIssue } from '@/domain/validation';
 import { offsetAtLineColumn } from '@/domain/jsonText';
 import { registerPromptFavoriteToggle } from '@/lib/commands/promptActions';
+import { registerPromptSnapshot } from '@/lib/commands/promptActions';
 import { registerPromptValidation } from '@/lib/commands/promptActions';
 import { cn } from '@/lib/cn';
 import { describeDataError } from '@/store/dataStore';
@@ -78,6 +81,7 @@ export function EditorRoute() {
   const store = useDataStoreApi();
   const prompts = store((state) => state.prompts);
   const schemas = store((state) => state.schemas);
+  const revisions = store((state) => state.revisions);
   const folders = store((state) => state.folders);
   const collections = store((state) => state.collections);
   const status = store((state) => state.status);
@@ -97,6 +101,7 @@ export function EditorRoute() {
 
   const [view, setView] = useState<'raw' | 'tree'>('raw');
   const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [snapshotOpen, setSnapshotOpen] = useState(false);
   const [caret, setCaret] = useState(EMPTY_CARET);
   const editorRef = useRef<JsonEditorHandle>(null);
 
@@ -109,6 +114,11 @@ export function EditorRoute() {
   const handleCaret = useCallback((position: { line: number; column: number }) => {
     setCaret(position);
   }, []);
+
+  const revisionCount = useMemo(
+    () => (prompt ? revisionsForPrompt(revisions, prompt.id).length : 0),
+    [prompt, revisions],
+  );
 
   const handleToggleFavorite = useCallback(() => {
     if (!prompt) return;
@@ -266,6 +276,33 @@ export function EditorRoute() {
     [navigate, prompt],
   );
 
+  // Command palette: "Save a snapshot" opens the same dialog as the header.
+  useEffect(
+    () =>
+      registerPromptSnapshot(
+        prompt
+          ? () => {
+              setSnapshotOpen(true);
+            }
+          : null,
+      ),
+    [prompt],
+  );
+
+  const handleSnapshot = useCallback(
+    async (label: string | null) => {
+      const result = await save.snapshot(label);
+      if (!result.ok) return result;
+
+      toast.success({
+        title: `Snapshot v${result.revision.revisionNumber} saved`,
+        description: label ?? prompt?.title ?? undefined,
+      });
+      return { ok: true };
+    },
+    [prompt, save, toast],
+  );
+
   const applyRewrite = useCallback(
     (kind: 'format' | 'minify') => {
       const result =
@@ -353,12 +390,28 @@ export function EditorRoute() {
             {prompt.title}
           </li>
         </ol>
-        <Link
-          to={`/prompts/${prompt.id}/compose`}
-          className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }))}
-        >
-          Compose
-        </Link>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button variant="ghost" size="sm" onClick={() => setSnapshotOpen(true)}>
+            <Camera aria-hidden="true" size={12} />
+            Save snapshot
+          </Button>
+          <Link
+            to={`/prompts/${prompt.id}/history`}
+            className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'gap-1.5')}
+          >
+            <History aria-hidden="true" size={12} />
+            History
+            <span className="font-mono text-2xs text-ink-muted">
+              {revisionCount === 0 ? 'none' : revisionCount}
+            </span>
+          </Link>
+          <Link
+            to={`/prompts/${prompt.id}/compose`}
+            className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }))}
+          >
+            Compose
+          </Link>
+        </div>
       </nav>
 
       <PromptSummaryCard
@@ -513,6 +566,15 @@ export function EditorRoute() {
         onReloadStored={() => void save.reloadStoredVersion()}
         onKeepDraft={() => void save.keepDraftAsNew()}
         onDismiss={save.dismissConflict}
+      />
+
+      <SnapshotDialog
+        open={snapshotOpen}
+        onOpenChange={setSnapshotOpen}
+        promptTitle={prompt.title}
+        dirty={save.dirty}
+        onSaveDraft={() => save.saveNow('manual')}
+        onSnapshot={handleSnapshot}
       />
 
       <ConfirmDialog

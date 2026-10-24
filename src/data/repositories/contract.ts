@@ -406,6 +406,21 @@ export function describeRepositoryContract(
         await expect(repos.revisions.listByPrompt('p2')).resolves.toHaveLength(1);
       });
 
+      it('deletes exactly the requested revisions, ignoring unknown ids', async () => {
+        await repos.revisions.create(makeRevision('r1', 'p1', 1));
+        await repos.revisions.create(makeRevision('r2', 'p1', 2));
+        await repos.revisions.create(makeRevision('r3', 'p1', 3));
+
+        await repos.revisions.deleteMany(['r2', 'never-there']);
+
+        const remaining = await repos.revisions.listByPrompt('p1');
+        expect(remaining.map((revision) => revision.id)).toEqual(['r3', 'r1']);
+        // Idempotent: repeating the call and passing nothing changes nothing.
+        await repos.revisions.deleteMany(['r2']);
+        await repos.revisions.deleteMany([]);
+        await expect(repos.revisions.countByPrompt('p1')).resolves.toBe(2);
+      });
+
       it('copies snapshot data instead of aliasing it', async () => {
         const revision = makeRevision('r1', 'p1', 1);
         await repos.revisions.create(revision);

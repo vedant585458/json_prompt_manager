@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { PALETTE_SHORTCUT, createCoreCommands } from '@/lib/commands/coreCommands';
-import { registerPromptValidation } from '@/lib/commands/promptActions';
+import { registerPromptSnapshot, registerPromptValidation } from '@/lib/commands/promptActions';
 import { createCommandRegistry, isCommandAvailable } from '@/lib/commands/registry';
 import { createTestContext } from '@/test/commandContext';
 
@@ -126,6 +126,46 @@ describe('TASK-013 commands', () => {
     expect(isCommandAvailable(command, createTestContext({ pathname: '/prompts/abc' }))).toBe(
       false,
     );
+  });
+
+  it('offers snapshots and history only from a prompt workspace', () => {
+    const snapshot = byId.get('history.snapshot');
+    const open = byId.get('history.open');
+    if (!snapshot || !open) throw new Error('Missing history commands');
+
+    expect(isCommandAvailable(open, createTestContext({ pathname: '/prompts/abc' }))).toBe(true);
+    expect(isCommandAvailable(open, createTestContext({ pathname: '/library' }))).toBe(false);
+    // Already on the history screen: navigating "to" it again would do nothing.
+    expect(isCommandAvailable(open, createTestContext({ pathname: '/prompts/abc/history' }))).toBe(
+      false,
+    );
+
+    // The snapshot command exists only while a screen has registered a dialog.
+    expect(isCommandAvailable(snapshot, createTestContext({ pathname: '/prompts/abc' }))).toBe(
+      false,
+    );
+    const cleanup = registerPromptSnapshot(() => undefined);
+    try {
+      expect(isCommandAvailable(snapshot, createTestContext({ pathname: '/prompts/abc' }))).toBe(
+        true,
+      );
+      expect(
+        isCommandAvailable(snapshot, createTestContext({ pathname: '/prompts/abc/history' })),
+      ).toBe(true);
+
+      const saveSnapshot = vi.fn();
+      run('history.snapshot', { pathname: '/prompts/abc', saveSnapshot });
+      expect(saveSnapshot).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+    expect(isCommandAvailable(snapshot, createTestContext({ pathname: '/prompts/abc' }))).toBe(
+      false,
+    );
+
+    const navigate = vi.fn();
+    run('history.open', { pathname: '/prompts/abc', navigate });
+    expect(navigate).toHaveBeenCalledWith('/prompts/abc/history');
   });
 
   it('only offers the favorite toggle while a prompt is open', () => {

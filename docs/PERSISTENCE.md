@@ -124,7 +124,7 @@ the store and UI layers never know which one is active.
 | Repository                                                                | Operations                                                                                   |
 | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | `prompts`                                                                 | `list`, `query(criteria?)`, `get`, `create`, `update(prompt, { expectedVersion })`, `delete` |
-| `revisions`                                                               | `listByPrompt`, `get`, `create`, `deleteByPrompt`, `countByPrompt`                           |
+| `revisions`                                                               | `listByPrompt`, `get`, `create`, `deleteMany`, `deleteByPrompt`, `countByPrompt`             |
 | `folders`, `collections`, `templates`, `testCases`, `schemas`, `snippets` | `list`, `get`, `create`, `update`, `delete`                                                  |
 | `activity`                                                                | `append`, `list(limit?)`, `prune(limit)`, `clear`                                            |
 | `settings`                                                                | `get()` (null before first run), `save`                                                      |

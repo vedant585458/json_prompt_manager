@@ -554,6 +554,38 @@ the same local database as the prompt.
 - **Pruning is opt-in.** The warning appears past 25 snapshots and states the count; the dialog shows exactly
   how many will be removed and which numbers, and the button is disabled when the answer is zero.
 
+## Diff explorer (TASK-020)
+
+`/diff` compares two JSON documents and explains every change by path. It is a read-only surface: no
+control here writes to storage.
+
+| Piece                           | Responsibility                                                                                                 |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `src/domain/diff.ts`            | The engine: ordered `DiffEntry` list with pointers, kinds, categories, moves, summaries, and both copy formats |
+| `src/features/diff/sources.ts`  | `prompt:` / `revision:` / `text` references, default pairs, and resolution against the hydrated store          |
+| `src/components/diff/*`         | Source pickers, summary and filters, the change list (unified/split), path breadcrumb, and value rendering     |
+| `src/routes/diff/DiffRoute.tsx` | URL state, paste parsing, filtering, selection, copying, and the identical/blocked states                      |
+
+**Rules the screen follows.**
+
+- **The sources are the URL.** `?left=` and `?right=` hold short references (`prompt:<id>`,
+  `revision:<id>`, `text`); `?prompt=<id>` is the shortcut the editor and history links use, meaning "newest
+  snapshot versus the stored prompt" (ADR-104). Pasted JSON stays in the tab and the screen says so.
+- **Every change has a pointer and a category.** Rows show an RFC 6901 pointer in escaped form, a readable
+  label, a worded kind badge, and a structure/text badge; the detail panel repeats the path as a breadcrumb
+  and offers the pointer itself for copying (ADR-102).
+- **Arrays are compared after trimming, and re-orders are only claimed for scalar arrays.** Insertions stay
+  one entry instead of a cascade, and no element is called "moved" when its content also changed (ADR-103).
+- **Bad input pauses, it does not crash.** A pasted side that does not parse reports the scanner's location on
+  the field and the comparison area explains what it is waiting for; a missing prompt or pruned snapshot is a
+  warning naming the id.
+- **Copy reproduces what is on screen.** Both copy actions use the filtered entries and record the filter in
+  the output; the buttons name the count ("Copy 3 shown changes").
+- **Keyboard traversal is real.** Rows form a single tab stop with ↑/↓/Home/End moving between them, and the
+  detail panel follows the selection.
+- **The wording is honest.** The scope note says the comparison is textual and structural, not semantic, and
+  that it never judges prompt quality.
+
 ## Commands and keyboard
 
 Everything a shortcut can do is declared once, in `src/lib/commands/`:

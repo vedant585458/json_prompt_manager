@@ -265,6 +265,28 @@ this prompt's snapshots newest first and shows the selected one in a read-only, 
 - **Palette.** "Save a snapshot of the open prompt" appears only while a prompt screen has registered the
   dialog; "Open the version history" appears only from a prompt workspace.
 
+## Comparing documents
+
+`/diff` compares two JSON documents and explains every change by path. Open it from the editor's
+**Compare** link, from a snapshot's **Compare with current**, from the history screen's **Compare
+snapshots**, or from the command palette.
+
+- **Any two sides.** Each side can be a stored prompt, one snapshot, or pasted JSON. `?left=` and
+  `?right=` hold the choice, so a comparison can be bookmarked or reloaded; `?prompt=<id>` is a shortcut
+  for "newest snapshot versus what is stored now".
+- **Paths, not just values.** Every change carries an RFC 6901 pointer (`/instructions/2`), a readable
+  breadcrumb, both values, and a class: **Structure** for additions, removals, re-orders, and type changes;
+  **Text** for a value that kept its type and changed in place.
+- **Array-aware.** An insertion is one entry rather than a change to every following element, and a pure
+  re-order of a list of values is reported as one change with the positions that moved.
+- **Read it your way.** Filter by change type, switch between unified and split rows, show full values
+  instead of previews, and move between changes with ↑ / ↓ / Home / End.
+- **Copy what you see.** "Copy as JSON" and "Copy as text" write the changes visible under the current
+  filter and record that filter in the output. The text form is a readable list, not an applicable patch.
+- **Honest scope.** Whitespace and object key order are not differences. The comparison reports what
+  changed, not what it means, and it never writes to your prompts or snapshots. Pasted JSON is not stored
+  and is not part of the URL, so a reload clears it — the screen says so.
+
 ## Guided composer
 
 `/composer` builds a prompt section by section; `/prompts/:id/compose` (or the editor's **Compose** link)

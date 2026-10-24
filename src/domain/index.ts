@@ -19,4 +19,5 @@ export * from '@/domain/textDiff';
 export * from '@/domain/jsonSchema';
 export * from '@/domain/validation';
 export * from '@/domain/composer';
+export * from '@/domain/diff';
 export * from '@/domain/templates';

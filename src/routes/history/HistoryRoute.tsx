@@ -1,4 +1,4 @@
-import { ArrowLeft, Camera, FileJson, Scissors } from 'lucide-react';
+import { ArrowLeft, Camera, FileJson, GitCompare, Scissors } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
@@ -262,6 +262,13 @@ export function HistoryRoute() {
           <span className={badgeVariants({ tone: 'neutral' })}>
             {history.count} {history.count === 1 ? 'snapshot' : 'snapshots'}
           </span>
+          <Link
+            to={`/diff?prompt=${encodeURIComponent(prompt.id)}`}
+            className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'gap-1.5')}
+          >
+            <GitCompare aria-hidden="true" size={12} />
+            Compare snapshots
+          </Link>
           <Button variant="primary" onClick={() => setSnapshotOpen(true)}>
             <Camera aria-hidden="true" size={14} />
             Save snapshot
@@ -339,6 +346,7 @@ export function HistoryRoute() {
               onRestore={() => setRestoreTarget(selected)}
               onCopied={() => toast.success({ title: 'Snapshot JSON copied' })}
               matchesCurrent={currentHash === summariseRevision(selected).hash}
+              compareHref={`/diff?left=revision:${encodeURIComponent(selected.id)}&right=prompt:${encodeURIComponent(prompt.id)}`}
             />
             <p className="flex items-start gap-2 rounded-md border border-line bg-surface-1 px-3 py-2 text-2xs leading-relaxed text-ink-muted">
               <FileJson aria-hidden="true" size={13} className="mt-0.5 shrink-0" />

@@ -1,4 +1,4 @@
-import { Camera, FileJson, History } from 'lucide-react';
+import { Camera, FileJson, GitCompare, History } from 'lucide-react';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
@@ -395,6 +395,13 @@ export function EditorRoute() {
             <Camera aria-hidden="true" size={12} />
             Save snapshot
           </Button>
+          <Link
+            to={`/diff?prompt=${encodeURIComponent(prompt.id)}`}
+            className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'gap-1.5')}
+          >
+            <GitCompare aria-hidden="true" size={12} />
+            Compare
+          </Link>
           <Link
             to={`/prompts/${prompt.id}/history`}
             className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'gap-1.5')}

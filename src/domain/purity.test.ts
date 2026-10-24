@@ -48,6 +48,7 @@ describe('domain layer purity', () => {
   it('contains the modules promised by the task', () => {
     expect(moduleNames()).toEqual([
       'composer.ts',
+      'diff.ts',
       'errors.ts',
       'factories.ts',
       'index.ts',
@@ -117,6 +118,7 @@ describe('domain layer purity', () => {
 
     expect(exported.sort()).toEqual([
       '@/domain/composer',
+      '@/domain/diff',
       '@/domain/errors',
       '@/domain/factories',
       '@/domain/invariants',

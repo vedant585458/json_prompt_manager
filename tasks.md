@@ -601,7 +601,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-017 — Guided prompt composer with JSON synchronization — High — deps: 015
 - [x] TASK-018 — Template catalog and custom templates — Medium — deps: 012, 017
 - [x] TASK-019 — Version history and safe restoration — High — deps: 015
-- [ ] TASK-020 — Structural diff explorer — High — deps: 019
+- [x] TASK-020 — Structural diff explorer — High — deps: 019
 - [ ] TASK-021 — Variable playground and prompt preview — High — deps: 015
 - [ ] TASK-022 — Prompt laboratory with saved test cases — Medium — deps: 021
 - [ ] TASK-023 — Blueprint dependency graph — Medium — deps: 016, 019
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 19 of 31 tasks complete. TASK-001 through TASK-019 were completed on 2026-10-24.
+**Progress:** 20 of 31 tasks complete. TASK-001 through TASK-020 were completed on 2026-10-24.
 
 ---
 
@@ -1353,7 +1353,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-020 — Structural diff explorer
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-019
 - **Objective:** Make prompt changes understandable through a path-aware structural JSON diff with clear structural vs. textual distinctions.
@@ -1372,6 +1372,17 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Unit tests for the diff engine (comprehensive fixtures, including large arrays and Unicode); component tests for rendering/filtering/copy; integration test from history panel; typecheck/lint/tests/build.
 - **Deliverables:** `src/domain/diff.ts` + tests, `src/routes/diff/*`, `src/components/diff/*`, history integration, palette command.
 - **Out of scope:** Three-way merge, semantic intent analysis, revision authoring.
+
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Engine (`src/domain/diff.ts`):** `diffDocuments(before, after, options)` walks two parsed values and returns ordered `DiffEntry` records, each with an RFC 6901 `pointer` (escaped and round-tripping), the same path as `segments`, a readable `label`, `kind` (`added | removed | changed | type-changed | reordered`), `category` (`structural | textual`), and the values on both sides. Objects are compared in the new document's key order with removals after their surviving siblings; arrays trim a common prefix and suffix and compare the middle positionally, so an insertion is one entry; a pure re-order of a scalar array is one `reordered` entry with capped `{from,to}` moves and a `movedPositions` total (ADR-102, ADR-103). `identical` is deep equality over parsed values, so whitespace and object member order are not differences while array order is. Helpers: `jsonEquals`, `jsonTypeName`, pointer escape/parse/`describePointer`, `formatDiffValue`, `describeDiffSummary` / `describeDiffCategories`, `filterDiffEntries`, `countDiffEntries`, `restrictDiffResult`, `diffToJson`, `diffToText` (with an optional filter note), and `describeDiffSide`. Bounded by `maxEntries` (2,000) with an explicit `truncated` flag.
+  - **Sources (`src/features/diff/sources.ts`):** short, URL-safe references `prompt:<id>` / `revision:<id>` / `text`, `parseDiffSource`/`serializeDiffSource`, `defaultDiffSources` (newest snapshot vs. stored prompt; stored prompt vs. paste when there is no history), `resolveDiffSource` returning a value instead of throwing (missing prompt, pruned snapshot, snapshot of a deleted prompt), `revisionsOfPrompt`, and `switchDiffSourceKind` (keeps the prompt, falls back to paste when it has no snapshots) (ADR-104).
+  - **Screen (`src/routes/diff/DiffRoute.tsx`, `src/components/diff/*`):** two source pickers (stored prompt / snapshot / pasted JSON; prompt then snapshot, with parse errors reported on the field), a summary bar (counts by kind and category, per-kind filter buttons that stay in place and disable at zero, unified/split view, a "Full values" switch, and two copy actions), the change list (one button per row, roving tabindex with ↑/↓/Home/End, before/after values as JSON literals with a preview and an honest truncation note), a detail panel with the path breadcrumb, both full values, move positions, and the copyable pointer, plus the "No differences", "No changes match this filter", paused-comparison, missing-prompt, and missing-snapshot states. The URL carries `?left=` / `?right=` / `?prompt=`; pasted JSON stays in the tab and the screen says a reload clears it.
+  - **Integration:** the editor header gained **Compare** (`/diff?prompt=<id>`); the history screen gained **Compare snapshots** and each snapshot a **Compare with current** link (`/diff?left=revision:<id>&right=prompt:<id>`); the palette gained `diff.compare` (only from a prompt workspace) and `diff.open` (everywhere). The route writes nothing.
+  - **Tests added (78 new cases; whole suite 1305 across 85 files):** `src/domain/diff.test.ts` 43, `src/features/diff/sources.test.ts` 19, `src/routes/diff/DiffRoute.test.tsx` 13, `src/routes/history/HistoryRoute.test.tsx` +1, `src/routes/editor/EditorRoute.test.tsx` +1, `src/lib/commands/coreCommands.test.ts` +1.
+  - **Validation executed:** `npx tsc --noEmit` exit 0; `npx eslint .` exit 0 with 0 warnings; `npx vitest run` — **85 files / 1305 tests passed, 0 failures**; `npx vitest run --coverage` — thresholds pass (all files 96.14/90.70/97.36/97.09; `src/domain` 96.22/92.52/99.21/96.91 with `diff.ts` at 97.48/96.42/100/100; `src/store` 96.49/89.24/97.4/97.8; `src/data` 96.51/87.03/100/97.22); `npx prettier --check .` clean; `npm run check:contrast` — 64 pairings pass in both themes; `npm run build` exit 0 — CSS 57.37 kB (13.72 kB gzip), app JS 976.55 kB (283.20 kB gzip), lazy `JsonEditor` chunk 427.66 kB (138.58 kB gzip).
+  - **Not performed (stated honestly):** no browser binary exists in this environment, so there was no manual pass at 390 px, no pointer or keyboard walkthrough of the pickers, list, or detail panel on a real device, and no screenshot. Responsive and keyboard claims rest on `lg` breakpoints, native controls, roving tabindex with focus-visible rings, and jsdom tests against the real route.
+  - **Deviations recorded:** the split view is a two-column change list rather than two synchronised document trees; re-order detection is limited to scalar arrays (ADR-103); the text copy is a readable change list, not an applicable patch, and is labelled as such; pasted JSON is deliberately not persisted (ADR-104); `src/domain/diff.ts` is a new module rather than an extension of the line-level `textDiff.ts` from TASK-015, whose recovery hint is a different question; the route caps output at 2,000 entries and reports truncation instead of freezing.
+  - **Docs:** `docs/DECISIONS.md` gained ADR-102…ADR-104 and a TASK-020 verification log; `docs/ARCHITECTURE.md` gained a "Diff explorer (TASK-020)" section and the `/diff` route row; `README.md` gained a "Comparing documents" section; `tasks.md` updated.
 
 ---
 

@@ -2695,3 +2695,117 @@ save-pipeline tests plus the history suite's empty-state case.
   state; a draft that was never saved is not part of any snapshot, and the dialog says so.
 - **Numbers are stable across pruning and deletion of other prompts**, but deleting the prompt itself
   removes its history, so a restore cannot resurrect a deleted prompt.
+
+## ADR-102 — A change is a pointer-addressed entry with a shape/value classification
+
+**Context.** TASK-020 needs "a path-aware structural JSON diff with clear structural vs. textual
+distinctions". The vocabulary matters more than the algorithm here: a person reading "3 changes" has to know
+whether keys moved or a sentence was rewritten, and every row has to be locatable in the document.
+
+**Decision.** `src/domain/diff.ts` emits an ordered list of `DiffEntry` objects. Each carries an RFC 6901
+pointer (with `~0`/`~1` escaping), the same path as segments for breadcrumbs, a readable label, the values on
+both sides, a kind (`added`, `removed`, `changed`, `type-changed`, `reordered`), and a category:
+
+- **structural** = `added`, `removed`, `type-changed`, `reordered`.
+- **textual** = `changed` (a value that kept its type and changed in place).
+
+Ordering is document order as far as it exists: additions and changes follow the new document's key order,
+then removals follow in the old key order. Nothing is sorted, because key order is often what the user is
+looking at. `identical` is deep equality over parsed values, so whitespace and object member order are never
+changes; array order is content, so a pure re-order is reported.
+
+**Consequences.** Every row can be copied as a pointer that addressing tools understand, and the UI never has
+to guess a category from a kind. The cost is that "textual" is a slightly odd word for "3 → 4" — the engine
+uses the task's vocabulary and the interface spells it out ("Text: a value kept its type and changed in
+place"). Type changes are structural because they change how the document can be read, not just what it says.
+
+## ADR-103 — Arrays are compared positionally after trimming, and re-orders are claimed only for scalars
+
+**Context.** A naive index-by-index array comparison turns "insert one instruction at the top" into a change
+to every following element, which is accurate and useless. Real move detection (LCS or keyed matching) is
+either expensive on large arrays or requires identity heuristics ("match by `name`") that silently mislabel
+edits as moves.
+
+**Decision.** Arrays are compared in two steps. First, if both arrays contain only scalars, have the same
+length, and hold the same multiset of values, the whole array is one `reordered` entry with a capped list of
+`{from, to}` moves and a total `movedPositions` count. Otherwise the common prefix and suffix are trimmed by
+deep equality, elements in the remaining middle are compared index by index, and extra elements on either
+side are reported as `added` or `removed` at their indices. No element is ever guessed to have "moved" when
+its content also changed.
+
+**Consequences.** Insertions and removals stay one entry, and a re-order of a list of strings is one entry
+instead of N. The cost is that re-ordering an array of objects with no scalar change is reported as a series
+of changes rather than a move; that is visible and correct, just less pretty. Duplicate scalar values make a
+`moved` pair a hint (the target is the first matching index), which the engine documents and the UI labels as
+positions rather than a permutation. Comparisons are capped at 2,000 entries and say `truncated` when they
+stop, so a pathological document cannot freeze the tab.
+
+## ADR-104 — Comparison sources are URL parameters; pasted JSON is deliberately not
+
+**Context.** The plan asks for a deep-linkable `/diff` route that "survives reload", plus ad-hoc pasted
+documents and the ability to compare any prompt or snapshot with any other. Query strings are the only state
+the browser restores for free.
+
+**Decision.** A side is serialised as a short reference: `prompt:<id>`, `revision:<id>`, or `text`. The route
+reads `?left=` and `?right=`, with `?prompt=<id>` as a shortcut meaning "newest snapshot versus the stored
+prompt" — the comparison the editor's **Compare** and the history screen's **Compare snapshots** links open.
+A revision reference carries no prompt id because the revision already has one. Pasted JSON is marked by
+`text` and stored in component state only: a whole document does not belong in a URL (length limits, history,
+and shoulder-surfing), so the screen states that a reload clears the pasted side. Copying writes the entries
+that are visible under the current filter, and records the filter in the output, so a filtered copy never
+looks like a complete comparison.
+
+**Consequences.** Every server-independent comparison is linkable, bookmarkable, and reload-safe; pasted
+comparisons are explicitly ephemeral. Changing a picker rewrites both parameters and drops `?prompt=`, so the
+URL is always explicit about what is on screen. Nothing on this route writes to storage: opening, filtering,
+switching views, and copying all leave prompts and snapshots untouched.
+
+## Verification log — TASK-020
+
+**Scope verified:** the engine's fixtures (nested object add/remove/change, scalar and container type changes,
+array insert/remove/replace/re-order with move caps, large arrays, Unicode including NFC vs. NFD and emoji),
+pointer escaping and round-tripping, summary and filter helpers, value formatting and truncation, and both
+copy formats; the route's default and explicit sources, deep links, paste parsing with a non-blocking error,
+filter-faithful copying, view switching, keyboard traversal, and the identical/no-differences state; the
+history and editor entry points; and both palette commands.
+
+### Tests added (78 cases)
+
+| File                                       | Cases | Covers                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------ | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/diff.test.ts`                  | 41    | equality and key/array order, every change kind, nesting and ordering, type changes at field and root, array insert/remove/replace/re-order/move caps, large arrays, pointers and escaping, Unicode, summaries and filters, value formatting, JSON and text copies with filter notes, entry caps and truncation, side labels |
+| `src/features/diff/sources.test.ts`        | 19    | parameter round-trips and malformed values, default source pairs, resolution (prompt/revision/deleted/missing), revision picker ordering, kind switching, empty library                                                                                                                                                      |
+| `src/routes/diff/DiffRoute.test.tsx`       | 13    | `?prompt=` defaults, explicit deep links, list and detail rendering, keyboard traversal, filtering and filtered copy, whole-comparison copy, identical state, unified/split and full values, pasted JSON and parse errors, URL never carrying pasted text, missing snapshot, empty library, swap                             |
+| `src/routes/history/HistoryRoute.test.tsx` | +1    | header **Compare snapshots** and per-snapshot **Compare with current** links                                                                                                                                                                                                                                                 |
+| `src/routes/editor/EditorRoute.test.tsx`   | +1    | header **Compare** link                                                                                                                                                                                                                                                                                                      |
+| `src/lib/commands/coreCommands.test.ts`    | +1    | `diff.compare` only from a prompt workspace, `diff.open` everywhere, navigation targets                                                                                                                                                                                                                                      |
+
+### Gates
+
+| Gate                        | Result                                                                                                                                                                                                                               |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npx tsc --noEmit`          | exit 0                                                                                                                                                                                                                               |
+| `npx eslint .`              | exit 0, 0 warnings                                                                                                                                                                                                                   |
+| `npx vitest run`            | **85 files / 1305 tests passed, 0 failures**                                                                                                                                                                                         |
+| `npx vitest run --coverage` | thresholds pass — all files 96.14/90.70/97.36/97.09; `src/domain` 96.22/92.52/99.21/96.91 (`diff.ts` 97.48/96.42/100/100), `src/store` 96.49/89.24/97.4/97.8, `src/data` 96.51/87.03/100/97.22 (statements/branches/functions/lines) |
+| `npx prettier --check .`    | clean                                                                                                                                                                                                                                |
+| `npm run check:contrast`    | 64 pairings pass in both themes                                                                                                                                                                                                      |
+| `npm run build`             | exit 0 — CSS 57.37 kB (13.72 kB gzip), app JS 976.55 kB (283.20 kB gzip), lazy `JsonEditor` chunk 427.66 kB (138.58 kB gzip)                                                                                                         |
+
+### Known limitations and honesty notes
+
+- **No browser binary exists in this environment**, so there was no manual pass at 390 px, no pointer or
+  keyboard walkthrough of the pickers, list, or detail panel on a real device, and no screenshot. The
+  responsive and keyboard claims rest on `lg` breakpoints, native controls, roving tabindex with
+  focus-visible rings, and jsdom tests against the real route.
+- **The copy is a change list, not a patch.** "Copy as text" produces a readable list (before/after lines with
+  paths) that cannot be applied to a file; the UI calls it that rather than implying a unified diff.
+- **Re-orders are detected for scalar arrays only** (ADR-103). Re-ordering an array of objects appears as
+  changes to the affected indices.
+- **The split view is a two-column change list, not two document trees.** It places before and after side by
+  side; there is no synchronised scrolling document view.
+- **Comparisons cap at 2,000 entries**, and the screen and the copy both say when that happened.
+- **Pasted JSON is not persisted** — not to storage, not to the URL, and not across a reload.
+- **No path jump into the editor.** A change names its pointer, but the raw editor has no "scroll to path"
+  command yet; that would be a separate piece of work.
+- **No revision is created by comparing**, so a comparison can never change what it is looking at.

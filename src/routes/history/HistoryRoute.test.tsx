@@ -113,6 +113,19 @@ describe('version history', () => {
     expect(rows[0]).toHaveTextContent('No label');
   });
 
+  it('links to the diff explorer for the prompt and for the selected snapshot', async () => {
+    await openHistory({ path: '/prompts/p-triage/history?revision=rev-1' });
+
+    expect(screen.getByRole('link', { name: /Compare snapshots/ })).toHaveAttribute(
+      'href',
+      '/diff?prompt=p-triage',
+    );
+    expect(screen.getByRole('link', { name: /Compare with current/ })).toHaveAttribute(
+      'href',
+      '/diff?left=revision:rev-1&right=prompt:p-triage',
+    );
+  });
+
   it('opens the selected snapshot in a read-only viewer from the query string', async () => {
     await openHistory({ path: '/prompts/p-triage/history?revision=rev-1' });
 

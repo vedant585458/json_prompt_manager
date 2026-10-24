@@ -168,6 +168,26 @@ describe('TASK-013 commands', () => {
     expect(navigate).toHaveBeenCalledWith('/prompts/abc/history');
   });
 
+  it('opens a comparison from a prompt and from anywhere', () => {
+    const compare = byId.get('diff.compare');
+    const open = byId.get('diff.open');
+    if (!compare || !open) throw new Error('Missing diff commands');
+
+    expect(isCommandAvailable(compare, createTestContext({ pathname: '/prompts/p1' }))).toBe(true);
+    expect(isCommandAvailable(compare, createTestContext({ pathname: '/library' }))).toBe(false);
+    expect(
+      isCommandAvailable(compare, createTestContext({ pathname: '/prompts/p1/history' })),
+    ).toBe(false);
+    expect(isCommandAvailable(open, createTestContext({ pathname: '/library' }))).toBe(true);
+
+    const navigate = vi.fn();
+    run('diff.compare', { pathname: '/prompts/p1', navigate });
+    run('diff.open', { pathname: '/library', navigate });
+
+    expect(navigate).toHaveBeenNthCalledWith(1, '/diff?prompt=p1');
+    expect(navigate).toHaveBeenNthCalledWith(2, '/diff');
+  });
+
   it('only offers the favorite toggle while a prompt is open', () => {
     const command = byId.get('prompt.toggle-favorite');
     if (!command) throw new Error('Missing prompt.toggle-favorite');

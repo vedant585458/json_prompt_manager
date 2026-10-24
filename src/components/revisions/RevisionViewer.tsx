@@ -1,7 +1,9 @@
-import { RotateCcw } from 'lucide-react';
+import { GitCompare, RotateCcw } from 'lucide-react';
 import { Suspense, lazy } from 'react';
+import { Link } from 'react-router-dom';
 
-import { Badge, Button, Card, CopyButton } from '@/components/ui';
+import { Badge, Button, Card, CopyButton, buttonVariants } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { formatDateTime, formatRelativeTime } from '@/lib/dates';
 import { describeRevisionSize, summariseRevision } from '@/domain/revisions';
 import type { PromptRevision } from '@/domain/types';
@@ -19,6 +21,8 @@ export interface RevisionViewerProps {
   readonly onCopied: () => void;
   /** True when this snapshot already matches the stored prompt. */
   readonly matchesCurrent: boolean;
+  /** Link that compares this snapshot with the stored prompt (TASK-020). */
+  readonly compareHref: string;
 }
 
 const KIND_TONE = {
@@ -55,6 +59,7 @@ export function RevisionViewer({
   onRestore,
   onCopied,
   matchesCurrent,
+  compareHref,
 }: RevisionViewerProps) {
   const summary = summariseRevision(revision);
 
@@ -72,6 +77,13 @@ export function RevisionViewer({
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge tone={KIND_TONE[revision.kind]}>{summary.kindLabel}</Badge>
+          <Link
+            to={compareHref}
+            className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'gap-1.5')}
+          >
+            <GitCompare aria-hidden="true" size={12} />
+            Compare with current
+          </Link>
           <Button variant="secondary" size="sm" onClick={onRestore} disabled={busy}>
             <RotateCcw aria-hidden="true" size={12} />
             Restore this snapshot

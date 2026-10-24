@@ -149,6 +149,26 @@ export function createCoreCommands(): readonly CommandDefinition[] {
       run: (context) => context.togglePromptFavorite(),
     },
     {
+      id: 'diff.compare',
+      title: 'Compare revisions of the open prompt',
+      group: 'Workspace',
+      description: 'Opens the diff explorer with the newest snapshot against the stored prompt.',
+      keywords: searchTerms('diff compare changes revisions snapshot history'),
+      when: (context) => /^\/prompts\/[^/]+$/.test(context.pathname),
+      run: (context) => {
+        const promptId = context.pathname.split('/')[2];
+        context.navigate(promptId ? `/diff?prompt=${encodeURIComponent(promptId)}` : '/diff');
+      },
+    },
+    {
+      id: 'diff.open',
+      title: 'Open the diff explorer',
+      group: 'Workspace',
+      description: 'Compare a stored prompt, snapshots, or pasted JSON.',
+      keywords: searchTerms('diff compare changes json documents'),
+      run: (context) => context.navigate('/diff'),
+    },
+    {
       id: 'validation.validate-prompt',
       title: 'Validate the open prompt',
       group: 'Workspace',

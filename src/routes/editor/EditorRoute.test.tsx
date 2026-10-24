@@ -610,6 +610,15 @@ describe('revision history entry points (TASK-019)', () => {
     expect(link).toHaveTextContent('none');
   });
 
+  it('links to the diff explorer from the header', async () => {
+    await openEditor({ prompts: [prompt], mode: 'durable' });
+
+    expect(await screen.findByRole('link', { name: /Compare/ })).toHaveAttribute(
+      'href',
+      '/diff?prompt=alpha',
+    );
+  });
+
   it('counts the stored snapshots in the header', async () => {
     const revision = createRevision(prompt, { revisionNumber: 1, kind: 'manual', label: 'First' });
     const repositories = createInMemoryRepositories({

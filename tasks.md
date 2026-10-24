@@ -591,7 +591,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-007 — Seed data, application store, and first-run foundation — High — deps: 004, 006
 - [x] TASK-008 — Application shell, routing, and responsive navigation — High — deps: 004, 007
 - [x] TASK-009 — Keyboard shortcut registry and command palette — High — deps: 008
-- [ ] TASK-010 — Dashboard with real library data — High — deps: 008, 009
+- [x] TASK-010 — Dashboard with real library data — High — deps: 008, 009
 - [ ] TASK-011 — Prompt library browsing, search, filters, and views — High — deps: 008
 - [ ] TASK-012 — Prompt CRUD, folders, and collections — High — deps: 011
 - [ ] TASK-013 — Tags, favorites, pins, archive, and bulk actions — Medium — deps: 012
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 9 of 31 tasks complete. TASK-001 through TASK-009 were completed on 2026-10-24.
+**Progress:** 10 of 31 tasks complete. TASK-001 through TASK-010 were completed on 2026-10-24.
 
 ---
 
@@ -962,7 +962,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-010 — Dashboard with real library data
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-008, TASK-009
 - **Objective:** Deliver the command-center dashboard using only real stored data, plus the skippable first-run experience.
@@ -982,6 +982,21 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Integration tests for aggregates (counts, recents, invalid docs, activity) using seeded repositories; first-run dismissal persistence; empty-state tests; visual checks both themes and 390/1440 px; typecheck/lint/tests/build.
 - **Deliverables:** `src/routes/dashboard/*`, `src/components/dashboard/{StatStrip,RecentList,PinnedRail,AttentionList,ActivityRail,FirstRunPanel}.tsx`, dashboard selectors/tests.
 - **Out of scope:** Health dashboard deep metrics (TASK-025), template catalog management (TASK-018), library interactions (TASK-011).
+
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Selector (`src/store/dashboard.ts`):** `selectDashboardData()` returns `counts` (total non-archived, active, favorites, archived, collections, snapshots, invalid documents, templates), `recent` (5), `pinned` (6), `favorites` (5), `templates` (3, built-ins first), `attention` (5), `activity` (8), and `isEmpty`, all derived in one pass from stored records. `findDocumentProblems()` runs `parseDocument()` over each stored `content` typed as `unknown` and keeps the first issue's path and message — the only definition of "invalid" in the build. `selectAttention()` lists broken documents first, then prompts idle for more than `STALE_AFTER_DAYS` (30), capped. `describeDashboardSummary()` writes the header sentence from the same counts object.
+  - **Store (`src/store/dataStore.ts`):** new `revisions` slice — `hydrate()` fans out `revisions.listByPrompt()` per prompt (the contract has no list-all), sorts newest first; `snapshotPrompt()` prepends the saved revision and `deletePrompt()` drops a deleted prompt's revisions.
+  - **Helpers:** `src/lib/dates.ts` (`formatLongDate`, `formatShortDate`, `formatDateTime`, `formatRelativeTime`, `greetingFor`, `toIsoDay`; locale pinned to `en-GB`, `now` injectable) and `src/lib/libraryLinks.ts` (the `?filter=` vocabulary, `libraryFilterHref`, `readLibraryFilter` with fallback to `all`).
+  - **Components (`src/components/dashboard/`):** `StatStrip` (six tiles, each a link, wording and colour both change for parse failures), `RecentList` (plus the shared `PromptListSection`, `FavoritesList`, and `LibraryEmptyNotice`), `PinnedRail`, `AttentionList`, `ActivityRail`, `FirstRunPanel`, plus `DashboardSection` (labelled card shell with an optional real action), `PromptRow`, `TemplatePreview`, and `useDashboardData`.
+  - **Route (`src/routes/dashboard/DashboardRoute.tsx`):** editorial header (greeting · long date, `h1` Dashboard, generated summary) with New prompt → `/composer`, From template → `/templates`, and Search opening the command palette with the platform key hint; first-run guide; stat strip; pinned rail; two-column recents/attention and favorites/activity; quick-start templates. Empty library gets an explicit "this library is empty" notice with both entry points.
+  - **First run:** visible only while `settings.onboardedAt === null`. Dismissal merges the live preferences via `preferencesStore.toSettings()` and awaits `saveSettings()`; the panel disappears only after storage accepted the record, and a rejection keeps the panel and reports the failure in a `role="alert"` message.
+  - **Store injection (`src/store/dataStoreContext.ts`, `src/app/providers/DataStoreProvider.tsx`):** screens now read the store provided by `DataBootstrap` (falling back to the singleton), which is what makes the required integration tests honest. `DataBootstrap` wraps its children in the provider.
+  - **Library route honesty:** `LibraryRoute` reads the incoming `?filter=` and tells the user which view was requested, instead of silently ignoring a link the dashboard just produced.
+  - **Tests added (46 new cases; whole suite 572 across 50 files):** `src/lib/dates.test.ts` 10 (formatting, relative buckets, future skew, greeting boundaries), `src/store/dashboard.test.ts` 16 (counts from records, empty and 250-prompt libraries, list caps and ordering, template order, activity cap, real parse failures, staleness, attention ordering, summary copy), `src/lib/libraryLinks.test.ts` 5 (filter round-trip, labels, fallbacks), `src/routes/dashboard/DashboardRoute.test.tsx` 15 (seeded in-memory repositories through the real shell → rendered numbers and hrefs, summary sentence, filter navigation, recents ordering and editor navigation, pinned/favorites separation, template previews, activity cap, broken-document reporting, empty states, first-run show/persist/re-hide across a fresh boot, failed dismissal, palette trigger). One existing router test was scoped to the top-bar trigger because the header now shows the same `Ctrl` hint.
+  - **Validation executed:** `npm run typecheck` exit 0; `npm run lint` exit 0 with **0 warnings**; `npm run test:run` — **50 files / 572 tests passed**; `npm run format:check` clean; `npm run check:contrast` 52 pairings pass; `npm run build` exit 0 — CSS 49.38 kB (12.33 kB gzip), JS 645.20 kB (197.38 kB gzip).
+  - **Not performed (stated honestly):** the requested visual checks at 390 px and 1440 px in both themes — this workspace has no browser binary. Layout rests on wrapping grids, `min-w-0`, and `truncate`; the visual pass is scheduled for TASK-027/028.
+  - **Deviations recorded:** extra dashboard modules (`DashboardSection`, `PromptRow`, `TemplatePreview`, `useDashboardData`), the `revisions` store slice, the store-context injection, and a `BadgeTone` type export from the UI barrel. Rationale and consequences are in ADR-56…ADR-60.
+  - **Docs:** `docs/DECISIONS.md` gained ADR-56…ADR-60, five index rows, and a TASK-010 verification log with the test inventory, limitations, and deviations; `docs/ARCHITECTURE.md` gained a "Dashboard" section and an updated route table/project structure; `README.md` and `tasks.md` updated.
 
 ---
 

@@ -75,7 +75,7 @@ architecture; features are still implemented only when their task is authorized.
 src/
   app/            application root, providers, boot sequence, error boundary
   routes/         route-level screens
-  components/     ui primitives, layout, command palette, and domain components
+  components/     ui primitives, layout, command palette, dashboard, and domain components
   features/       feature modules (save pipeline, revisions, diff, lab, ...)
   domain/         pure TypeScript domain logic and types (no React, no storage)
   data/           repository interfaces, IndexedDB + in-memory adapters, migrations,
@@ -142,7 +142,7 @@ renders even if the shell itself throws.
 
 | Path                 | Screen                | State                                      |
 | -------------------- | --------------------- | ------------------------------------------ |
-| `/`                  | Dashboard             | Scaffold → TASK-010                        |
+| `/`                  | Dashboard             | **Implemented** (TASK-010)                 |
 | `/library`           | Library               | Scaffold → TASK-011                        |
 | `/prompts/:promptId` | Prompt workspace      | Scaffold → TASK-014                        |
 | `/composer`          | Composer              | Scaffold → TASK-017                        |
@@ -182,6 +182,39 @@ AppProviders (theme → tooltips → toasts → error boundary)
   └─ DataBootstrap          // skeletons until storage is resolved, seeded, hydrated
        └─ RouterProvider    // createBrowserRouter(routes); tests inject a memory router
 ```
+
+## Dashboard (TASK-010)
+
+The landing screen is the one place that summarises the library, so its data path is deliberately
+narrow: **store → one pure selector → presentational sections**. No component counts anything itself.
+
+| Piece                                          | Responsibility                                                                                                                                                                       |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/store/dashboard.ts`                       | `selectDashboardData()` (counts, recents, pinned, favorites, templates, attention, activity, `isEmpty`), `findDocumentProblems()`, `selectAttention()`, `describeDashboardSummary()` |
+| `src/components/dashboard/useDashboardData.ts` | Reads the injected store slices and memoises the selector on those slices                                                                                                            |
+| `src/components/dashboard/*.tsx`               | `StatStrip`, `RecentList`, `PinnedRail`, `AttentionList`, `ActivityRail`, `FirstRunPanel`, plus the shared `DashboardSection` shell, `PromptRow`, and `TemplatePreview`              |
+| `src/routes/dashboard/DashboardRoute.tsx`      | Editorial header (greeting, date, summary, actions, palette trigger) and the section layout                                                                                          |
+| `src/lib/dates.ts`                             | Locale-pinned date, date-time, relative-time, and greeting helpers (pure, `now` injectable)                                                                                          |
+| `src/lib/libraryLinks.ts`                      | The `?filter=` vocabulary the stat tiles and section actions link into (ADR-57)                                                                                                      |
+
+**Rules the screen follows.**
+
+- Every number is derived at render time from stored records; the header sentence is generated from the
+  same counts object, so the two cannot disagree (ADR-56).
+- "Invalid" is decided only by `parseDocument()` refusing the stored document. The copy says "will not
+  parse"; no screen claims a prompt is good, and valid syntax is never presented as quality.
+- Archived prompts are excluded from recents, pinned, favorites, unreadable-document counts, and
+  attention (ADR-60).
+- Each stat tile and section action is a real link: `/library` (optionally filtered), `/validation`,
+  `/prompts/:promptId`, `/templates`, `/composer`. Unbuilt destinations render their honest scaffold.
+- The first-run guide shows only while `settings.onboardedAt` is null, and it disappears only after the
+  settings write succeeds; a failure is reported and the guide stays (ADR-58).
+- Empty states differ for "no prompts at all", "all archived", and "nothing in this section yet",
+  because those mean different things to the user.
+
+Screens read the store through `useDataStoreApi()` (`src/store/dataStoreContext.ts`), which returns the
+store provided by `DataBootstrap` or the application singleton. That is what lets the integration tests
+mount the real shell, store, and seeded in-memory repositories together (ADR-59).
 
 ## Commands and keyboard
 

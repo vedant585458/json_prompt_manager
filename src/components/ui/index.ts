@@ -18,7 +18,13 @@ export { Select, type SelectProps, type SelectOption } from '@/components/ui/Sel
 export { Checkbox, type CheckboxProps } from '@/components/ui/Checkbox';
 export { Switch, type SwitchProps } from '@/components/ui/Switch';
 export { RadioGroup, type RadioGroupProps, type RadioOption } from '@/components/ui/RadioGroup';
-export { Badge, StatusPill, type BadgeProps, type StatusPillProps } from '@/components/ui/Badge';
+export {
+  Badge,
+  StatusPill,
+  type BadgeProps,
+  type BadgeTone,
+  type StatusPillProps,
+} from '@/components/ui/Badge';
 export { badgeVariants } from '@/components/ui/badgeVariants';
 export { Card, Surface, type CardProps, type SurfaceProps } from '@/components/ui/Surface';
 export { surfaceVariants } from '@/components/ui/surfaceVariants';

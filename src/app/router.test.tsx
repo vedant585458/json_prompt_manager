@@ -183,7 +183,8 @@ describe('router', () => {
     expect(trigger).toBeEnabled();
     // jsdom reports a non-Apple platform, so Mod renders as Control.
     expect(trigger).toHaveAttribute('aria-keyshortcuts', 'Control+K');
-    expect(screen.getByText('Ctrl')).toBeInTheDocument();
+    // The dashboard header also shows the hint, so assert on the trigger itself.
+    expect(within(trigger).getByText('Ctrl')).toBeInTheDocument();
 
     await user.click(trigger);
     expect(await screen.findByRole('dialog', { name: 'Command palette' })).toBeInTheDocument();

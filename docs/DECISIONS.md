@@ -6,57 +6,62 @@ also summarized in [`../tasks.md`](../tasks.md) §5.3; entries here reflect what
 
 Status values: **Accepted** (in force), **Planned** (agreed, not yet built), **Superseded**.
 
-| ADR    | Decision                                                                | Status     | Task         |
-| ------ | ----------------------------------------------------------------------- | ---------- | ------------ |
-| ADR-01 | Client-only, local-first v1 with no backend                             | Accepted   | —            |
-| ADR-02 | Repository boundary between UI and persistence                          | Accepted   | TASK-006     |
-| ADR-03 | Toolchain: Vite + React 19 + strict TypeScript                          | Accepted   | TASK-001     |
-| ADR-04 | Variables resolved by a non-evaluating renderer                         | Planned    | TASK-021     |
-| ADR-05 | In-house structural JSON diff                                           | Planned    | TASK-020     |
-| ADR-06 | Purpose-built deterministic blueprint graph                             | Planned    | TASK-023     |
-| ADR-07 | Autosave never spams revisions; restore creates a safety revision       | Planned    | TASK-015/019 |
-| ADR-08 | Built-in templates are versioned, immutable seeds                       | Planned    | TASK-018     |
-| ADR-09 | CSS custom properties as the single token source                        | Accepted   | TASK-002     |
-| ADR-10 | Tailwind v4 `@theme inline` bridge over raw `--pf-*` tokens             | Accepted   | TASK-002     |
-| ADR-11 | Dark-first default; `system` preference resolved before first paint     | Accepted   | TASK-002     |
-| ADR-12 | Self-hosted typography with metric-adjusted fallbacks                   | Accepted   | TASK-002     |
-| ADR-13 | Split accent tokens: `accent` (text/icon) vs `accent-fill` (surface)    | Accepted   | TASK-002     |
-| ADR-14 | Contrast is an executable gate, not a spreadsheet                       | Accepted   | TASK-002     |
-| ADR-15 | Token-backed layout, stacking, motion, and elevation scales             | Accepted   | TASK-002     |
-| ADR-22 | Destructive confirmations are deliberately non-dismissible              | Accepted   | TASK-004     |
-| ADR-23 | Toast queue with an 8 s error floor and pause-on-hover/focus            | Accepted   | TASK-004     |
-| ADR-24 | Empty and error states require a real action; details are disclosed     | Accepted   | TASK-004     |
-| ADR-25 | `aria-modal` is set explicitly on dialog and sheet content              | Accepted   | TASK-004     |
-| ADR-26 | Overlays restore focus to the opener captured at mount                  | Accepted   | TASK-004     |
-| ADR-27 | Context-menu keyboard shortcut handled in the wrapper                   | Accepted   | TASK-004     |
-| ADR-28 | Domain operations return issue-bearing results, never throw             | Accepted   | TASK-005     |
-| ADR-29 | Unknown document fields ride along in `extras`                          | Accepted   | TASK-005     |
-| ADR-30 | Factories receive an injected clock and ID generator                    | Accepted   | TASK-005     |
-| ADR-31 | Content identity uses a pure FNV-1a hash, not `crypto.subtle`           | Accepted   | TASK-005     |
-| ADR-32 | `Prompt.variables` is a denormalized copy of the document's list        | Accepted   | TASK-005     |
-| ADR-33 | One contract suite gates both storage adapters                          | Accepted   | TASK-006     |
-| ADR-34 | Boolean flags are indexed through numeric `0                            | 1` mirrors | Accepted     | TASK-006 |
-| ADR-35 | Prompt writes use optimistic concurrency plus a per-prompt queue        | Accepted   | TASK-006     |
-| ADR-36 | Platform failures are mapped into a typed storage-error hierarchy       | Accepted   | TASK-006     |
-| ADR-37 | Declarative, replayable migrations inside the versionchange transaction | Accepted   | TASK-006     |
-| ADR-38 | Cross-tab writes are announced, never merged                            | Accepted   | TASK-006     |
-| ADR-39 | The data layer has a lint-enforced boundary and one public entry point  | Accepted   | TASK-006     |
-| ADR-40 | Stored state is copied with `structuredClone` on read and write         | Accepted   | TASK-006     |
-| ADR-41 | First-run data is versioned and resumable, never transactional          | Accepted   | TASK-007     |
-| ADR-42 | Storage selection lives in the data layer; ephemeral mode is labelled   | Accepted   | TASK-007     |
-| ADR-43 | Store actions adopt the repository's write result, never a guess        | Accepted   | TASK-007     |
-| ADR-44 | Activity logging is secondary to the mutation it describes              | Accepted   | TASK-007     |
-| ADR-45 | One preferences store; the theme slice became a re-export               | Accepted   | TASK-007     |
-| ADR-46 | Selectors are pure functions with single-entry memoization              | Accepted   | TASK-007     |
-| ADR-47 | One layout route owns the shell; the error screen sits outside it       | Accepted   | TASK-008     |
-| ADR-48 | One navigation model drives rail, drawer, breadcrumbs, and title        | Accepted   | TASK-008     |
-| ADR-49 | Route focus moves to `main`; drawer navigation skips focus restoration  | Accepted   | TASK-008     |
-| ADR-50 | Unbuilt destinations are scaffolds, not mock-ups                        | Accepted   | TASK-008     |
-| ADR-51 | Settings expose only preferences whose features exist                   | Accepted   | TASK-008     |
-| ADR-52 | One command registry rejects duplicate ids and shortcut conflicts       | Accepted   | TASK-009     |
-| ADR-53 | Shortcut matching is pure, platform-aware, and sequence-capable         | Accepted   | TASK-009     |
-| ADR-54 | Palette keeps focus in the search field and guards double execution     | Accepted   | TASK-009     |
-| ADR-55 | The shortcut reference is generated from the registry                   | Accepted   | TASK-009     |
+| ADR    | Decision                                                                  | Status     | Task         |
+| ------ | ------------------------------------------------------------------------- | ---------- | ------------ |
+| ADR-01 | Client-only, local-first v1 with no backend                               | Accepted   | —            |
+| ADR-02 | Repository boundary between UI and persistence                            | Accepted   | TASK-006     |
+| ADR-03 | Toolchain: Vite + React 19 + strict TypeScript                            | Accepted   | TASK-001     |
+| ADR-04 | Variables resolved by a non-evaluating renderer                           | Planned    | TASK-021     |
+| ADR-05 | In-house structural JSON diff                                             | Planned    | TASK-020     |
+| ADR-06 | Purpose-built deterministic blueprint graph                               | Planned    | TASK-023     |
+| ADR-07 | Autosave never spams revisions; restore creates a safety revision         | Planned    | TASK-015/019 |
+| ADR-08 | Built-in templates are versioned, immutable seeds                         | Planned    | TASK-018     |
+| ADR-09 | CSS custom properties as the single token source                          | Accepted   | TASK-002     |
+| ADR-10 | Tailwind v4 `@theme inline` bridge over raw `--pf-*` tokens               | Accepted   | TASK-002     |
+| ADR-11 | Dark-first default; `system` preference resolved before first paint       | Accepted   | TASK-002     |
+| ADR-12 | Self-hosted typography with metric-adjusted fallbacks                     | Accepted   | TASK-002     |
+| ADR-13 | Split accent tokens: `accent` (text/icon) vs `accent-fill` (surface)      | Accepted   | TASK-002     |
+| ADR-14 | Contrast is an executable gate, not a spreadsheet                         | Accepted   | TASK-002     |
+| ADR-15 | Token-backed layout, stacking, motion, and elevation scales               | Accepted   | TASK-002     |
+| ADR-22 | Destructive confirmations are deliberately non-dismissible                | Accepted   | TASK-004     |
+| ADR-23 | Toast queue with an 8 s error floor and pause-on-hover/focus              | Accepted   | TASK-004     |
+| ADR-24 | Empty and error states require a real action; details are disclosed       | Accepted   | TASK-004     |
+| ADR-25 | `aria-modal` is set explicitly on dialog and sheet content                | Accepted   | TASK-004     |
+| ADR-26 | Overlays restore focus to the opener captured at mount                    | Accepted   | TASK-004     |
+| ADR-27 | Context-menu keyboard shortcut handled in the wrapper                     | Accepted   | TASK-004     |
+| ADR-28 | Domain operations return issue-bearing results, never throw               | Accepted   | TASK-005     |
+| ADR-29 | Unknown document fields ride along in `extras`                            | Accepted   | TASK-005     |
+| ADR-30 | Factories receive an injected clock and ID generator                      | Accepted   | TASK-005     |
+| ADR-31 | Content identity uses a pure FNV-1a hash, not `crypto.subtle`             | Accepted   | TASK-005     |
+| ADR-32 | `Prompt.variables` is a denormalized copy of the document's list          | Accepted   | TASK-005     |
+| ADR-33 | One contract suite gates both storage adapters                            | Accepted   | TASK-006     |
+| ADR-34 | Boolean flags are indexed through numeric `0                              | 1` mirrors | Accepted     | TASK-006 |
+| ADR-35 | Prompt writes use optimistic concurrency plus a per-prompt queue          | Accepted   | TASK-006     |
+| ADR-36 | Platform failures are mapped into a typed storage-error hierarchy         | Accepted   | TASK-006     |
+| ADR-37 | Declarative, replayable migrations inside the versionchange transaction   | Accepted   | TASK-006     |
+| ADR-38 | Cross-tab writes are announced, never merged                              | Accepted   | TASK-006     |
+| ADR-39 | The data layer has a lint-enforced boundary and one public entry point    | Accepted   | TASK-006     |
+| ADR-40 | Stored state is copied with `structuredClone` on read and write           | Accepted   | TASK-006     |
+| ADR-41 | First-run data is versioned and resumable, never transactional            | Accepted   | TASK-007     |
+| ADR-42 | Storage selection lives in the data layer; ephemeral mode is labelled     | Accepted   | TASK-007     |
+| ADR-43 | Store actions adopt the repository's write result, never a guess          | Accepted   | TASK-007     |
+| ADR-44 | Activity logging is secondary to the mutation it describes                | Accepted   | TASK-007     |
+| ADR-45 | One preferences store; the theme slice became a re-export                 | Accepted   | TASK-007     |
+| ADR-46 | Selectors are pure functions with single-entry memoization                | Accepted   | TASK-007     |
+| ADR-47 | One layout route owns the shell; the error screen sits outside it         | Accepted   | TASK-008     |
+| ADR-48 | One navigation model drives rail, drawer, breadcrumbs, and title          | Accepted   | TASK-008     |
+| ADR-49 | Route focus moves to `main`; drawer navigation skips focus restoration    | Accepted   | TASK-008     |
+| ADR-50 | Unbuilt destinations are scaffolds, not mock-ups                          | Accepted   | TASK-008     |
+| ADR-51 | Settings expose only preferences whose features exist                     | Accepted   | TASK-008     |
+| ADR-52 | One command registry rejects duplicate ids and shortcut conflicts         | Accepted   | TASK-009     |
+| ADR-53 | Shortcut matching is pure, platform-aware, and sequence-capable           | Accepted   | TASK-009     |
+| ADR-54 | Palette keeps focus in the search field and guards double execution       | Accepted   | TASK-009     |
+| ADR-55 | The shortcut reference is generated from the registry                     | Accepted   | TASK-009     |
+| ADR-56 | Dashboard numbers come from one pure selector; "invalid" means unparsable | Accepted   | TASK-010     |
+| ADR-57 | The dashboard owns the `?filter=` library link contract                   | Accepted   | TASK-010     |
+| ADR-58 | First-run dismissal is a settings write, never an optimistic hide         | Accepted   | TASK-010     |
+| ADR-59 | Screens read the data store from context, not the module singleton        | Accepted   | TASK-010     |
+| ADR-60 | Archived prompts are outside the dashboard's working set                  | Accepted   | TASK-010     |
 
 ---
 
@@ -973,6 +978,100 @@ false) disappears from both surfaces.
 
 ---
 
+## ADR-56 — Dashboard numbers come from one pure selector, and "invalid" means unparsable
+
+**Context.** The dashboard's job is to be trustworthy at a glance: a count that disagrees with the
+library, or a "valid" badge that only means "the braces close", would teach the user to distrust the
+screen. TASK-010 forbids hard-coded numbers and forbids equating valid JSON with prompt quality.
+
+**Decision.** `src/store/dashboard.ts` exposes `selectDashboardData(input)`, a pure function over the
+stored records (`prompts`, `collections`, `templates`, `revisions`, `activity`, `now`). It returns the
+counts, the capped lists, and the attention items in one pass. Components never compute a count; they
+render what the selector returned. `findDocumentProblems()` is the single definition of a broken
+document: it passes each stored `content` — typed `unknown`, because storage is untrusted — through
+`parseDocument()` and keeps the first issue's path and message. The UI says **"will not parse"** and
+"Every stored document parses", never "valid prompt" or anything about quality; the first-run guide
+states the same limit in words.
+
+**Consequences.** Adding a statistic means extending `DashboardCounts`, the selector, and its tests,
+which is the intended friction. Parsing cost is O(live prompts) per store change, memoised by
+`useDashboardData` on the store slices; the revision total is read from the `revisions` slice that
+`hydrate()` now populates (one `listByPrompt` per prompt — an N+1 the repository contract forces).
+
+---
+
+## ADR-57 — The dashboard owns the `?filter=` library link contract
+
+**Context.** Every dashboard tile is supposed to be a shortcut into a filtered view, but the library
+does not filter anything until TASK-011. Building links to nowhere would be a dead end; inventing a
+second vocabulary in TASK-011 would break the links the dashboard ships.
+
+**Decision.** `src/lib/libraryLinks.ts` declares the filter vocabulary once
+(`all | active | draft | deprecated | favorites | archived | collections | snapshots`),
+`libraryFilterHref()` builds `/library?filter=…` (with `all` keeping a clean URL), and
+`readLibraryFilter()` parses it, falling back to `all` for unknown or missing values. The dashboard's
+stat tiles and section actions use those helpers. Until TASK-011 applies filters, `LibraryRoute`
+echoes the requested view in an info alert instead of silently dropping it.
+
+**Consequences.** TASK-011 must honour these values (or amend this ADR and the helper together);
+`collections` and `snapshots` are named now because the dashboard counts them now. A hand-typed or
+stale filter never produces an empty screen — it produces the whole library.
+
+---
+
+## ADR-58 — First-run dismissal is a settings write, never an optimistic hide
+
+**Context.** The guide must appear only while `settings.onboardedAt` is null and disappear
+permanently once dismissed. A local flag, or hiding before storage confirms, would let a failed write
+look like a saved preference.
+
+**Decision.** `FirstRunPanel` receives `onDismiss(): Promise<void>` and shows while
+`settings.onboardedAt === null`. The dashboard's handler merges `preferencesStore.toSettings(base)`
+(so theme, density, and autosave survive; `seedVersion` is preserved) with a fresh `onboardedAt` and
+awaits `saveSettings`. The panel disappears only after the repository accepted the record; a rejection
+renders `role="alert"` copy that says the guide will return, and re-enables the button. A null settings
+record hides the panel, because there is nothing to persist against.
+
+**Consequences.** Dismissal costs one settings write and one activity entry ("Updated preferences").
+The preference lives with the rest of the settings, so it survives reloads for the same reason theme
+does, and cannot drift from storage.
+
+---
+
+## ADR-59 — Screens read the data store from context, not the module singleton
+
+**Context.** `DataBootstrap` has accepted a `store` prop since TASK-008, but screens called
+`useDataStore` directly, so the injection stopped at the bootstrap. That made the dashboard's required
+integration tests impossible to write honestly: seeded in-memory repositories could not reach the
+component being tested.
+
+**Decision.** `src/store/dataStoreContext.ts` provides `DataStoreContext` and `useDataStoreApi()`,
+which returns the nearest provided store and falls back to the application singleton. `DataBootstrap`
+wraps its children in `DataStoreProvider`. The dashboard (`useDashboardData`, `DashboardRoute`) reads
+through the hook; non-React code (boot, command context) keeps using the singleton.
+
+**Consequences.** Tests mount the real shell, route table, store, and in-memory repositories together
+and assert what a user would see. Later screens should adopt the hook; the singleton remains the
+production default, so no existing behaviour changes.
+
+---
+
+## ADR-60 — Archived prompts are outside the dashboard's working set
+
+**Context.** The dashboard shows "recently edited", "pinned", "favorites", and "needs attention".
+Archived prompts are deliberately set aside, so mixing them in would contradict the archive.
+
+**Decision.** Recents, pinned, favorites, unreadable-document counts, and the attention list consider
+only non-archived prompts. `counts.total` is the non-archived count; `archived` is counted separately.
+Collections, snapshot revisions, and templates are counted across the whole store. `isEmpty` means the
+store holds no prompts at all (archived included), so an archive-only library is reported as "nothing
+edited yet" rather than "empty library".
+
+**Consequences.** Archiving a broken document removes it from attention — deliberate, because archiving
+is the user saying "set this aside". Restoring it brings it back on the next render.
+
+---
+
 ## Verification log — TASK-005
 
 | Check              | Command                                               | Result (2026-10-24)                                                                        |
@@ -1224,3 +1323,58 @@ Run `npm run check:contrast` to reproduce. Thresholds: 4.5:1 for text, 3:1 for U
 - Component primitives, the gallery route, and the application shell do not exist yet.
 - Contrast coverage is limited to the pairings listed above; real-screen auditing is TASK-028.
 - No automated visual regression or screenshot diffing exists; none is planned in v1.
+
+---
+
+## Verification log — TASK-010
+
+| Check                 | Command                                                       | Result (2026-10-24)                                                  |
+| --------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Types                 | `npm run typecheck`                                           | exit 0                                                               |
+| Lint                  | `npm run lint`                                                | exit 0, **0 warnings**                                               |
+| Tests                 | `npm run test:run`                                            | 50 files / **572 tests passed** (46 new)                             |
+| Dashboard integration | `npx vitest run src/routes/dashboard/DashboardRoute.test.tsx` | 15 tests passed                                                      |
+| Dashboard selectors   | `npx vitest run src/store/dashboard.test.ts`                  | 16 tests passed                                                      |
+| Date helpers          | `npx vitest run src/lib/dates.test.ts`                        | 10 tests passed                                                      |
+| Library link contract | `npx vitest run src/lib/libraryLinks.test.ts`                 | 5 tests passed                                                       |
+| Formatting            | `npm run format:check`                                        | clean                                                                |
+| Build                 | `npm run build`                                               | exit 0 — CSS 49.38 kB (12.33 kB gzip), JS 645.20 kB (197.38 kB gzip) |
+| Contrast              | `npm run check:contrast`                                      | 52 pairings pass                                                     |
+| Visual checks         | both themes, 390 px / 1440 px                                 | **not performed** — no browser binary in this workspace              |
+
+### Test inventory added in this task
+
+| File                                           | Cases | Focus                                                                                                                                                                                                                                                                                                 |
+| ---------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/lib/dates.test.ts`                        | 10    | long/short/date-time formatting, relative buckets, future skew, greeting boundaries, ISO day                                                                                                                                                                                                          |
+| `src/store/dashboard.test.ts`                  | 16    | counts from records, empty and 250-prompt libraries, recents/pinned/favorites caps, template order, activity cap, real parse failures, staleness, attention ordering, summary copy                                                                                                                    |
+| `src/lib/libraryLinks.test.ts`                 | 5     | clean default URL, every filter round-trip, label coverage, unknown-value fallback, leading `?` handling                                                                                                                                                                                              |
+| `src/routes/dashboard/DashboardRoute.test.tsx` | 15    | seeded repositories → rendered numbers and hrefs, summary sentence, filter navigation, recents ordering + editor navigation, pinned/favorites separation, template previews, activity cap, broken-document reporting, empty states, first-run show/persist/re-hide, failed dismissal, palette trigger |
+
+### Known limitations at this stage
+
+- **No visual verification was performed.** There is no browser in this workspace, so the required
+  390 px / 1440 px and both-theme pass is deferred to TASK-027/028. Layout relies on wrapping grid
+  utilities and `min-w-0`/`truncate` rather than measured screenshots.
+- Dashboard tiles that map to a filter resolve to the library **scaffold** until TASK-011; the scaffold
+  says so and echoes the requested view (ADR-57) instead of pretending to filter.
+- Template previews link to `/templates` and do not instantiate a prompt; creating from a template is
+  TASK-018.
+- `counts.snapshots` counts every stored revision, but nothing creates revisions yet (TASK-015/019), so
+  it is 0 on a fresh install and only moves when a snapshot is taken.
+- `hydrate()` fetches revisions per prompt (N+1) because `RevisionRepository` exposes no list-all
+  method. Acceptable for the dashboard total; revisit if a repository-level list is authorized.
+- The single-chunk build advisory (645 kB / 197 kB gzip) is unchanged in kind and still accepted;
+  route-level code splitting is not part of any authorized task yet.
+
+### Deliberate deviations recorded for TASK-010
+
+- Added `src/components/dashboard/{DashboardSection,PromptRow,TemplatePreview}.tsx`,
+  `src/components/dashboard/useDashboardData.ts`, `src/store/dataStoreContext.ts`, and
+  `src/app/providers/DataStoreProvider.tsx` beyond the deliverables list: the shared card shell and row
+  keep six sections consistent, the template preview needed a name, and the context is what makes the
+  required integration tests honest (ADR-59).
+- `src/store/dataStore.ts` gained a `revisions` slice (hydration, snapshot, delete) because the
+  snapshot statistic has no other source; `hydrate()` therefore performs one revision query per prompt.
+- `BadgeTone` is now exported from `src/components/ui/index.ts` so the shared prompt row can type its
+  status→tone table instead of re-deriving the union.

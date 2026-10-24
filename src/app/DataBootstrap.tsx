@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { bootData, type BootOutcome } from '@/app/dataBoot';
+import { DataStoreProvider } from '@/app/providers/DataStoreProvider';
 import { Alert } from '@/components/ui/Alert';
 import { Button } from '@/components/ui/Button';
 import { ErrorState } from '@/components/ui/ErrorState';
@@ -137,9 +138,11 @@ export function DataBootstrap({
   }
 
   return (
-    <div className="flex min-h-dvh flex-col bg-canvas">
-      {notice ? <EphemeralBanner notice={notice} /> : null}
-      {children}
-    </div>
+    <DataStoreProvider store={store}>
+      <div className="flex min-h-dvh flex-col bg-canvas">
+        {notice ? <EphemeralBanner notice={notice} /> : null}
+        {children}
+      </div>
+    </DataStoreProvider>
   );
 }

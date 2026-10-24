@@ -93,6 +93,8 @@ export interface DataState {
   readonly schemas: readonly PromptSchema[];
   readonly snippets: readonly Snippet[];
   readonly activity: readonly ActivityEvent[];
+  /** Every stored revision, newest first as `hydrate` sorts them; the dashboard counts them. */
+  readonly revisions: readonly PromptRevision[];
   readonly settings: Settings | null;
 
   /** Binds repositories opened by the bootstrap. Does not read anything. */
@@ -282,6 +284,7 @@ export function createDataStore(options: DataStoreOptions = {}) {
       schemas: [],
       snippets: [],
       activity: [],
+      revisions: [],
       settings: null,
 
       attach: (nextRepositories, mode) => {
@@ -321,6 +324,15 @@ export function createDataStore(options: DataStoreOptions = {}) {
             repos.settings.get(),
           ]);
 
+          // Revisions are fetched per prompt: the repository contract exposes
+          // them by prompt (that is how the history panel will read them), and
+          // the dashboard only needs the total for its snapshot statistic.
+          const revisions = (
+            await Promise.all(prompts.map((prompt) => repos.revisions.listByPrompt(prompt.id)))
+          )
+            .flat()
+            .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+
           set({
             status: 'ready',
             prompts,
@@ -331,6 +343,7 @@ export function createDataStore(options: DataStoreOptions = {}) {
             schemas,
             snippets,
             activity,
+            revisions,
             settings,
           });
         } catch (error) {
@@ -367,6 +380,7 @@ export function createDataStore(options: DataStoreOptions = {}) {
 
           set((state) => ({
             prompts: state.prompts.filter((prompt) => prompt.id !== id),
+            revisions: state.revisions.filter((revision) => revision.promptId !== id),
           }));
 
           await recordActivity({
@@ -394,6 +408,7 @@ export function createDataStore(options: DataStoreOptions = {}) {
             dependencies,
           );
           const saved = await repos.revisions.create(revision);
+          set((state) => ({ revisions: [saved, ...state.revisions] }));
 
           await recordActivity({
             type: 'snapshot',

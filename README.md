@@ -2,7 +2,7 @@
 
 **Advanced JSON Prompt Management Studio** — a local-first workspace for creating, organizing, validating, versioning, comparing, and optimizing structured JSON prompts.
 
-> **Status: TASK-009 complete — command registry, command palette, and shortcut help.**
+> **Status: TASK-010 complete — dashboard with real library data and the first-run guide.**
 > The repository contains the toolchain, the Prompt Observatory token system with dark and light
 > themes, the primitive layer, the overlay/feedback layer demonstrated in a design gallery, the typed
 > domain model, the persistence layer (repository interfaces, IndexedDB with migrations, an in-memory
@@ -77,6 +77,7 @@ src/
   routes/         route-level screens (shell scaffolds + settings + design gallery)
   components/layout/  shell, rail, drawer, breadcrumbs, top bar, route chrome, shortcut help
   components/command-palette/  palette dialog and the command layer mounted by the shell
+  components/dashboard/  dashboard sections, stat strip, rails, and the first-run guide
   lib/commands/   registry, shortcut parsing/matching, core commands, React bindings
   components/     ui primitives, layout, and domain components
   features/       feature modules (save pipeline, revisions, diff, lab, ...)
@@ -94,6 +95,27 @@ docs/             architecture, data model, persistence, testing, limits
 See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for layer rules, the design-system contract,
 and architectural decisions, and [`docs/DECISIONS.md`](./docs/DECISIONS.md) for the decision log and
 the generated contrast table.
+
+## Dashboard
+
+`/` is the command centre, and every number on it is read from stored records through one pure
+selector (`src/store/dashboard.ts`) — nothing is hard-coded and nothing is estimated.
+
+- **Editorial header.** Greeting and long date, one summary sentence generated from the same counts as
+  the stat strip, and three ways in: New prompt (`/composer`), From template (`/templates`), Search
+  (opens the command palette).
+- **Stat strip.** Prompts, favorites, archived, collections, snapshots, and documents that will not
+  parse. Each tile links to the view it counts (filtered library or `/validation`), and the parse tile
+  changes its wording as well as its colour when the count is above zero.
+- **Sections.** Recently edited (5), pinned rail (6 cards), favorites (5), quick-start templates (3),
+  needs attention (broken documents first, then prompts idle for 30+ days, capped at 5), and the last
+  eight activity events — each with an empty state that says what belongs there.
+- **First run.** A three-step guide shown only while `settings.onboardedAt` is null. Dismissing writes
+  the timestamp through the settings repository; the guide disappears only after that write succeeds,
+  and a failure is reported instead of pretended away.
+- **Honesty rules.** "Invalid" means `parseDocument()` refused the stored document, and the copy says
+  "will not parse" — valid JSON is never presented as prompt quality. Archived prompts stay out of
+  recents, pinned, favorites, attention, and the unreadable count.
 
 ## Design system
 

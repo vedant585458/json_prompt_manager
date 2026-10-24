@@ -1,6 +1,7 @@
 import { Hammer } from 'lucide-react';
+import type { ReactNode } from 'react';
 
-import { Card, StatusPill } from '@/components/ui';
+import { Alert, Card, StatusPill } from '@/components/ui';
 
 export interface RouteScaffoldProps {
   readonly title: string;
@@ -9,6 +10,8 @@ export interface RouteScaffoldProps {
   readonly plannedFor: string;
   /** What the finished screen will do. Plain claims, no promises about dates. */
   readonly planned: readonly string[];
+  /** Optional honest note, e.g. a requested filter this screen cannot apply yet. */
+  readonly note?: ReactNode;
 }
 
 /**
@@ -18,7 +21,13 @@ export interface RouteScaffoldProps {
  * yet, lists what it will contain, and offers no controls that would appear to
  * work. Every route in this task renders one until its own task replaces it.
  */
-export function RouteScaffold({ title, description, plannedFor, planned }: RouteScaffoldProps) {
+export function RouteScaffold({
+  title,
+  description,
+  plannedFor,
+  planned,
+  note,
+}: RouteScaffoldProps) {
   return (
     <div className="mx-auto w-full max-w-3xl">
       <header>
@@ -26,6 +35,12 @@ export function RouteScaffold({ title, description, plannedFor, planned }: Route
         <h1 className="mt-2 font-display text-3xl leading-tight text-ink">{title}</h1>
         <p className="mt-3 max-w-prose text-sm leading-relaxed text-ink-secondary">{description}</p>
       </header>
+
+      {note ? (
+        <Alert tone="info" title="Heads up" className="mt-6">
+          {note}
+        </Alert>
+      ) : null}
 
       <Card as="section" aria-labelledby="planned-heading" className="mt-8 space-y-4">
         <div className="flex flex-wrap items-center gap-2">

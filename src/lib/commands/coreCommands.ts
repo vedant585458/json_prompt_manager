@@ -122,6 +122,16 @@ export function createCoreCommands(): readonly CommandDefinition[] {
       run: (context) => context.navigate('/composer'),
     },
     {
+      id: 'template.new',
+      title: 'New from template',
+      group: 'Workspace',
+      description: 'Browse the catalog and create a prompt from a template.',
+      keywords: searchTerms(
+        'template catalog starter blueprint blueprint extraction classification',
+      ),
+      run: (context) => context.navigate('/templates'),
+    },
+    {
       id: 'folder.new',
       title: 'New folder',
       group: 'Workspace',

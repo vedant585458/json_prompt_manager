@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { bootData } from '@/app/dataBoot';
 import {
+  BUILT_IN_TEMPLATES,
   createInMemoryRepositories,
   type Repositories,
   type StorageBootResult,
@@ -44,7 +45,7 @@ describe('bootData', () => {
     expect(store.getState().status).toBe('ready');
     expect(store.getState().mode).toBe('durable');
     expect(store.getState().prompts).toHaveLength(1);
-    expect(store.getState().settings?.seedVersion).toBe(1);
+    expect(store.getState().settings?.seedVersion).toBe(2);
     expect(store.getState().folders).toHaveLength(1);
 
     // The settings record wins over the pre-boot defaults.
@@ -64,9 +65,9 @@ describe('bootData', () => {
     const outcome = await bootData({ ...second, openStorage: storageResult(repositories) });
 
     expect(outcome.seed.seeded).toBe(false);
-    expect(outcome.seed.previousVersion).toBe(1);
+    expect(outcome.seed.previousVersion).toBe(2);
     expect(second.store.getState().prompts).toHaveLength(1);
-    expect(second.store.getState().templates).toHaveLength(2);
+    expect(second.store.getState().templates).toHaveLength(BUILT_IN_TEMPLATES.length);
 
     await repositories.close();
   });

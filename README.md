@@ -268,7 +268,28 @@ edits an existing one through the same save pipeline as the raw editor.
   draft asks first. Editing autosaves through the TASK-015 pipeline, with conflicts, recovery drafts, and the
   unsaved-changes guard unchanged.
 
-## Validation studio
+## Template catalog
+
+`/templates` (`G T`, or the dashboard's **From template** button) is where a prompt starts from a written
+example instead of an empty document.
+
+- **Nine built-in documents.** Extraction, classification, summarization, code review, structured analysis,
+  agent system prompts, content generation, and JSON transformation — each with a role, an objective,
+  instructions, constraints, at least one variable, and tags. Using one is free; the catalogue is local data.
+- **Preview before creating.** The sheet shows the document's role and objective, its instructions and
+  constraints, a variable table (name, type, required, default), the output format, and the JSON size, all
+  computed with the same function that builds the prompt.
+- **Use creates a copy.** A new prompt with its own identifier and version; editing it never changes the
+  template or another prompt. Snippet references are not carried over, and an output schema reference is
+  dropped when this browser does not store that schema — both are stated in the preview.
+- **Your own templates.** Save any stored prompt as a template (name, description, category), then duplicate,
+  rename, re-describe, or delete it. Built-ins are marked in words and are read-only; duplicating one gives
+  you a custom copy to edit.
+- **Finding one.** Search covers names, descriptions, categories, tags, and variable names; filter by
+  category and by built-in/custom; the result count is announced. Empty states exist for an empty catalogue,
+  no custom templates, and no matches.
+- **Filters are not stored.** They describe the visit. The open preview is in the URL (`?template=<id>`), so
+  the dashboard can deep-link into it and Back closes the panel.
 
 ## Validation studio
 
@@ -373,7 +394,7 @@ screen renders. If storage is unavailable the app still starts on an in-memory a
 a banner: **changes are kept in memory only and disappear when you reload**.
 
 The seed is versioned (`meta.seedVersion`), resumable, and never overwrites edits: a welcome prompt, a
-folder, a collection, two starter templates, and default settings — no activity events, because the
+folder, a collection, nine built-in templates, and default settings — no activity events, because the
 timeline belongs to the user. Details: [`docs/PERSISTENCE.md`](./docs/PERSISTENCE.md) §8–9.
 
 ## Data and privacy

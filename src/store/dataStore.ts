@@ -30,6 +30,7 @@ import {
   createPrompt as createPromptEntity,
   createPromptSchema,
   createRevision,
+  createTemplate as createTemplateEntity,
   systemDependencies,
   type CreatePromptInput,
   type DomainDependencies,
@@ -49,6 +50,14 @@ import {
   normalizeTitle,
 } from '@/domain/invariants';
 import { RuleViolationError } from '@/domain/errors';
+import {
+  builtInTemplateIssue,
+  checkTemplateName,
+  instantiateTemplate,
+  nextTemplateName,
+  templateDraftFromPrompt,
+  templateIssues,
+} from '@/domain/templates';
 import type {
   ActivityType,
   ActivityEvent,
@@ -153,6 +162,33 @@ export interface TagUpdateResult {
   readonly updated: number;
 }
 
+/** A new user template. Identity and timestamps are derived by the store. */
+export interface TemplateInput {
+  readonly name: string;
+  readonly description?: string;
+  readonly category?: string;
+  readonly content: PromptDocument;
+}
+
+/** Fields a caller may change on a stored user template. */
+export interface TemplateEdit {
+  readonly name?: string;
+  readonly description?: string;
+  readonly category?: string;
+}
+
+/** Metadata for "save this prompt as a template"; the document comes from the prompt. */
+export interface TemplateFromPromptInput {
+  readonly name: string;
+  readonly description?: string;
+  readonly category?: string;
+}
+
+export interface UseTemplateOptions {
+  /** Title for the new prompt; defaults to the template name. */
+  readonly title?: string;
+}
+
 export interface DataState {
   /** Whether writes survive a reload. Set by `attach`. */
   readonly mode: StorageMode;
@@ -254,6 +290,34 @@ export interface DataState {
   /** Attaches a schema to one prompt, or detaches it with `null`. */
   setPromptSchema: (promptId: string, schemaId: string | null) => Promise<Prompt>;
 
+  /**
+   * Stores a user template (TASK-018).
+   *
+   * The document is validated first: a template that could not become a valid
+   * prompt must never be offered as a starting point. Names are unique
+   * case-insensitively across built-ins and user templates.
+   */
+  createTemplate: (input: TemplateInput) => Promise<PromptTemplate>;
+  /** Saves a copy of a stored prompt's document as a user template. */
+  createTemplateFromPrompt: (
+    promptId: string,
+    input: TemplateFromPromptInput,
+  ) => Promise<PromptTemplate>;
+  /** Renames, re-describes, or re-categorises a user template. */
+  updateTemplate: (id: string, changes: TemplateEdit) => Promise<PromptTemplate>;
+  /** Copies any template into a user template; the source is never touched. */
+  duplicateTemplate: (id: string, changes?: TemplateEdit) => Promise<PromptTemplate>;
+  /** Deletes a user template; built-ins are refused, never silently skipped. */
+  deleteTemplate: (id: string) => Promise<PromptTemplate>;
+  /**
+   * Creates an independent prompt from a template and records the usage.
+   *
+   * Snippet references are dropped (a template carries no snippet merges) and,
+   * when the referenced schema is not stored, so is the schema reference. Both
+   * removals are reported by `instantiateTemplate` and by the preview.
+   */
+  useTemplate: (id: string, options?: UseTemplateOptions) => Promise<Prompt>;
+
   saveSettings: (settings: Settings) => Promise<Settings>;
 
   clearError: () => void;
@@ -292,6 +356,14 @@ function upsertPrompt(prompts: readonly Prompt[], prompt: Prompt): Prompt[] {
 function upsertById<T extends { readonly id: string }>(items: readonly T[], next: T): T[] {
   const found = items.some((item) => item.id === next.id);
   return found ? items.map((item) => (item.id === next.id ? next : item)) : [...items, next];
+}
+
+/** Templates are ordered by name, matching the repository contract. */
+function upsertTemplate(
+  templates: readonly PromptTemplate[],
+  next: PromptTemplate,
+): PromptTemplate[] {
+  return sortByName([next, ...templates.filter((candidate) => candidate.id !== next.id)]);
 }
 
 /** User-safe message for any failure the store caught. */
@@ -458,6 +530,30 @@ export function createDataStore(options: DataStoreOptions = {}) {
         });
         return saved;
       });
+    }
+
+    /**
+     * Validates and stores a new template.
+     *
+     * Both checks run against the current state, not against the caller's copy:
+     * a second tab may have created the same name between render and save. Every
+     * rule issue is fatal here — a template is a blueprint, so it must be usable
+     * the moment it appears in the catalogue.
+     */
+    async function saveTemplate(
+      repos: Repositories,
+      candidate: PromptTemplate,
+      summary: string,
+    ): Promise<PromptTemplate> {
+      throwIfInvalid([
+        ...templateIssues(candidate),
+        ...checkTemplateName(candidate.name, get().templates),
+      ]);
+
+      const saved = await repos.templates.create(candidate);
+      set((state) => ({ templates: upsertTemplate(state.templates, saved) }));
+      await recordActivity({ type: 'template', summary });
+      return saved;
     }
 
     /**
@@ -1250,6 +1346,158 @@ export function createDataStore(options: DataStoreOptions = {}) {
           const saved = await repos.prompts.update(next, { expectedVersion: current.version });
 
           set((state) => ({ prompts: upsertPrompt(state.prompts, saved) }));
+          return saved;
+        }),
+
+      createTemplate: async (input) =>
+        run(async (repos) => {
+          const candidate = createTemplateEntity(
+            {
+              name: input.name,
+              description: input.description,
+              category: input.category,
+              content: input.content,
+              isBuiltIn: false,
+            },
+            dependencies,
+          );
+
+          return saveTemplate(repos, candidate, `Created the “${candidate.name}” template`);
+        }),
+
+      createTemplateFromPrompt: async (promptId, input) =>
+        run(async (repos) => {
+          const prompt = await repos.prompts.get(promptId);
+          if (!prompt) throw new RecordNotFoundError(`Prompt ${promptId} no longer exists.`);
+
+          // `draft.content` has `includes` cleared: a template never claims a
+          // snippet merge that belongs to one particular document (ADR-95).
+          const draft = templateDraftFromPrompt(prompt);
+          const candidate = createTemplateEntity(
+            {
+              name: input.name.trim().length > 0 ? input.name : draft.name,
+              description: input.description ?? draft.description,
+              category: input.category,
+              content: draft.content,
+              isBuiltIn: false,
+            },
+            dependencies,
+          );
+
+          return saveTemplate(
+            repos,
+            candidate,
+            `Saved “${prompt.title}” as the template “${candidate.name}”`,
+          );
+        }),
+
+      updateTemplate: async (id, changes) =>
+        run(async (repos) => {
+          const current = await repos.templates.get(id);
+          if (!current) throw new RecordNotFoundError(`Template ${id} no longer exists.`);
+          if (current.isBuiltIn) throw new RuleViolationError([builtInTemplateIssue('edit')]);
+
+          const name = changes.name === undefined ? current.name : normalizeTitle(changes.name);
+          const next: PromptTemplate = {
+            ...current,
+            name,
+            description:
+              changes.description === undefined ? current.description : changes.description.trim(),
+            category:
+              changes.category === undefined
+                ? current.category
+                : normalizeTitle(changes.category) || current.category,
+            updatedAt: dependencies.now().toISOString(),
+          };
+
+          // A rename must not collide with another template (ADR-96).
+          throwIfInvalid(checkTemplateName(next.name, get().templates, { excludeId: id }));
+
+          const saved = await repos.templates.update(next);
+          set((state) => ({ templates: upsertTemplate(state.templates, saved) }));
+          await recordActivity({
+            type: 'template',
+            summary:
+              saved.name === current.name
+                ? `Updated the “${saved.name}” template`
+                : `Renamed the “${current.name}” template to “${saved.name}”`,
+          });
+          return saved;
+        }),
+
+      duplicateTemplate: async (id, changes = {}) =>
+        run(async (repos) => {
+          const source = await repos.templates.get(id);
+          if (!source) throw new RecordNotFoundError(`Template ${id} no longer exists.`);
+
+          const candidate = createTemplateEntity(
+            {
+              name: changes.name ?? nextTemplateName(source.name, get().templates),
+              description: changes.description ?? source.description,
+              category: changes.category ?? source.category,
+              // Clone through the factory: the copy must not share the
+              // document with the built-in it came from.
+              content: JSON.parse(JSON.stringify(source.content)) as PromptDocument,
+              isBuiltIn: false,
+            },
+            dependencies,
+          );
+
+          return saveTemplate(
+            repos,
+            candidate,
+            `Duplicated the “${source.name}” template as “${candidate.name}”`,
+          );
+        }),
+
+      deleteTemplate: async (id) =>
+        run(async (repos) => {
+          const template = await repos.templates.get(id);
+          if (!template) throw new RecordNotFoundError(`Template ${id} no longer exists.`);
+          if (template.isBuiltIn) throw new RuleViolationError([builtInTemplateIssue('delete')]);
+
+          await repos.templates.delete(id);
+          set((state) => ({
+            templates: state.templates.filter((candidate) => candidate.id !== id),
+          }));
+          await recordActivity({
+            type: 'template',
+            summary: `Deleted the “${template.name}” template`,
+          });
+          return template;
+        }),
+
+      useTemplate: async (id, options = {}) =>
+        run(async (repos) => {
+          const template = await repos.templates.get(id);
+          if (!template) throw new RecordNotFoundError(`Template ${id} no longer exists.`);
+
+          // The schema table is read fresh: a reference is only kept when the
+          // schema is actually stored in this browser (ADR-95).
+          const schemas = await repos.schemas.list();
+          const instantiation = instantiateTemplate(template, {
+            knownSchemaIds: new Set(schemas.map((schema) => schema.id)),
+            ...(options.title ? { title: options.title } : {}),
+          });
+
+          const prompt = createPromptEntity(
+            {
+              title: instantiation.title,
+              description: instantiation.description,
+              content: instantiation.content,
+              tags: instantiation.tags,
+            },
+            dependencies,
+          );
+
+          const saved = await repos.prompts.create(prompt);
+          set((state) => ({ prompts: upsertPrompt(state.prompts, saved) }));
+          await recordActivity({
+            type: 'template',
+            summary: `Created “${saved.title}” from the “${template.name}” template`,
+            promptId: saved.id,
+            promptTitle: saved.title,
+          });
           return saved;
         }),
 

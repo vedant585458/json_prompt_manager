@@ -285,6 +285,7 @@ export type ActivityType =
   | 'exported'
   | 'snapshot'
   | 'validation'
+  | 'template'
   | 'settings';
 
 /**

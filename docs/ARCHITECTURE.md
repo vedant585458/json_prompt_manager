@@ -140,18 +140,18 @@ shares the same landmarks, focus behaviour, and navigation; `*` is a child of th
 URL still gets navigation), while the recovery screen is the layout's `errorElement` and therefore
 renders even if the shell itself throws.
 
-| Path                 | Screen                | State                                      |
-| -------------------- | --------------------- | ------------------------------------------ |
-| `/`                  | Dashboard             | **Implemented** (TASK-010)                 |
-| `/library`           | Library               | **Implemented** (TASK-011)                 |
-| `/prompts/:promptId` | Prompt workspace      | **Implemented** (TASK-014, saved in 015)   |
-| `/composer`          | Composer              | Scaffold → TASK-017                        |
-| `/templates`         | Templates             | Scaffold → TASK-018                        |
-| `/validation`        | Validation            | Scaffold → TASK-016                        |
-| `/health`            | Health                | Scaffold → TASK-025                        |
-| `/settings`          | Settings              | **Implemented** (theme, density, autosave) |
-| `/design`            | Design system gallery | **Implemented** (TASK-003/004)             |
-| `*`                  | Not found             | **Implemented** (recovery links)           |
+| Path                 | Screen                | State                                       |
+| -------------------- | --------------------- | ------------------------------------------- |
+| `/`                  | Dashboard             | **Implemented** (TASK-010)                  |
+| `/library`           | Library               | **Implemented** (TASK-011)                  |
+| `/prompts/:promptId` | Prompt workspace      | **Implemented** (TASK-014, saved in 015)    |
+| `/composer`          | Composer              | Scaffold → TASK-017                         |
+| `/templates`         | Templates             | Template catalog, preview, custom templates |
+| `/validation`        | Validation            | Scaffold → TASK-016                         |
+| `/health`            | Health                | Scaffold → TASK-025                         |
+| `/settings`          | Settings              | **Implemented** (theme, density, autosave)  |
+| `/design`            | Design system gallery | **Implemented** (TASK-003/004)              |
+| `*`                  | Not found             | **Implemented** (recovery links)            |
 
 - **One navigation model.** `src/components/layout/navigation.ts` declares every destination once
   (path, label, description, icon). The rail, the drawer, the breadcrumbs, and the document title all
@@ -483,6 +483,41 @@ prompt; `/prompts/:promptId/compose` edits one through the save pipeline.
 
 Creating a prompt validates the document with `parseDocument`, reports any normalization the domain
 applied, and only then writes through `addPrompt`; edit mode saves through `useSavePipeline`.
+
+## Template catalog (TASK-018)
+
+A template is a `PromptDocument` plus a name, a description, and a category. The catalogue is the only
+surface that writes templates; every other surface deep-links into it.
+
+| Piece                                          | Responsibility                                                                                                       |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `src/data/db/templates.ts`                     | The nine built-in documents, each with a permanent id and a `buildContent()` that normalizes its shape               |
+| `src/domain/templates.ts`                      | Pure rules: summaries, filtering, name checks, built-in protection, and `instantiateTemplate`                        |
+| `src/store/dataStore.ts`                       | `createTemplate`, `createTemplateFromPrompt`, `updateTemplate`, `duplicateTemplate`, `deleteTemplate`, `useTemplate` |
+| `src/features/templates/useTemplateLibrary.ts` | Wraps those actions as outcomes (`{ ok: true, value }` / `{ ok: false, error }`) so a dialog can stay open           |
+| `src/routes/templates/TemplatesRoute.tsx`      | Search, category, and kind filters; the two sections; the preview sheet; the dialogs                                 |
+| `src/components/templates/*`                   | Card, preview sheet, and the create/rename/duplicate dialog                                                          |
+
+**Rules the catalogue follows.**
+
+- **Built-ins are immutable.** The store refuses `updateTemplate` and `deleteTemplate` for them, and the
+  card menu does not contain those operations — duplicating produces a custom template (ADR-08, ADR-96).
+- **Materialisation is one function.** `instantiateTemplate` deep-copies the document, clears `includes`, and
+  drops an `output.schemaRef` this browser cannot resolve, reporting both. The preview shows those notices
+  before the button is pressed (ADR-94, ADR-95).
+- **Names are unique, case-insensitively.** The dialog checks on every keystroke; the store checks again
+  against live state before writing, because two tabs can render the same list.
+- **Additive seeding.** `SEED_VERSION = 2` adds seven documents to an existing v1 install and touches
+  nothing else; a second run creates nothing (ADR-98).
+- **Tags are document tags.** A template shows `content.metadata.tags`; the prompt it creates carries the
+  same list. There is no second tag column to drift.
+- **One creation path from the dashboard.** Quick-start cards link to `/templates?template=<id>`, which
+  opens the preview; creation happens from the sheet's single button (ADR-97).
+
+The route announces its filtered count in a `role="status"` line, and empty states are real: no templates
+stored, no custom templates yet (with the action that creates one), and no search results (with "Clear
+filters"). The preview lives in the URL so it is deep-linkable and Back closes it; filters are component
+state because they describe a visit.
 
 ## Commands and keyboard
 

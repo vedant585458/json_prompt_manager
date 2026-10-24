@@ -235,20 +235,22 @@ describe('dashboard lists', () => {
     expect(within(favorites).queryByText('Plain one')).not.toBeInTheDocument();
   });
 
-  it('previews quick-start templates and links them to the templates route', async () => {
-    await openDashboard({
-      templates: [
-        template('Structured extraction', 'Extraction'),
-        template('Review response', 'Review'),
-      ],
-    });
+  it('previews quick-start templates and deep-links each one into the catalogue', async () => {
+    const extraction = template('Structured extraction', 'Extraction');
+    const review = template('Review response', 'Review');
+    await openDashboard({ templates: [extraction, review] });
 
     const quickStart = screen.getByRole('region', { name: 'Quick start' });
     expect(within(quickStart).getByText('Structured extraction')).toBeVisible();
     expect(within(quickStart).getByText('Review response')).toBeVisible();
-    for (const link of within(quickStart).getAllByRole('link')) {
-      expect(link).toHaveAttribute('href', '/templates');
-    }
+    expect(within(quickStart).getByRole('link', { name: /Structured extraction/ })).toHaveAttribute(
+      'href',
+      `/templates?template=${extraction.id}`,
+    );
+    expect(within(quickStart).getByRole('link', { name: /Review response/ })).toHaveAttribute(
+      'href',
+      `/templates?template=${review.id}`,
+    );
   });
 
   it('shows the eight most recent activity events, newest first', async () => {

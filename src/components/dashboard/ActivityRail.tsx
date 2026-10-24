@@ -2,6 +2,7 @@ import {
   Archive,
   Download,
   History,
+  LayoutTemplate,
   PencilLine,
   PlusCircle,
   RotateCcw,
@@ -26,6 +27,7 @@ const TYPE_META: Record<ActivityType, { icon: LucideIcon; label: string }> = {
   exported: { icon: Download, label: 'Exported' },
   snapshot: { icon: History, label: 'Snapshot' },
   validation: { icon: ShieldCheck, label: 'Validation' },
+  template: { icon: LayoutTemplate, label: 'Template' },
   settings: { icon: SettingsIcon, label: 'Settings' },
 };
 

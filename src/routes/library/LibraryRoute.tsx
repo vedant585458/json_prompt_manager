@@ -60,7 +60,8 @@ import {
   hasActiveFilters,
   type LibraryState,
 } from '@/routes/library/libraryQuery';
-import type { Collection, Folder, Prompt, PromptDocument } from '@/domain/types';
+import { instantiateTemplate } from '@/domain/templates';
+import type { Collection, Folder, Prompt } from '@/domain/types';
 
 /**
  * Library (TASK-011).
@@ -345,9 +346,15 @@ export function LibraryRoute() {
       tags: values.tags,
       status: values.status,
       schemaId: values.schemaId,
-      // Deep copy: the new prompt must not share structure with the template.
+      // One materialisation rule for every creation path (ADR-94): a deep copy
+      // with snippet references dropped and an unresolvable schema reference
+      // removed, so the new prompt shares nothing with the template.
       ...(template
-        ? { content: JSON.parse(JSON.stringify(template.content)) as PromptDocument }
+        ? {
+            content: instantiateTemplate(template, {
+              knownSchemaIds: new Set(schemas.map((schema) => schema.id)),
+            }).content,
+          }
         : {}),
     });
 

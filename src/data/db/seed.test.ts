@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createInMemoryRepositories } from '@/data/adapters/inMemory';
 import { SEED_IDS, SEED_VERSION, seedDatabase } from '@/data/db/seed';
+import { BUILT_IN_TEMPLATE_IDS, BUILT_IN_TEMPLATES } from '@/data/db/templates';
 import { createIndexedDbRepositories } from '@/data/repositories/indexedDb';
 import type { Repositories } from '@/data/repositories/contracts';
 import { createDefaultSettings } from '@/domain/factories';
@@ -36,7 +37,12 @@ describe('seedDatabase', () => {
       seeded: true,
       version: SEED_VERSION,
       previousVersion: 0,
-      created: { folders: 1, collections: 1, prompts: 1, templates: 2 },
+      created: {
+        folders: 1,
+        collections: 1,
+        prompts: 1,
+        templates: BUILT_IN_TEMPLATES.length,
+      },
     });
 
     const prompts = await repositories.prompts.list();
@@ -62,15 +68,12 @@ describe('seedDatabase', () => {
     expect(collections.map((collection) => collection.id)).toEqual([SEED_IDS.collectionStarterKit]);
 
     const templates = await repositories.templates.list();
-    expect(templates.map((template) => template.id).sort()).toEqual([
-      SEED_IDS.templateReviewResponse,
-      SEED_IDS.templateStructuredExtraction,
-    ]);
+    expect(templates.map((template) => template.id).sort()).toEqual(
+      BUILT_IN_TEMPLATES.map((template) => template.id).sort(),
+    );
     expect(templates.every((template) => template.isBuiltIn)).toBe(true);
-    expect(templates.map((template) => template.category).sort()).toEqual([
-      'Extraction',
-      'Writing',
-    ]);
+    expect(new Set(templates.map((template) => template.category)).size).toBeGreaterThanOrEqual(8);
+    expect(templates.map((template) => template.name)).toContain('Intent classification');
 
     const settings = await repositories.settings.get();
     expect(settings).toMatchObject({
@@ -141,7 +144,7 @@ describe('seedDatabase', () => {
 
     expect(result.seeded).toBe(true);
     expect(result.created).toEqual({ folders: 0, collections: 0, prompts: 0, templates: 1 });
-    expect(await repositories.templates.list()).toHaveLength(2);
+    expect(await repositories.templates.list()).toHaveLength(BUILT_IN_TEMPLATES.length);
     expect(await repositories.prompts.list()).toHaveLength(1);
     expect(await repositories.meta.getSeedVersion()).toBe(SEED_VERSION);
 
@@ -192,6 +195,60 @@ describe('seedDatabase', () => {
 
     await repositories.close();
   });
+
+  it('upgrades a v1 install by adding only the new templates', async () => {
+    const repositories = await openInMemory();
+
+    // A v1 database: the two original templates and the version that wrote them.
+    const v1Ids: readonly string[] = [
+      SEED_IDS.templateStructuredExtraction,
+      SEED_IDS.templateReviewResponse,
+    ];
+    await seedDatabase(repositories, dependencies);
+    for (const template of await repositories.templates.list()) {
+      if (!v1Ids.includes(template.id)) await repositories.templates.delete(template.id);
+    }
+    await repositories.meta.setSeedVersion(1);
+
+    const result = await seedDatabase(repositories, dependencies);
+
+    expect(result.seeded).toBe(true);
+    expect(result.previousVersion).toBe(1);
+    expect(result.created.templates).toBe(BUILT_IN_TEMPLATES.length - 2);
+    expect(await repositories.templates.list()).toHaveLength(BUILT_IN_TEMPLATES.length);
+    expect(await repositories.meta.getSeedVersion()).toBe(SEED_VERSION);
+
+    await repositories.close();
+  });
+
+  it('leaves user templates untouched when a new seed version runs', async () => {
+    const repositories = await openInMemory();
+    await seedDatabase(repositories, dependencies);
+
+    const source = await repositories.templates.get(BUILT_IN_TEMPLATE_IDS.reviewResponse);
+    expect(source).not.toBeNull();
+    if (!source) return;
+
+    const mine = {
+      id: 'user-template',
+      name: 'My template',
+      description: 'Mine.',
+      category: 'Custom',
+      content: source.content,
+      isBuiltIn: false,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    await repositories.templates.create(mine);
+
+    await repositories.meta.setSeedVersion(1);
+    await seedDatabase(repositories, dependencies);
+
+    expect(await repositories.templates.get('user-template')).toEqual(mine);
+    expect(await repositories.templates.list()).toHaveLength(BUILT_IN_TEMPLATES.length + 1);
+
+    await repositories.close();
+  });
 });
 
 describe('seedDatabase (IndexedDB)', () => {
@@ -200,7 +257,12 @@ describe('seedDatabase (IndexedDB)', () => {
     const first = await createIndexedDbRepositories({ name });
 
     const seeded = await seedDatabase(first, dependencies);
-    expect(seeded.created).toEqual({ folders: 1, collections: 1, prompts: 1, templates: 2 });
+    expect(seeded.created).toEqual({
+      folders: 1,
+      collections: 1,
+      prompts: 1,
+      templates: BUILT_IN_TEMPLATES.length,
+    });
     await first.close();
 
     const second = await createIndexedDbRepositories({ name });
@@ -208,7 +270,7 @@ describe('seedDatabase (IndexedDB)', () => {
 
     expect(again.seeded).toBe(false);
     expect(await second.prompts.list()).toHaveLength(1);
-    expect(await second.templates.list()).toHaveLength(2);
+    expect(await second.templates.list()).toHaveLength(BUILT_IN_TEMPLATES.length);
     expect(await second.meta.getSeedVersion()).toBe(SEED_VERSION);
     expect((await second.prompts.get(SEED_IDS.welcomePrompt))?.version).toBe(1);
 

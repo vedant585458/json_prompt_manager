@@ -46,6 +46,12 @@ export { createInMemoryRepositories, type InMemorySeed } from '@/data/adapters/i
 export { isIndexedDbAvailable, probeStorage, type StorageProbeResult } from '@/data/db/indexedDb';
 
 export { SEED_IDS, SEED_VERSION, seedDatabase, type SeedResult } from '@/data/db/seed';
+/** The built-in template catalogue (TASK-018): shipped data, not an adapter. */
+export {
+  BUILT_IN_TEMPLATES,
+  BUILT_IN_TEMPLATE_IDS,
+  type BuiltInTemplate,
+} from '@/data/db/templates';
 export {
   openStorage,
   type OpenStorageOptions,

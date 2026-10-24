@@ -10,24 +10,25 @@ export interface TemplatePreviewProps {
 }
 
 /**
- * Quick-start templates (TASK-010).
+ * Quick-start templates (TASK-010, wired to the catalogue in TASK-018).
  *
- * Preview only: opening one, filling variables, and creating a prompt from it is
- * TASK-018, so every card links to the templates surface instead of pretending
- * to instantiate a document that does not exist yet.
+ * Each card deep-links to the templates screen with that template's preview
+ * already open (`?template=<id>`), where the preview shows the document and the
+ * "Use template" button creates the prompt. Creating here as well would mean two
+ * code paths for one operation; one preview, one button (ADR-97).
  */
 export function TemplatePreview({ templates }: TemplatePreviewProps) {
   return (
     <DashboardSection
       id="dashboard-templates"
       title="Quick start"
-      description="Starter documents that ship with the app."
+      description="Open a starter document, review it, and start a prompt from it."
       action={{ label: 'All templates', to: '/templates' }}
     >
       {templates.length === 0 ? (
         <SectionEmpty
           title="No templates available"
-          description="The starter set ships with a fresh install; opening templates will show the catalogue once it lands."
+          description="The starter catalogue ships with a fresh install. Open templates to see whether one was saved from a prompt."
           action={{ label: 'Open templates', to: '/templates' }}
         />
       ) : (
@@ -35,7 +36,7 @@ export function TemplatePreview({ templates }: TemplatePreviewProps) {
           {templates.map((template) => (
             <li key={template.id} className="min-w-0">
               <Link
-                to="/templates"
+                to={`/templates?template=${encodeURIComponent(template.id)}`}
                 className="group flex h-full min-w-0 flex-col gap-1.5 rounded-md border border-line bg-surface-1 p-3.5 transition-colors duration-[var(--pf-duration-fast)] hover:border-line-strong hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
                 <span className="flex items-center gap-1.5 text-ink-muted">
@@ -53,7 +54,7 @@ export function TemplatePreview({ templates }: TemplatePreviewProps) {
                     {template.isBuiltIn ? 'Built-in' : 'Custom'}
                   </Badge>
                   <span className="inline-flex items-center gap-1 text-2xs font-medium text-accent">
-                    Open
+                    Preview
                     <ArrowRight aria-hidden="true" size={11} />
                   </span>
                 </span>

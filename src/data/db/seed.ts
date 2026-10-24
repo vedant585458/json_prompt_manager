@@ -17,10 +17,18 @@ import { createCollection, createFolder, createPrompt, createTemplate } from '@/
 import { createDefaultSettings } from '@/domain/factories';
 import { createBlankDocument } from '@/domain/promptDocument';
 import type { PromptDocument } from '@/domain/types';
+import { BUILT_IN_TEMPLATE_IDS, BUILT_IN_TEMPLATES } from '@/data/db/templates';
 import type { EntityRepository, Repositories } from '@/data/repositories/contracts';
 
-/** Bump when the starter set changes; existing installations re-run the seed. */
-export const SEED_VERSION = 1;
+/**
+ * Bump when the starter set changes; existing installations re-run the seed.
+ *
+ * v1 — settings, one folder, one collection, the welcome prompt, 2 templates.
+ * v2 — the full built-in catalogue: 9 templates across 9 categories (TASK-018).
+ *      The two v1 templates keep their ids and content, so an upgrade adds the
+ *      seven new documents and touches nothing that already exists.
+ */
+export const SEED_VERSION = 2;
 
 /**
  * Fixed identifiers for every seeded row.
@@ -32,8 +40,8 @@ export const SEED_IDS = {
   folderGettingStarted: 'seed-folder-getting-started',
   collectionStarterKit: 'seed-collection-starter-kit',
   welcomePrompt: 'seed-prompt-welcome',
-  templateStructuredExtraction: 'seed-template-structured-extraction',
-  templateReviewResponse: 'seed-template-review-response',
+  templateStructuredExtraction: BUILT_IN_TEMPLATE_IDS.structuredExtraction,
+  templateReviewResponse: BUILT_IN_TEMPLATE_IDS.reviewResponse,
 } as const;
 
 export interface SeedResult {
@@ -127,91 +135,6 @@ function welcomeDocument(): PromptDocument {
   });
 }
 
-/** Starter document 1: structured field extraction (full catalog is TASK-018). */
-function structuredExtractionDocument(): PromptDocument {
-  return createBlankDocument({
-    name: 'Structured field extraction',
-    role: 'Information extractor',
-    objective:
-      'Convert unstructured source text into a JSON object that matches the requested field list.',
-    instructions: [
-      'Read the source text and ignore boilerplate.',
-      'Return one JSON object using exactly the requested field names.',
-      'Use null for a field the text does not answer; never invent values.',
-      'Preserve original spelling for names and identifiers.',
-    ],
-    context: {
-      description: 'The caller supplies the source text and the field list to extract.',
-    },
-    constraints: [
-      'Output must be valid JSON with no prose around it.',
-      'Do not add fields that were not requested.',
-    ],
-    variables: [
-      {
-        name: 'source_text',
-        type: 'string',
-        required: true,
-        description: 'Text to extract from.',
-      },
-      {
-        name: 'fields',
-        type: 'json',
-        required: true,
-        description: 'Array of field names to return.',
-      },
-    ],
-    output: { format: 'json' },
-    examples: [
-      {
-        input: {
-          source_text: 'Acme shipped v2.1 on 3 May. Contact: ops@acme.test',
-          fields: ['company', 'version', 'released_on', 'contact'],
-        },
-        output: {
-          company: 'Acme',
-          version: 'v2.1',
-          released_on: '3 May',
-          contact: 'ops@acme.test',
-        },
-      },
-    ],
-    metadata: { tags: ['extraction', 'starter'] },
-  });
-}
-
-/** Starter document 2: response drafting with an explicit structure. */
-function reviewResponseDocument(): PromptDocument {
-  return createBlankDocument({
-    name: 'Review response',
-    role: 'Customer support writer',
-    objective:
-      'Draft a short, specific reply to a customer review that acknowledges the issue and states the next step.',
-    instructions: [
-      'Open with a direct acknowledgement of the specific complaint.',
-      'State what will change, without promising dates that are not supplied.',
-      'Close with one clear next step for the customer.',
-    ],
-    context: { description: 'The caller supplies the review text and the product area.' },
-    constraints: [
-      'Use plain language and no more than 120 words.',
-      'Never promise compensation or timelines.',
-      'Do not quote the review back verbatim.',
-    ],
-    variables: [
-      { name: 'review_text', type: 'string', required: true, description: 'The review to answer.' },
-      {
-        name: 'product_area',
-        type: 'string',
-        required: false,
-        description: 'Area of the product the review concerns.',
-      },
-    ],
-    output: { format: 'text' },
-    metadata: { tags: ['writing', 'support', 'starter'] },
-  });
-}
-
 /* -------------------------------------------------------------------------- */
 /* Seeding                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -300,31 +223,17 @@ export async function seedDatabase(
     created.prompts += 1;
   }
 
-  const templates = [
-    {
-      id: SEED_IDS.templateStructuredExtraction,
-      name: 'Structured field extraction',
-      description: 'Turn unstructured text into a JSON object with a fixed field list.',
-      category: 'Extraction',
-      content: structuredExtractionDocument,
-    },
-    {
-      id: SEED_IDS.templateReviewResponse,
-      name: 'Review response',
-      description: 'Draft a short, specific reply to a customer review.',
-      category: 'Writing',
-      content: reviewResponseDocument,
-    },
-  ] as const;
-
-  for (const template of templates) {
+  // One row per catalogue entry, created only when its fixed id is missing.
+  // That is what makes a version bump additive: v1 installs gain the seven new
+  // documents and keep the two they already had, untouched.
+  for (const template of BUILT_IN_TEMPLATES) {
     const wasCreated = await ensure(repositories.templates, template.id, () =>
       createTemplate(
         {
           name: template.name,
           description: template.description,
           category: template.category,
-          content: template.content(),
+          content: template.buildContent(),
           isBuiltIn: true,
         },
         withId(dependencies, template.id),

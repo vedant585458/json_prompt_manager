@@ -286,7 +286,7 @@ if it were real data.
 
 ## 9. First-run seeding (TASK-007)
 
-`SEED_VERSION = 1` in `src/data/db/seed.ts`. Seeding is **versioned and resumable**:
+`SEED_VERSION = 2` in `src/data/db/seed.ts`. Seeding is **versioned and resumable**:
 
 - `meta.seedVersion` gates the whole run: a stored version at or above `SEED_VERSION` means one read
   and no writes at all;
@@ -303,10 +303,13 @@ if it were real data.
 | Welcome prompt                         | `seed-prompt-welcome`                 | active, pinned, explains local storage; one variable |
 | Template "Structured field extraction" | `seed-template-structured-extraction` | built-in, category Extraction, JSON output           |
 | Template "Review response"             | `seed-template-review-response`       | built-in, category Writing, text output              |
-| Settings singleton                     | `app`                                 | defaults with `seedVersion: 1`, `onboardedAt: null`  |
-| Meta singleton                         | `app`                                 | `seedVersion: 1`, `dbSchemaVersion: 2`               |
+| Seven further built-ins (TASK-018)     | `seed-template-*`                     | one per category; see `src/data/db/templates.ts`     |
+| Settings singleton                     | `app`                                 | defaults with `seedVersion: 2`, `onboardedAt: null`  |
+| Meta singleton                         | `app`                                 | `seedVersion: 2`, `dbSchemaVersion: 2`               |
 
-The starter documents are deliberately two, not a catalog: the full template set is TASK-018.
+The built-in catalogue is nine documents defined once in `src/data/db/templates.ts`. Seed v2 added seven
+to the two that v1 shipped; because the ids are fixed and the loop creates only missing rows, upgrading a
+v1 database adds exactly those seven and leaves every stored row — including user templates — untouched.
 Because seeding spans several stores it is **not** one IndexedDB transaction; per-row `ensure` plus
 the last-written version make it idempotent instead, which the seed suite verifies for both adapters.
 
@@ -449,8 +452,8 @@ are excluded by construction (for example, a real browser's version-change block
 
 ## 12. Known limitations at this stage
 
-- The seed is deliberately small (one prompt, two templates); the real template catalog is
-  TASK-018.
+- The seed is deliberately small (one prompt, nine built-in templates); a catalogue larger than that
+  would be a product decision, not a seeding one.
 - Seeding cannot be atomic across stores through the repository interface; idempotent `ensure` calls
   plus the last-written version make a retry safe instead.
 - The in-memory fallback loses everything on reload by design; export arrives in TASK-026.

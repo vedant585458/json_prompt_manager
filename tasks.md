@@ -4,7 +4,7 @@
 **Created:** 2026-10-24
 **Repository:** `vedant585458/json_prompt_manager`
 **Branch:** `arena/3b0d1d76-json-prompt-manager`
-**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-017 is the latest completed task.
+**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-018 is the latest completed task.
 **Authoritative status source:** This file. One status per task, maintained here only.
 
 ---
@@ -599,7 +599,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-015 — Save pipeline, autosave, and recovery — High — deps: 014
 - [x] TASK-016 — Validation engine and validation studio — High — deps: 015
 - [x] TASK-017 — Guided prompt composer with JSON synchronization — High — deps: 015
-- [ ] TASK-018 — Template catalog and custom templates — Medium — deps: 012, 017
+- [x] TASK-018 — Template catalog and custom templates — Medium — deps: 012, 017
 - [ ] TASK-019 — Version history and safe restoration — High — deps: 015
 - [ ] TASK-020 — Structural diff explorer — High — deps: 019
 - [ ] TASK-021 — Variable playground and prompt preview — High — deps: 015
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 17 of 31 tasks complete. TASK-001 through TASK-017 were completed on 2026-10-24.
+**Progress:** 18 of 31 tasks complete. TASK-001 through TASK-018 were completed on 2026-10-24.
 
 ---
 
@@ -1280,7 +1280,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-018 — Template catalog and custom templates
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** Medium
 - **Dependencies:** TASK-012, TASK-017
 - **Objective:** Provide a useful, clearly labeled catalog of starter blueprints and allow user-owned templates derived from real prompts.
@@ -1299,6 +1299,18 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Unit tests for template→prompt materialization (ID remapping, variable defaults); integration test for use/duplicate/delete flows and seed idempotency; manual preview checks; typecheck/lint/tests/build.
 - **Deliverables:** `src/data/db/templates.ts` (built-in catalog), seed migration, `src/routes/templates/*`, template preview components, store actions, tests.
 - **Out of scope:** Template versioning/sharing, marketplace, prompt package distribution.
+
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Built-in catalogue (`src/data/db/templates.ts`):** nine documents with permanent ids — extraction, review response, intent classification, meeting summary, pull request review, comparative analysis, agent system prompt, launch announcement, and JSON transformation (nine categories; the task required eight). Each entry has a description, a category, document tags, at least one variable, and a `buildContent()` that goes through `createBlankDocument`, so the shape is normalized rather than hand-asserted. `SEED_VERSION` is now 2; the seed loop creates a row only when its id is missing, so a v1 install gains exactly seven new rows and keeps the two it had, byte for byte (ADR-98).
+  - **Rules (`src/domain/templates.ts`):** `summariseTemplate` (tags, variables, required/optional, counts, JSON characters, content hash), `filterTemplates` (substring over name, description, category, tags, objective, variable names; kind; category), `templateCategories`, `sortTemplates` / `sortUserTemplatesByRecency`, `templateIssues` (document errors, name limits, description and no-variables warnings), `checkTemplateName` (trimmed, case-insensitive, self-excluding), `nextTemplateName`, `templateIsEditable`, `builtInTemplateIssue`, `templateDraftFromPrompt`, and `instantiateTemplate` (ADR-94, ADR-95).
+  - **Store (`src/store/dataStore.ts`):** `createTemplate`, `createTemplateFromPrompt`, `updateTemplate`, `duplicateTemplate`, `deleteTemplate`, and `useTemplate`. Every write re-validates the document and the name against live state, and both edit paths refuse a built-in with `RuleViolationError` — the store, not only the menu, is the guard. Template rows are kept in name order, matching the repository contract, and `useTemplate` records a `template` activity event that names both the template and the new prompt.
+  - **Screen (`src/routes/templates/TemplatesRoute.tsx`, `src/components/templates/*`):** search, category, and kind filters with an announced "Showing X of Y" line; built-in and custom sections; card grid with category, badge, tags, variable counts, JSON size, and edit recency; preview sheet (role, objective, instructions, constraints, variable table, output format, counts, size, and the "what will not be copied" notices); create-from-prompt, rename, duplicate, and delete dialog with confirmation. Built-in cards expose no edit or delete operation at all and say "Read-only · duplicate to customise". Empty states cover an empty catalogue, no custom templates (with the action that creates one), and no matching results (with Clear filters). The open preview lives in `?template=<id>`, so the dashboard deep-links into it and Back closes it (ADR-97).
+  - **Wiring:** the dashboard's quick-start cards now link to `/templates?template=<id>` instead of a placeholder route, and the palette gained `template.new` ("New from template").
+  - **Tests added (89 new cases; whole suite 1167 across 79 files):** `src/domain/templates.test.ts` 40, `src/store/templates.test.ts` 22, `src/routes/templates/TemplatesRoute.test.tsx` 17, `src/data/db/templates.test.ts` 8, `src/data/db/seed.test.ts` +2 (v1 → v2 upgrade is additive; user templates survive a seed bump).
+  - **Validation executed:** `npx tsc --noEmit` exit 0; `npx eslint .` exit 0 with 0 warnings; `npx vitest run` — **79 files / 1167 tests passed, 0 failures**; `npx vitest run --coverage` — thresholds pass (all files 95.94/90.17/97.14/96.86; `src/domain` 96.03/92.07/99.06/96.53, `src/store` 96.14/88.81/97.31/97.66, `src/data` 96.51/87.03/100/97.22; `templates.ts` in the domain 100/100/100/100, `data/db/templates.ts` 97.97/95.83/100/98.86); `npx prettier --check .` clean; `npm run check:contrast` — 64 pairings pass in both themes; `npm run build` exit 0 — CSS 56.04 kB (13.51 kB gzip), app JS 914.89 kB (267.71 kB gzip), lazy `JsonEditor` chunk unchanged at 427.59 kB (138.55 kB gzip).
+  - **Not performed (stated honestly):** no browser binary exists in this environment, so there was no manual pass at 390 px, no pointer or keyboard walkthrough of the menu, sheet, or dialogs on a real device, and no screenshot. Responsiveness rests on the grid collapsing to one column below `sm` and on jsdom tests against the real route.
+  - **Deviations recorded:** `ActivityType` gained `'template'` (with an icon and label in the activity rail) rather than recording template use as a prompt creation; the six operations are methods on the existing data store rather than a separate template store; `LibraryRoute` materialises a chosen template through `instantiateTemplate` instead of an inline JSON copy, unifying both creation paths (ADR-94); `src/data/db/templates.ts` is exported from the `@/data` barrel because it is shipped data, not an adapter; a duplicated `## Validation studio` heading in `README.md` was removed while editing the docs.
+  - **Docs:** `docs/DECISIONS.md` gained ADR-08 → Accepted, ADR-94…ADR-98, and a TASK-018 verification log; `docs/ARCHITECTURE.md` gained a "Template catalog (TASK-018)" section and a corrected route row; `docs/PERSISTENCE.md` records seed v2; `README.md` gained a template-catalog section; `tasks.md` updated.
 
 ---
 

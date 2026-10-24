@@ -15,7 +15,7 @@ Status values: **Accepted** (in force), **Planned** (agreed, not yet built), **S
 | ADR-05 | In-house structural JSON diff                                             | Planned    | TASK-020     |
 | ADR-06 | Purpose-built deterministic blueprint graph                               | Planned    | TASK-023     |
 | ADR-07 | Autosave never spams revisions; restore creates a safety revision         | Planned    | TASK-015/019 |
-| ADR-08 | Built-in templates are versioned, immutable seeds                         | Planned    | TASK-018     |
+| ADR-08 | Built-in templates are versioned, immutable seeds                         | Accepted   | TASK-018     |
 | ADR-09 | CSS custom properties as the single token source                          | Accepted   | TASK-002     |
 | ADR-10 | Tailwind v4 `@theme inline` bridge over raw `--pf-*` tokens               | Accepted   | TASK-002     |
 | ADR-11 | Dark-first default; `system` preference resolved before first paint       | Accepted   | TASK-002     |
@@ -2433,3 +2433,157 @@ unsaved-changes guard, and the editor → composer handoff.
 - `src/domain/composer.ts` is a new domain module, so the purity guard's module list and the barrel export
   list were extended; `formatDocumentJson` was added to `serialization.ts` so the composer and the editor
   share one key order.
+
+## ADR-94 — Using a template materialises a deep copy, and every creation path uses the same function
+
+**Context.** A template is a stored document, and a prompt is a stored document. Copying one into the
+other is easy to get wrong in three ways: sharing a nested array between two records, carrying a local
+`snippet` reference into a prompt that never merged it, or keeping `output.schemaRef` when the schema is
+not stored in this browser. The library's create dialog (TASK-012) and the catalogue (TASK-018) both
+create prompts from templates, so a second implementation would eventually disagree with the first.
+
+**Decision.** `instantiateTemplate()` in `src/domain/templates.ts` is the only materialisation function.
+It JSON-round-trips the document, so the copy shares no object with the template or with other prompts,
+clears `includes`, and drops `output.schemaRef` when the caller supplies the set of schema ids this
+browser holds. Both the store action (`useTemplate`) and the library dialog call it. Identity is left to
+`createPrompt`, which takes the injected id generator, so two uses of one template always produce two
+distinct records at version 1.
+
+**Consequences.** Editing a prompt made from a template can never change the template, and two prompts
+made from it are independent (asserted in `src/store/templates.test.ts` and again through the store in
+`src/store/templates.test.ts`). The cost is that a template cannot ship a schema reference: it survives
+only if the target browser already stores that schema, and the preview says so before the user commits.
+
+## ADR-95 — A template never carries snippet references, and the preview states what will be dropped
+
+**Context.** `includes` records which stored snippets were merged into _this_ document. A template is a
+blueprint for a document that does not exist yet; copying its `includes` to a new prompt would claim a
+merge that never happened and attach ids that may not even exist in the target browser.
+
+**Decision.** Both directions clear the list. `templateDraftFromPrompt` drops `includes` when saving a
+prompt as a template (the values already live in the sections), and `instantiateTemplate` drops it again
+when a prompt is created, reporting the removed ids. The preview sheet lists the removals under "What
+will not be copied" before the user presses "Use template", and the dialog warns when saving a prompt that
+referenced snippets.
+
+**Consequences.** No prompt ever starts life with a dangling snippet reference. Snippet text that was
+already merged stays in the document; only the provenance link is lost, which is the honest state — the
+composer can insert the snippet again, and the record then names a merge that actually happened.
+
+## ADR-96 — Template names are unique case-insensitively, and the store enforces it, not only the dialog
+
+**Context.** The catalogue shows templates by name inside category groups. Two templates called
+"Code review" and "code review" read as duplicates and make the search results ambiguous. A dialog-only
+check is bypassable: two tabs can both validate against the same list, then both write.
+
+**Decision.** `checkTemplateName()` is a pure rule (trimmed, case-insensitive, optional `excludeId` for a
+rename) used by the dialog for live feedback **and** by the store before `create`/`update`. The store also
+re-validates the document with `templateIssues()` — a template that could not become a valid prompt is
+never stored. Failures throw `RuleViolationError`, which the dialog renders inline and the route toasts.
+
+**Consequences.** A duplicate name is refused twice, with the same message, and the second attempt cannot
+slip through a race. The rule is stricter than prompts (which may share a title): templates are picked
+from a list by name, so ambiguity there has no upside.
+
+## ADR-97 — The dashboard deep-links into the catalogue's preview instead of creating prompts itself
+
+**Context.** The dashboard already showed three quick-start templates (TASK-010). TASK-018 makes them
+real, and the obvious shortcut is a "Use" button on the dashboard card. That would duplicate the
+creation flow that the catalogue's preview owns — two buttons, two code paths, two chances to disagree
+about what gets dropped.
+
+**Decision.** Each quick-start card links to `/templates?template=<id>`. The catalogue reads the parameter,
+opens its preview sheet for that template, and the sheet's "Use template" button performs the creation.
+The parameter is the only state involved: closing the sheet removes it, so Back returns to the previous
+screen and a stale id is corrected rather than showing an empty panel.
+
+**Consequences.** One creation path, one preview, and the dashboard stays a reading surface that links
+onward (as ADR-24 requires of empty and partial states). The catalogue's filters remain component state
+because they describe a visit; the preview is in the URL because it is deep-linkable.
+
+## ADR-98 — Built-in templates are versioned data with permanent ids, and a seed bump is additive
+
+**Context.** TASK-007 seeded two templates with `SEED_VERSION = 1`. TASK-018 needs at least eight across
+eight categories. Existing installations must gain the new documents without duplicating the old ones,
+resetting user templates, or overwriting a stored built-in.
+
+**Decision.** The catalogue is plain data in `src/data/db/templates.ts`: nine entries, each with a fixed
+id and a `buildContent()` function that goes through `createBlankDocument` so the shape is normalized.
+`SEED_VERSION` becomes 2, and the seed loop creates a row only when its id is missing. The two v1 ids and
+their documents are unchanged, so a v1 database gains exactly seven rows. Nothing pretends to be a
+migration: there is no schema change, and no stored field changes meaning. Tags live in
+`content.metadata.tags` rather than a new column, so a template's tags and the tags of the prompt it
+creates are the same list by construction.
+
+**Consequences.** Seeding stays idempotent and resumable (a second run creates nothing; an interrupted
+run fills only the gaps), and the catalogue can grow again the same way. The cost is that changing a
+built-in's _content_ cannot reach existing installations — a template is user-editable data once stored,
+and built-ins are immutable by design (ADR-08). Improving a shipped document therefore means a new id,
+not an edit.
+
+## Verification log — TASK-018
+
+**Scope verified:** the built-in catalogue (nine documents, eight required categories, every one validated),
+template→prompt materialisation (deep copy, snippet references dropped, schema reference resolved against
+storage), name uniqueness on create and rename, built-in immutability in the store _and_ in the rendered
+menu, the filter/search/count behaviour, the preview sheet and its deep link, create-from-prompt, duplicate,
+rename, delete, and the two empty states.
+
+### Tests added (89 cases)
+
+| File                                           | Cases | Covers                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ---------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/templates.test.ts`                 | 40    | tags, summaries and hashes, ordering, every filter dimension, issue rules (name, description, variables, document errors), name checks, copy naming, built-in protection, materialisation (independence, dropped snippets, schema resolution, titles), draft from prompt                                                                                                                                            |
+| `src/data/db/templates.test.ts`                | 8     | catalogue size, required categories, unique ids and names, seed-v1 ids preserved, every document validates, every template has role/objective/instructions/variables/tags, valid variable identifiers, deterministic builds                                                                                                                                                                                         |
+| `src/store/templates.test.ts`                  | 22    | create (trim, category default, name collision, invalid document, ordering, activity), create-from-prompt (document copy, `includes` cleared, missing prompt), update (rename, collision, built-in refusal, activity), duplicate (built-in source, independence, numbering), delete (user, built-in refusal), use (independent prompt, fresh id, dropped references, kept schema, title override, missing template) |
+| `src/routes/templates/TemplatesRoute.test.tsx` | 17    | two sections with badges, card metadata, search + no-match + clear, kind and category filters, empty catalogue, no-custom-templates empty state, preview contents, deep link and Escape, create-and-navigate, second independent prompt, built-in menu without edit/delete, duplicate, rename, duplicate-name refusal, delete, create-from-prompt, required fields, no-prompts notice                               |
+| `src/data/db/seed.test.ts` (extended)          | +2    | v1 → v2 upgrade adds exactly the seven new templates; user templates survive a seed bump                                                                                                                                                                                                                                                                                                                            |
+
+**Extended without new cases:** `src/routes/dashboard/DashboardRoute.test.tsx` (quick-start cards now assert
+their deep links), `src/app/dataBoot.test.ts` (seed version 2 and catalogue-sized template count),
+`src/domain/purity.test.ts` (two module lists), `src/routes/library/LibraryRoute.test.tsx` (unchanged,
+re-run after the create dialog switched to `instantiateTemplate`).
+
+### Gates
+
+| Gate                        | Result                                                                                                                                                                                                                                                  |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npx tsc --noEmit`          | exit 0                                                                                                                                                                                                                                                  |
+| `npx eslint .`              | exit 0, 0 warnings                                                                                                                                                                                                                                      |
+| `npx vitest run`            | **79 files / 1167 tests passed, 0 failures**                                                                                                                                                                                                            |
+| `npx vitest run --coverage` | thresholds pass — all files 95.94/90.17/97.14/96.86; `src/domain` 96.03/92.07/99.06/96.53, `src/store` 96.14/88.81/97.31/97.66, `src/data` 96.51/87.03/100/97.22; `templates.ts` (domain) 100/100/100/100, `data/db/templates.ts` 97.97/95.83/100/98.86 |
+| `npx prettier --check .`    | clean                                                                                                                                                                                                                                                   |
+| `npm run check:contrast`    | 64 pairings pass in both themes                                                                                                                                                                                                                         |
+| `npm run build`             | exit 0 — CSS 56.04 kB (13.51 kB gzip), app JS 914.89 kB (267.71 kB gzip), lazy `JsonEditor` chunk 427.59 kB (138.55 kB gzip)                                                                                                                            |
+
+### Known limitations and honesty notes
+
+- **No browser binary exists in this environment.** There was no manual pass at 390 px, no pointer or
+  keyboard walkthrough, and no screenshot. The responsive claim rests on the grid collapsing to one column
+  below `sm` and on jsdom tests; it is not a visual verification.
+- **A built-in's content cannot be changed once stored.** Fixing a shipped document means a new id, which
+  would duplicate the row on upgrade; the current choice is that stored data is the user's, not ours (ADR-98).
+- **Using a template does not fill variables.** The prompt is created as a copy; supplying values is the
+  laboratory's job (TASK-021), so the preview describes variables rather than rendering them.
+- **The preview is a summary, not the JSON text.** It shows role, objective, instructions, constraints,
+  variable table, output format, counts, and size. There is no raw-text view of a template yet.
+- **Categories are free text.** Case and surrounding spaces are normalized, but "Extraction" and "Extracts"
+  stay separate; there is no rename or merge for a category.
+- **Deleting a template has no undo.** The confirmation says so; prompts already created from it are
+  unaffected because they are independent copies.
+- **The dashboard shows the first three templates** (existing limit from TASK-010), built-ins first, with the
+  rest behind "All templates".
+- **Search is substring matching, not fuzzy.** Multi-word queries require every word, which is predictable
+  rather than clever.
+
+### Deliberate deviations recorded for TASK-018
+
+- `ActivityType` gained `'template'`, with an icon and label in the activity rail. Recording a template use
+  as an ordinary prompt `created` event would have hidden the source of the prompt in the timeline.
+- The plan's store actions are implemented as six methods on the existing data store rather than a separate
+  template store: templates already hydrate with everything else, and a second store would duplicate that.
+- `src/routes/library/LibraryRoute.tsx` now materialises a chosen template through `instantiateTemplate`
+  instead of an inline JSON copy, so both creation paths drop the same references (ADR-94).
+- `src/data/db/templates.ts` is exported from the `@/data` barrel: it is shipped _data_ the seed and tests
+  both read, and it is not an adapter or a raw database module.
+- A duplicated `## Validation studio` heading in `README.md` was removed while editing the document list.

@@ -2,10 +2,11 @@
 
 **Advanced JSON Prompt Management Studio** — a local-first workspace for creating, organizing, validating, versioning, comparing, and optimizing structured JSON prompts.
 
-> **Status: TASK-001 complete — foundation only.**
-> The repository currently contains the application toolchain and a temporary smoke screen.
-> No PromptForge product features are implemented yet. Each subsequent feature is built in a
-> separate, explicitly authorized task tracked in [`tasks.md`](./tasks.md).
+> **Status: TASK-002 complete — foundation and design system.**
+> The repository contains the application toolchain, the Prompt Observatory token system with
+> dark and light themes, and a temporary token-proof page. No PromptForge product features are
+> implemented yet. Each subsequent feature is built in a separate, explicitly authorized task
+> tracked in [`tasks.md`](./tasks.md).
 
 ---
 
@@ -26,16 +27,17 @@ sandbox/preview environments. It does not use a host allowlist.
 
 ## Quality gates
 
-| Command                | Purpose                                                |
-| ---------------------- | ------------------------------------------------------ |
-| `npm run typecheck`    | TypeScript project check (`tsc --noEmit`, strict mode) |
-| `npm run lint`         | ESLint flat config (TypeScript + React hooks)          |
-| `npm run format:check` | Prettier verification                                  |
-| `npm run format`       | Prettier write                                         |
-| `npm test`             | Vitest in watch mode                                   |
-| `npm run test:run`     | Vitest single run (CI style)                           |
-| `npm run build`        | Type-check, then production build into `dist/`         |
-| `npm run preview`      | Serve the production build at http://localhost:4173    |
+| Command                  | Purpose                                                |
+| ------------------------ | ------------------------------------------------------ |
+| `npm run typecheck`      | TypeScript project check (`tsc --noEmit`, strict mode) |
+| `npm run lint`           | ESLint flat config (TypeScript + React hooks)          |
+| `npm run format:check`   | Prettier verification                                  |
+| `npm run check:contrast` | WCAG contrast gate for design-token pairings           |
+| `npm run format`         | Prettier write                                         |
+| `npm test`               | Vitest in watch mode                                   |
+| `npm run test:run`       | Vitest single run (CI style)                           |
+| `npm run build`          | Type-check, then production build into `dist/`         |
+| `npm run preview`        | Serve the production build at http://localhost:4173    |
 
 All of the above must pass before a task can be marked complete in `tasks.md`.
 
@@ -74,7 +76,25 @@ src/
 docs/             architecture, data model, persistence, testing, limits
 ```
 
-See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for layer rules and architectural decisions.
+See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for layer rules, the design-system contract,
+and architectural decisions, and [`docs/DECISIONS.md`](./docs/DECISIONS.md) for the decision log and
+the generated contrast table.
+
+## Design system
+
+- **Dark-first**, with a designed light theme. A tiny inline boot script applies the stored or system
+  preference before first paint, so no page flashes the wrong theme.
+- **Tokens only.** Every color, spacing, radius, type size, shadow, easing, and stacking value is a
+  CSS custom property in `src/styles/tokens.css`; components consume Tailwind utilities generated
+  from them. No component contains a color literal.
+- **Typography.** Inter Variable for UI, JetBrains Mono for structure and JSON, Instrument Serif for
+  editorial display — all self-hosted with metric-adjusted fallbacks. No runtime font requests.
+- **Accessible accent.** Chartreuse is the identity color; it is split into `accent` (text/icons,
+  light-theme darkening included) and `accent-fill` (surfaces) so both themes meet WCAG AA.
+- **Proof, not promises.** `npm run check:contrast` verifies 26 text/UI pairings in both themes and
+  fails the build threshold on regression.
+- **Reduced motion** is honored through the OS preference and a `data-reduced-motion` hook for the
+  future in-app setting.
 
 ## Data and privacy
 

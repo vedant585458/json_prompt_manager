@@ -10,6 +10,24 @@
     />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>PromptForge — JSON Prompt Management Studio</title>
+    <script>
+      // Theme boot script: sets data-theme before first paint so neither theme
+      // flashes the wrong colors. Mirrors src/styles/theme.ts; keep in sync.
+      (function () {
+        try {
+          var stored = window.localStorage.getItem('promptforge.theme');
+          var preference = stored === 'dark' || stored === 'light' ? stored : 'system';
+          var prefersDark =
+            !!window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var theme = preference === 'system' ? (prefersDark ? 'dark' : 'light') : preference;
+          document.documentElement.setAttribute('data-theme', theme);
+          document.documentElement.style.colorScheme = theme;
+        } catch (error) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+          document.documentElement.style.colorScheme = 'dark';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

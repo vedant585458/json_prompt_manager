@@ -1,0 +1,179 @@
+/*
+ * PromptForge — design tokens (TASK-002)
+ *
+ * Theme-dependent values live in `:root` (dark, the default) and in the
+ * `[data-theme='light']` override. Theme-invariant scales live in the second
+ * `:root` block. Nothing in application code should use raw hex values;
+ * Tailwind utilities are generated from these tokens in `theme.css`.
+ *
+ * Contrast for every text/UI pairing used by the tokens is verified by
+ * `npm run check:contrast` (see docs/DECISIONS.md).
+ */
+
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* Surfaces — layered neutral planes, darkest to lightest */
+  --pf-canvas: #08090b;
+  --pf-surface-1: #0e1013;
+  --pf-surface-2: #14171b;
+  --pf-surface-3: #1b1f24;
+  --pf-surface-hover: #20252b;
+  --pf-surface-sunken: #0b0d10;
+
+  /* Text */
+  --pf-ink: #e9ecef;
+  --pf-ink-secondary: #a3abb6;
+  --pf-ink-muted: #828d9a;
+  --pf-ink-inverse: #0b0d10;
+
+  /* Borders — `line` is a decorative hairline; `line-control` and
+     `line-strong` meet the 3:1 non-text contrast requirement for UI boundaries */
+  --pf-line: #22262c;
+  --pf-line-control: #5c6670;
+  --pf-line-strong: #6b7681;
+
+  /* Accent — chartreuse, reserved for primary action and active state */
+  --pf-accent: #c9f25c;
+  --pf-accent-hover: #d8fa7e;
+  --pf-accent-fill: #c9f25c;
+  --pf-accent-fill-hover: #d8fa7e;
+  --pf-accent-foreground: #0b0d10;
+  --pf-accent-soft: #1e2417;
+
+  /* Semantic states — always paired with an icon or text label in the UI */
+  --pf-success: #4ade80;
+  --pf-success-soft: #10261a;
+  --pf-warning: #f5b842;
+  --pf-warning-soft: #2a2110;
+  --pf-danger: #f26d78;
+  --pf-danger-soft: #2b1417;
+  --pf-info: #63a8f5;
+  --pf-info-soft: #111e2c;
+
+  /* Interaction details */
+  --pf-focus-ring: #c9f25c;
+  --pf-selection-bg: #2d3a17;
+  --pf-selection-ink: #e9ecef;
+  --pf-scrollbar-thumb: #2a2f36;
+  --pf-scrollbar-thumb-hover: #3b424b;
+  --pf-overlay: rgb(4 5 6 / 0.72);
+
+  /* Elevation */
+  --pf-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --pf-shadow-panel: 0 18px 40px -22px rgb(0 0 0 / 0.85), 0 1px 0 rgb(255 255 255 / 0.03) inset;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+
+  --pf-canvas: #faf9f6;
+  --pf-surface-1: #ffffff;
+  --pf-surface-2: #f3f1ec;
+  --pf-surface-3: #eae7e0;
+  --pf-surface-hover: #e6e2da;
+  --pf-surface-sunken: #f6f4ef;
+
+  --pf-ink: #121417;
+  --pf-ink-secondary: #4c5259;
+  --pf-ink-muted: #5f666f;
+  --pf-ink-inverse: #ffffff;
+
+  --pf-line: #e2dfd8;
+  --pf-line-control: #8a9099;
+  --pf-line-strong: #6c737c;
+
+  --pf-accent: #44600b;
+  --pf-accent-hover: #37500a;
+  --pf-accent-fill: #d7f27a;
+  --pf-accent-fill-hover: #c8e86a;
+  --pf-accent-foreground: #121417;
+  --pf-accent-soft: #edf5d9;
+
+  --pf-success: #1f7a44;
+  --pf-success-soft: #e6f5ec;
+  --pf-warning: #8a5a00;
+  --pf-warning-soft: #fbf0d8;
+  --pf-danger: #b4232f;
+  --pf-danger-soft: #fbe7e8;
+  --pf-info: #1d5f9e;
+  --pf-info-soft: #e4effa;
+
+  --pf-focus-ring: #44600b;
+  --pf-selection-bg: #e3efbd;
+  --pf-selection-ink: #121417;
+  --pf-scrollbar-thumb: #d5d0c6;
+  --pf-scrollbar-thumb-hover: #bcb6aa;
+  --pf-overlay: rgb(18 20 23 / 0.38);
+
+  --pf-shadow-sm: 0 1px 2px rgb(18 20 23 / 0.08);
+  --pf-shadow-panel: 0 18px 40px -26px rgb(18 20 23 / 0.28), 0 1px 0 rgb(255 255 255 / 0.7) inset;
+}
+
+/* Theme-invariant scales */
+:root {
+  /* Typography */
+  --pf-font-sans:
+    'Inter Variable', 'Inter Fallback', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --pf-font-display: 'Instrument Serif', 'Instrument Serif Fallback', Georgia, serif;
+  --pf-font-mono:
+    'JetBrains Mono Variable', 'JetBrains Mono Fallback', ui-monospace, 'SFMono-Regular', Menlo,
+    monospace;
+
+  --pf-text-2xs: 0.6875rem; /* 11px */
+  --pf-text-xs: 0.75rem; /* 12px */
+  --pf-text-sm: 0.8125rem; /* 13px */
+  --pf-text-base: 0.875rem; /* 14px */
+  --pf-text-md: 1rem; /* 16px */
+  --pf-text-lg: 1.25rem; /* 20px */
+  --pf-text-xl: 1.5rem; /* 24px */
+  --pf-text-2xl: 2rem; /* 32px */
+  --pf-text-3xl: 2.75rem; /* 44px */
+
+  --pf-tracking-tight: -0.015em;
+  --pf-tracking-wide: 0.08em;
+
+  /* Spacing — a 4px base scale; Tailwind's default spacing follows the same step */
+  --pf-space-1: 0.25rem;
+  --pf-space-2: 0.5rem;
+  --pf-space-3: 0.75rem;
+  --pf-space-4: 1rem;
+  --pf-space-6: 1.5rem;
+  --pf-space-8: 2rem;
+  --pf-space-12: 3rem;
+  --pf-space-16: 4rem;
+
+  /* Radii */
+  --pf-radius-xs: 4px;
+  --pf-radius-sm: 6px;
+  --pf-radius-md: 8px;
+  --pf-radius-lg: 12px;
+  --pf-radius-xl: 16px;
+  --pf-radius-pill: 999px;
+
+  /* Motion */
+  --pf-duration-fast: 120ms;
+  --pf-duration-base: 160ms;
+  --pf-duration-slow: 240ms;
+  --pf-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Layout */
+  --pf-container-max: 1600px;
+  --pf-sidebar-width: 240px;
+  --pf-sidebar-collapsed: 64px;
+  --pf-topbar-height: 56px;
+  --pf-inspector-width: 320px;
+  --pf-editor-min-width: 480px;
+
+  /* Stacking order */
+  --pf-z-base: 0;
+  --pf-z-raised: 10;
+  --pf-z-sticky: 20;
+  --pf-z-nav: 30;
+  --pf-z-overlay: 40;
+  --pf-z-modal: 50;
+  --pf-z-popover: 60;
+  --pf-z-toast: 70;
+  --pf-z-command: 80;
+}

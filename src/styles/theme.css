@@ -1,0 +1,110 @@
+/*
+ * Tailwind theme bridge (TASK-002).
+ *
+ * `@theme inline` makes utilities emit `var(--pf-*)` directly instead of
+ * snapshotting values, so switching `[data-theme]` re-themes every utility
+ * without recompiling CSS.
+ */
+
+/* The app themes through data-theme, not the OS media query alone. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+@theme inline {
+  /* Colors */
+  --color-canvas: var(--pf-canvas);
+  --color-surface-1: var(--pf-surface-1);
+  --color-surface-2: var(--pf-surface-2);
+  --color-surface-3: var(--pf-surface-3);
+  --color-surface-hover: var(--pf-surface-hover);
+  --color-surface-sunken: var(--pf-surface-sunken);
+
+  --color-ink: var(--pf-ink);
+  --color-ink-secondary: var(--pf-ink-secondary);
+  --color-ink-muted: var(--pf-ink-muted);
+  --color-ink-inverse: var(--pf-ink-inverse);
+
+  --color-line: var(--pf-line);
+  --color-line-control: var(--pf-line-control);
+  --color-line-strong: var(--pf-line-strong);
+
+  --color-accent: var(--pf-accent);
+  --color-accent-hover: var(--pf-accent-hover);
+  --color-accent-fill: var(--pf-accent-fill);
+  --color-accent-fill-hover: var(--pf-accent-fill-hover);
+  --color-accent-foreground: var(--pf-accent-foreground);
+  --color-accent-soft: var(--pf-accent-soft);
+
+  --color-success: var(--pf-success);
+  --color-success-soft: var(--pf-success-soft);
+  --color-warning: var(--pf-warning);
+  --color-warning-soft: var(--pf-warning-soft);
+  --color-danger: var(--pf-danger);
+  --color-danger-soft: var(--pf-danger-soft);
+  --color-info: var(--pf-info);
+  --color-info-soft: var(--pf-info-soft);
+
+  --color-focus-ring: var(--pf-focus-ring);
+  --color-overlay: var(--pf-overlay);
+
+  /* Typography */
+  --font-sans: var(--pf-font-sans);
+  --font-display: var(--pf-font-display);
+  --font-mono: var(--pf-font-mono);
+
+  --text-2xs: var(--pf-text-2xs);
+  --text-2xs--line-height: 1.45;
+  --text-xs: var(--pf-text-xs);
+  --text-xs--line-height: 1.5;
+  --text-sm: var(--pf-text-sm);
+  --text-sm--line-height: 1.55;
+  --text-base: var(--pf-text-base);
+  --text-base--line-height: 1.6;
+  --text-md: var(--pf-text-md);
+  --text-md--line-height: 1.55;
+  --text-lg: var(--pf-text-lg);
+  --text-lg--line-height: 1.4;
+  --text-xl: var(--pf-text-xl);
+  --text-xl--line-height: 1.3;
+  --text-2xl: var(--pf-text-2xl);
+  --text-2xl--line-height: 1.2;
+  --text-3xl: var(--pf-text-3xl);
+  --text-3xl--line-height: 1.06;
+
+  --tracking-tight: var(--pf-tracking-tight);
+  --tracking-wide: var(--pf-tracking-wide);
+
+  /* Radii */
+  --radius-xs: var(--pf-radius-xs);
+  --radius-sm: var(--pf-radius-sm);
+  --radius-md: var(--pf-radius-md);
+  --radius-lg: var(--pf-radius-lg);
+  --radius-xl: var(--pf-radius-xl);
+  --radius-pill: var(--pf-radius-pill);
+
+  /* Motion */
+  --ease-out-soft: var(--pf-ease-out);
+  --animate-shimmer: pf-shimmer 1.6s ease-in-out infinite;
+  --animate-fade-in: pf-fade-in var(--pf-duration-base) var(--pf-ease-out);
+
+  /* Elevation */
+  --shadow-sm: var(--pf-shadow-sm);
+  --shadow-panel: var(--pf-shadow-panel);
+}
+
+@keyframes pf-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes pf-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

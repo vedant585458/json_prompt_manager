@@ -1,0 +1,42 @@
+/*
+ * Self-hosted typefaces (TASK-002).
+ *
+ * Fonts are bundled from @fontsource packages — no runtime network requests.
+ * Only the latin subsets are fetched by the browser at runtime because every
+ * @font-face carries a unicode-range.
+ *
+ * Fallback faces use metric overrides so the first paint before the webfont
+ * swaps in stays close to the final layout (no visible layout shift). The
+ * overrides are reasonable approximations, not exact matches.
+ */
+
+@import '@fontsource-variable/inter/index.css';
+@import '@fontsource-variable/jetbrains-mono/index.css';
+@import '@fontsource/instrument-serif/latin-400.css';
+
+@font-face {
+  font-family: 'Inter Fallback';
+  src: local('Arial'), local('Helvetica Neue'), local('Liberation Sans');
+  size-adjust: 107%;
+  ascent-override: 90%;
+  descent-override: 22.4%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono Fallback';
+  src: local('Consolas'), local('Menlo'), local('DejaVu Sans Mono');
+  size-adjust: 99%;
+  ascent-override: 102%;
+  descent-override: 30%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'Instrument Serif Fallback';
+  src: local('Georgia'), local('Times New Roman'), local('Liberation Serif');
+  size-adjust: 96%;
+  ascent-override: 94%;
+  descent-override: 25%;
+  line-gap-override: 0%;
+}

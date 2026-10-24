@@ -1,20 +1,216 @@
 @import 'tailwindcss';
+@import './fonts.css';
+@import './tokens.css';
+@import './theme.css';
 
 /*
- * Foundation-only global styles.
- * The Prompt Observatory design tokens, typography, and theme system are
- * introduced in TASK-002; no product styling belongs here yet.
+ * PromptForge global base styles (TASK-002).
+ * Tokens only — no raw color values below this line.
  */
 
-html {
-  color-scheme: dark;
+@layer base {
+  html {
+    background-color: var(--pf-canvas);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    min-width: 320px;
+    min-height: 100dvh;
+    background-color: var(--pf-canvas);
+    color: var(--pf-ink);
+    font-family: var(--pf-font-sans);
+    font-size: var(--pf-text-base);
+    line-height: 1.6;
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    color: var(--pf-ink);
+    font-weight: 600;
+    letter-spacing: var(--pf-tracking-tight);
+    text-wrap: balance;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--pf-font-mono);
+    font-size: 0.95em;
+  }
+
+  ::selection {
+    background-color: var(--pf-selection-bg);
+    color: var(--pf-selection-ink);
+  }
+
+  /* Visible, consistent focus that survives on both themes */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--pf-focus-ring);
+    outline-offset: 2px;
+  }
+
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  /* Thin, theme-aware scrollbars; content still scrolls with keyboard/touch */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--pf-scrollbar-thumb) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--pf-scrollbar-thumb);
+    border: 3px solid transparent;
+    border-radius: var(--pf-radius-pill);
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--pf-scrollbar-thumb-hover);
+  }
+
+  hr {
+    border-color: var(--pf-line);
+  }
+
+  /* Reduced motion: the OS preference and the future in-app preference share
+     one guard, so no non-essential transition or animation can run. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  [data-reduced-motion='true'] *,
+  [data-reduced-motion='true'] *::before,
+  [data-reduced-motion='true'] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
-body {
-  margin: 0;
-  min-width: 320px;
-  background-color: #08090b;
-  color: #e9ecef;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
+/* ---------- Layout and surface utilities ---------- */
+
+@utility content-container {
+  width: 100%;
+  max-width: var(--pf-container-max);
+  margin-inline: auto;
+  padding-inline: clamp(1rem, 3vw, 2.5rem);
+}
+
+@utility surface-panel {
+  background-color: var(--pf-surface-1);
+  border: 1px solid var(--pf-line);
+  border-radius: var(--pf-radius-lg);
+  box-shadow: var(--pf-shadow-panel);
+}
+
+@utility editor-surface {
+  background-color: var(--pf-surface-sunken);
+  border: 1px solid var(--pf-line);
+  border-radius: var(--pf-radius-md);
+  font-family: var(--pf-font-mono);
+  font-size: var(--pf-text-sm);
+  line-height: 1.65;
+  overflow: auto;
+  tab-size: 2;
+}
+
+@utility metadata-rail {
+  font-family: var(--pf-font-mono);
+  font-size: var(--pf-text-2xs);
+  letter-spacing: var(--pf-tracking-wide);
+  text-transform: uppercase;
+  color: var(--pf-ink-muted);
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Skeleton shimmer is suppressed for reduced-motion users by the base guard,
+   and skipped entirely below unless motion is allowed. */
+@utility skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--pf-surface-3);
+  border-radius: var(--pf-radius-sm);
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in oklab, var(--pf-ink) 8%, transparent),
+      transparent
+    );
+    animation: var(--animate-shimmer);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    &::after {
+      animation: none;
+    }
+  }
+}
+
+/* ---------- Stacking utilities ---------- */
+
+@utility z-base {
+  z-index: var(--pf-z-base);
+}
+@utility z-raised {
+  z-index: var(--pf-z-raised);
+}
+@utility z-sticky {
+  z-index: var(--pf-z-sticky);
+}
+@utility z-nav {
+  z-index: var(--pf-z-nav);
+}
+@utility z-overlay {
+  z-index: var(--pf-z-overlay);
+}
+@utility z-modal {
+  z-index: var(--pf-z-modal);
+}
+@utility z-popover {
+  z-index: var(--pf-z-popover);
+}
+@utility z-toast {
+  z-index: var(--pf-z-toast);
+}
+@utility z-command {
+  z-index: var(--pf-z-command);
 }

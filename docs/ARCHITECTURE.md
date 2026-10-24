@@ -1,7 +1,7 @@
 # PromptForge Architecture
 
-**Status:** Skeleton established by TASK-001. Expanded by TASK-002 (design system), TASK-005
-(domain model), TASK-006 (persistence), TASK-031 (final documentation).
+**Status:** Skeleton established by TASK-001. Design token and theme layer added by TASK-002.
+Next expansions: TASK-005 (domain model), TASK-006 (persistence), TASK-031 (final documentation).
 
 The authoritative plan, task order, and acceptance criteria live in [`../tasks.md`](../tasks.md).
 
@@ -138,6 +138,12 @@ TASK-005 onward. Decisions currently embodied in the codebase:
   TASK-002; Vitest/Testing Library from the start so domain logic is testable before UI exists.
 - **ADR-07 — Revisions are explicit.** Autosave never spams history; restore always creates a
   safety snapshot.
+- **ADR-09 — Token-driven styling.** All color, spacing, type, motion, elevation, and stacking
+  values are `--pf-*` custom properties; components use Tailwind utilities generated from them.
+- **ADR-11 — Pre-paint theming.** A minimal inline boot script resolves the stored/OS theme before
+  the first paint; `ThemeProvider` owns all subsequent changes.
+- **ADR-14 — Contrast gate.** `npm run check:contrast` parses the token file and fails on any
+  pairing below WCAG AA thresholds.
 
 ## 9. Extension points for future work
 
@@ -146,8 +152,69 @@ TASK-005 onward. Decisions currently embodied in the codebase:
   server-side boundary so credentials are never shipped to the client.
 - Collaboration features require a backend and access-control model before any UI is added.
 
-## 10. Known limitations at this stage
+## 10. Design system and theming (TASK-002)
 
-TASK-001 delivers tooling only. There is no routing, no design system, no data model, no
-persistence, and no product feature. The `src/` skeleton contains empty structure markers
-(`.gitkeep`) for modules that later tasks fill in.
+### Token layers
+
+| File                    | Responsibility                                                                                                                                                                                                              |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/styles/tokens.css` | Theme-dependent colors for dark (`:root, [data-theme='dark']`) and light (`[data-theme='light']`), plus theme-invariant scales: typography, spacing, radii, motion, layout, and z-index                                     |
+| `src/styles/theme.css`  | Tailwind v4 `@theme inline` bridge mapping `--pf-*` tokens to `--color-*`, `--font-*`, `--text-*`, `--radius-*`, `--shadow-*`, and `--ease-*` namespaces; declares the `data-theme` based `dark:` variant and keyframes     |
+| `src/styles/fonts.css`  | Bundled Inter Variable, JetBrains Mono Variable, Instrument Serif, plus metric-adjusted fallback faces                                                                                                                      |
+| `src/styles/global.css` | Tailwind import, base element styles, focus ring, selection, scrollbars, reduced-motion guard, and custom utilities (`content-container`, `surface-panel`, `editor-surface`, `metadata-rail`, `tabular`, `skeleton`, `z-*`) |
+
+Rules for later tasks:
+
+1. **No raw color values in components.** Use utilities such as `bg-surface-1`, `text-ink-muted`,
+   `border-line-control`, `text-accent`, `bg-accent-fill`. `tokens.css` is the only file allowed to
+   contain color literals (enforced by a test).
+2. **Accent has two jobs.** Use `--pf-accent` for text, icons, and focus; `--pf-accent-fill` for
+   filled surfaces with `--pf-accent-foreground` on top. See ADR-13.
+3. **Decorative vs. control borders.** `border-line` for separators; `border-line-control` or
+   `border-line-strong` for interactive boundaries that must meet 3:1.
+4. **State is never color-only.** Pair semantic color with an icon and a text label.
+5. **Motion** uses `duration-fast` (120ms), `duration-base` (160ms), or `duration-slow` (240ms)
+   with `ease-out-soft`, and must be covered by the reduced-motion guard.
+6. **Custom utilities referencing tokens** must use `--pf-*` names directly, because `@theme inline`
+   utilities inline values and do not emit `--color-*` variables.
+
+### Theme resolution flow
+
+```
+index.html boot script ──▶ data-theme + color-scheme on <html>   (before first paint)
+        │
+ThemeProvider ──▶ usePreferencesStore (theme slice) ──▶ applyResolvedTheme()
+        │                                   │
+        └── OS media listener (system only) └── localStorage: promptforge.theme
+```
+
+- Default is dark. `system` follows `prefers-color-scheme`; an explicit choice wins over the OS.
+- OS changes update the UI only while the preference is `system`.
+- Storage failures are non-fatal; the theme still applies for the session.
+- TASK-007 replaces `localStorage` persistence with the settings repository, keeping the key stable.
+
+### Verification of the visual layer
+
+No browser is available in the development sandbox, so TASK-002 validated the visual layer through
+executable evidence rather than screenshots:
+
+- `src/styles/tokens.test.ts` — both themes define the same tokens; every Tailwind color mapping
+  resolves; no color literals outside `tokens.css`; reduced-motion guards exist.
+- `src/app/themeBoot.test.ts` — executes the real inline boot script in a sandbox across OS/stored/
+  corrupt/throwing-storage cases and asserts it runs before the app module.
+- `src/app/providers/ThemeProvider.test.tsx` — OS following, explicit override, listener teardown,
+  persistence failure tolerance, and accessible pressed state.
+- `scripts/check-contrast.mjs` — 26 pairings × 2 themes against WCAG thresholds, run in the build
+  quality gate.
+- Compiled CSS inspection — confirms utilities emit `var(--pf-*)` references and no referenced
+  custom property is missing.
+
+Screenshot-level visual QA is deferred to TASK-027 (responsive refinement) and TASK-028
+(accessibility review), which are planned to capture viewport evidence.
+
+## 11. Known limitations at this stage
+
+The repository now has tooling and a complete token/theme foundation. It has no routing, no data
+model, no persistence, and no product feature. `App.tsx` is a temporary token-proof fixture that
+TASK-003 replaces with the component gallery, and the `src/` skeleton uses `.gitkeep` markers for
+modules later tasks fill in.

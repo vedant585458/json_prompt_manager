@@ -249,6 +249,7 @@ Detailed documentation is written in TASK-031 (`docs/ARCHITECTURE.md`, `docs/DEC
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
 | `npm run format` | Prettier write |
+| `npm run check:contrast` | WCAG contrast gate over design-token pairings (added in TASK-002) |
 | `npm test` | Vitest in watch mode |
 | `npm run test:run` | Vitest single run (CI-style) |
 
@@ -582,7 +583,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 **Status legend:** `Not Started` · `In Progress` · `Blocked` · `Completed`
 
 - [x] TASK-001 — Project foundation and toolchain — High — deps: none
-- [ ] TASK-002 — Design tokens, theme system, and global styles — High — deps: 001
+- [x] TASK-002 — Design tokens, theme system, and global styles — High — deps: 001
 - [ ] TASK-003 — Core UI primitives and design gallery — High — deps: 002
 - [ ] TASK-004 — Overlay, feedback, and form primitives — High — deps: 003
 - [ ] TASK-005 — Domain model and prompt document specification — High — deps: 001
@@ -613,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 1 of 31 tasks complete. TASK-001 was authorized and completed on 2026-10-24. TASK-002 is next and has not been authorized.
+**Progress:** 2 of 31 tasks complete. TASK-001 and TASK-002 were authorized and completed on 2026-10-24. TASK-003 is next and has not been authorized.
 
 ---
 
@@ -657,7 +658,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-002 — Design tokens, theme system, and global styles
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-001
 - **Objective:** Implement the Prompt Observatory visual foundation: tokenized colors, typography, spacing, radii, motion, focus rings, layered surfaces, and a dark-first theme with a light theme.
@@ -677,6 +678,14 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Unit test theme-resolution logic (system/dark/light + persistence); manual toggle verification in dev server; contrast values recorded in `docs/DECISIONS.md`; typecheck/lint/tests/build.
 - **Deliverables:** `src/styles/tokens.css`, `theme.css`, `global.css`, `src/app/providers/ThemeProvider.tsx`, `src/store/preferences.ts` (theme slice), theme tests, contrast notes.
 - **Out of scope:** Component primitives (TASK-003/004), application shell, product screens.
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Delivered:** `src/styles/tokens.css` (dark + light palettes and theme-invariant spacing, radii, type, motion, layout, and z-index scales), `src/styles/theme.css` (Tailwind v4 `@theme inline` bridge, `data-theme` dark variant, keyframes), `src/styles/fonts.css` (self-hosted Inter Variable, JetBrains Mono Variable, Instrument Serif with metric-adjusted fallbacks), `src/styles/global.css` (base styles, `:focus-visible` ring, selection, scrollbars, dual reduced-motion guard, and `content-container` / `surface-panel` / `editor-surface` / `metadata-rail` / `tabular` / `skeleton` / `z-*` utilities), `src/styles/theme.ts` (framework-free resolution, validation, persistence, application), `src/store/preferences.ts` (theme slice as a createable Zustand store), `src/app/providers/ThemeProvider.tsx` + `theme-context.ts`, `src/components/theme/ThemeToggle.tsx` (working control), and a pre-paint boot script in `index.html`.
+  - **Proof page:** the TASK-001 smoke screen was replaced by a token-proof fixture (surfaces, type hierarchy, semantic states with icons and labels, accent and focus, spacing/radii, elevation/motion/skeleton) with no product navigation and no fake controls. TASK-003 replaces it with the real component gallery.
+  - **Validation executed:** `npm run typecheck` exit 0; `npm run lint` exit 0; `npm run test:run` — 6 files / 47 tests passed (theme resolution matrix, corruption and storage-failure paths, OS-follow and override behavior, listener teardown, boot-script sandbox cases, token coverage and discipline, store slice); `npm run check:contrast` — 52 pairings across both themes pass (26 pairs × 2 themes, thresholds 4.5:1 text / 3:1 UI); `npm run format:check` clean; `npm run build` exit 0 (CSS 31.06 kB → 9.17 kB gzip).
+  - **Additional verification:** grep confirmed zero hex color literals outside `tokens.css`; inspection of the production CSS bundle confirmed utilities emit `var(--pf-*)` references, both theme blocks compile, and every referenced custom property is defined (no dangling `--color-*`/`--text-*`); dev server returns HTTP 200 on `0.0.0.0:5173` with the updated fixture.
+  - **Contrast corrections:** the first gate run failed `ink-muted` on `surface-3` (4.42:1 dark, 4.36:1 light) and initially flagged the decorative `line-strong` token; muted text was retuned to `#828D9A` (dark) and `#5F666F` (light), and borders were split into decorative `line` and 3:1-rated `line-control`/`line-strong`. Documented in `docs/DECISIONS.md`.
+  - **Notes/limitations:** Theme persistence uses `localStorage` until the settings repository lands in TASK-007 (key `promptforge.theme` kept stable). No browser is available in this sandbox, so verification is CSS/test evidence rather than screenshots; visual QA is scheduled in TASK-027/028. `clsx`/`tailwind-merge` were installed one task early to support the shared `cn` helper (recorded as a deviation in TASK-003's scope). Font metric overrides are approximations, not measured. All decisions and the generated contrast table are in `docs/DECISIONS.md`; the design-system contract is in `docs/ARCHITECTURE.md` §10.
+- **Out of scope (unchanged):** Component primitives (TASK-003/004), application shell, product screens.
 
 ---
 

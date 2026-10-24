@@ -1,7 +1,8 @@
 # PromptForge Architecture
 
-**Status:** Skeleton established by TASK-001. Design token and theme layer added by TASK-002.
-Next expansions: TASK-005 (domain model), TASK-006 (persistence), TASK-031 (final documentation).
+**Status:** Skeleton (TASK-001), design tokens and theming (TASK-002), design-system primitives
+(TASK-003). Next expansions: TASK-005 (domain model), TASK-006 (persistence), TASK-031 (final
+documentation).
 
 The authoritative plan, task order, and acceptance criteria live in [`../tasks.md`](../tasks.md).
 
@@ -212,9 +213,91 @@ executable evidence rather than screenshots:
 Screenshot-level visual QA is deferred to TASK-027 (responsive refinement) and TASK-028
 (accessibility review), which are planned to capture viewport evidence.
 
-## 11. Known limitations at this stage
+## 11. Component usage notes (TASK-003)
 
-The repository now has tooling and a complete token/theme foundation. It has no routing, no data
-model, no persistence, and no product feature. `App.tsx` is a temporary token-proof fixture that
-TASK-003 replaces with the component gallery, and the `src/` skeleton uses `.gitkeep` markers for
-modules later tasks fill in.
+Every primitive lives in `src/components/ui/` and is imported from the barrel:
+
+```tsx
+import { Button, Field, Input, StatusPill } from '@/components/ui';
+```
+
+### Rules that apply to all primitives
+
+1. **No domain knowledge.** Nothing here imports stores, repositories, or prompt types. A
+   component that needs data receives it as props.
+2. **Accessible name is mandatory.** Text buttons use their label; `IconButton` requires a `label`
+   prop that becomes `aria-label` and `title`; `Field` supplies a real `<label>`.
+3. **State is never color-only.** Status colors arrive with an icon and text (`StatusPill`), and
+   selection is exposed through `role`/`aria-*` as well as visuals.
+4. **Tokens only.** No component contains a color literal; utilities come from `tokens.css`
+   (ADR-09/10).
+5. **Component files export components only.** Variant recipes live in `*Variants.ts` modules so
+   Fast Refresh keeps working and recipes can be reviewed in isolation.
+6. **One tab stop per composite.** Tabs, radio groups, and menus use roving focus; never add
+   `tabIndex` inside a primitive to "fix" navigation.
+
+### Primitive reference
+
+| Primitive                       | Key props                                                                                                     | Notes                                                                                                                                      |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Button`                        | `variant` (`primary`/`secondary`/`ghost`/`danger`), `size`, `loading`, `leadingIcon`, `trailingIcon`, `block` | Loading sets `aria-busy`, disables activation, and announces `loadingLabel` in a sibling `role="status"` so the button's name stays stable |
+| `IconButton`                    | `label` (required), `variant`, `size`                                                                         | Label becomes `aria-label`; the glyph is `aria-hidden`                                                                                     |
+| `Spinner`                       | `size`, `label`                                                                                               | Decorative unless `label` is provided, then `role="status"`                                                                                |
+| `Field`                         | `label`, `hint`, `error`, `required`, `hideLabel`, render-prop children                                       | Generates ids and hands the control `id`, `aria-describedby`, `aria-invalid`, `required`                                                   |
+| `Input` / `Textarea`            | `size`, `invalid`, `mono` (textarea), `autoResize`, `adornment` (input)                                       | `invalid` sets `aria-invalid` and the danger border; values are never cleared by validation                                                |
+| `Select`                        | `options`, `placeholder`, `invalid`                                                                           | Styled native `<select>`: platform keyboard and form semantics are kept                                                                    |
+| `Checkbox`                      | `label`, `hint`, `checked` (incl. `'indeterminate'`)                                                          | Radix state machine; label click toggles                                                                                                   |
+| `Switch`                        | `label`, `hint`, `checked`, `onCheckedChange`                                                                 | `role="switch"` with `aria-checked`                                                                                                        |
+| `RadioGroup`                    | `label` (required), `options`, `orientation`                                                                  | Arrow keys move roving focus; Space/click selects                                                                                          |
+| `Badge`                         | `tone`, `count`                                                                                               | Metadata chip; uppercase monospace                                                                                                         |
+| `StatusPill`                    | `tone` (semantic only), `icon`, children                                                                      | Always icon + text                                                                                                                         |
+| `Surface` / `Card`              | `variant` (`flat`/`panel`/`sunken`/`interactive`), `padding`; `Card` also `as`                                | `Card` renders `article`/`section` when the content is self-contained                                                                      |
+| `Separator`                     | `orientation`, `decorative`                                                                                   | Decorative separators are hidden from AT                                                                                                   |
+| `Tooltip` / `TooltipProvider`   | `content`, `side`, `align`                                                                                    | Opens on focus and hover, closes on Escape, wired via `aria-describedby`; requires `TooltipProvider` near the root (mounted in `App`)      |
+| `Kbd` / `ShortcutHint`          | `keys`                                                                                                        | Renders real `<kbd>` elements                                                                                                              |
+| `Tabs` / `SimpleTabs`           | `label`, `items` (`disabled` per item)                                                                        | Arrow-key navigation, one tab stop, `tab`/`tabpanel` relationships                                                                         |
+| `CopyButton` / `CopyIconButton` | `value`, `label`, `copiedLabel`, `onCopied`                                                                   | Reports the real clipboard outcome; failure is announced, never shown as success                                                           |
+| `ProgressBar`                   | `value`, `max`, `label`, `caption`, `tone`                                                                    | Determinate only; use a labelled `Spinner` for unknown progress                                                                            |
+
+### Wiring a validated field
+
+```tsx
+<Field label="Prompt name" hint="Shown in the library." error={error} required>
+  {(control) => (
+    <Input
+      {...control}
+      value={name}
+      onChange={(event) => setName(event.target.value)}
+      invalid={Boolean(error)}
+    />
+  )}
+</Field>
+```
+
+The render-prop shape exists so `aria-describedby`/`aria-invalid` cannot be forgotten. Errors
+annotate the control; they never clear or replace its value.
+
+### Notification and overlay patterns that belong to TASK-004
+
+Dialogs, sheets, dropdown menus, toasts, empty states, and skeletons are intentionally absent. Do
+not fake them with ad-hoc components: TASK-004 adds them with focus management and announcements.
+
+### Gallery
+
+`src/routes/design/DesignGallery.tsx` renders every primitive in every state. It is the visual
+reference for later tasks. Routing lands in TASK-008, which mounts the gallery at `/design`; until
+then it is the application root, and it contains a single real interaction (the composed snapshot
+specimen) rather than simulated product UI.
+
+## 12. Known limitations at this stage
+
+The repository has tooling, a token/theme foundation, and a complete primitive layer. It has no
+routing, no data model, no persistence, no overlays/toasts, and no product feature. `App.tsx`
+renders the design gallery; TASK-008 replaces that root with real routing. The `src/` skeleton
+still uses `.gitkeep` markers for modules later tasks fill in.
+
+Verification limits at this stage: TASK-003 was validated through component tests (92 at the time
+of writing), the production CSS bundle, and dev-server responses. No browser is available in the
+development sandbox, so the "manual pass in both themes" was executed as an automated DOM pass
+(theme toggling with zero console warnings) plus compiled-CSS inspection rather than screenshots.
+Screenshot QA remains scheduled for TASK-027/028.

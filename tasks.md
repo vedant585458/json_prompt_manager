@@ -584,7 +584,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 
 - [x] TASK-001 — Project foundation and toolchain — High — deps: none
 - [x] TASK-002 — Design tokens, theme system, and global styles — High — deps: 001
-- [ ] TASK-003 — Core UI primitives and design gallery — High — deps: 002
+- [x] TASK-003 — Core UI primitives and design gallery — High — deps: 002
 - [ ] TASK-004 — Overlay, feedback, and form primitives — High — deps: 003
 - [ ] TASK-005 — Domain model and prompt document specification — High — deps: 001
 - [ ] TASK-006 — Persistence foundation with repositories and migrations — High — deps: 005
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 2 of 31 tasks complete. TASK-001 and TASK-002 were authorized and completed on 2026-10-24. TASK-003 is next and has not been authorized.
+**Progress:** 3 of 31 tasks complete. TASK-001 through TASK-003 were authorized and completed on 2026-10-24. TASK-004 is next and has not been authorized.
 
 ---
 
@@ -691,7 +691,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-003 — Core UI primitives and design gallery
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-002
 - **Objective:** Deliver the reusable, accessible primitives every later screen composes, plus a `/design` gallery route that demonstrates every variant and state.
@@ -708,6 +708,14 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Component tests for Button/Field/Tabs/Tooltip (roles, accessible names, keyboard behavior, error association); gallery manual pass in both themes; typecheck/lint/tests/build.
 - **Deliverables:** `src/components/ui/*` primitives, `src/lib/cn.ts`, `/design` route (`src/routes/design/DesignGallery.tsx`), component tests, docs update.
 - **Out of scope:** Dialog/Sheet/Toast/EmptyState/Skeleton (TASK-004), domain components, app shell.
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Primitives delivered (`src/components/ui/`):** `Button` (4 variants × 3 sizes, loading with `aria-busy` + stable name + sibling `role="status"` announcement, leading/trailing icon slots, block), `IconButton` (required `label` prop → `aria-label`/`title`, icons hidden from AT), `Spinner`, `Field` (render-prop ARIA wiring: id, `aria-describedby`, `aria-invalid`, `required`; hint/error/optional label/hidden label), `Input` (sizes, invalid, decorative adornment), `Textarea` (mono, auto-resize), `Select` (native select with options/placeholder/disabled), `Checkbox` (incl. indeterminate), `Switch`, `RadioGroup` (roving focus), `Badge` + `StatusPill` (semantic tone always paired with icon + text), `Surface` + `Card` (`flat`/`panel`/`sunken`/`interactive`, polymorphic `as`), `Separator` (semantic vs decorative), `Kbd` + `ShortcutHint`, `Tooltip` (focus/hover, Escape, `aria-describedby`, provider), `Tabs`/`TabsList`/`TabsTrigger`/`TabsContent`/`SimpleTabs`, `CopyButton`/`CopyIconButton` (real clipboard outcome, failure announced), `ProgressBar` (determinate, labelled, clamped). Variant recipes split into `buttonVariants.ts`, `fieldVariants.ts`, `surfaceVariants.ts`, `badgeVariants.ts`, `controlStyles.ts` (ADR-17).
+  - **Gallery:** `src/routes/design/DesignGallery.tsx` renders every primitive in every state (variants, sizes, disabled, loading, invalid, indeterminate, empty), both themes, keyboard-hint and tooltip demos, plus one composed interaction (in-memory snapshot list) proving real state wiring. It is the temporary application root; TASK-008 mounts it at `/design` (ADR-21).
+  - **Dependencies added:** `class-variance-authority@0.7.1`, `@radix-ui/react-{tooltip,tabs,switch,checkbox,radio-group}`. Dialog and dropdown-menu were deliberately **not** installed — they belong to TASK-004 and are unused.
+  - **Validation executed:** `npm run typecheck` exit 0; `npm run lint` exit 0 with **0 warnings**; `npm run test:run` — 12 files / **92 tests passed**; `npm run format:check` clean; `npm run build` exit 0 (CSS 37.66 kB → 10.34 kB gzip; JS 370.69 kB → 115.91 kB gzip); `npm run check:contrast` 52 pairings pass.
+  - **Additional verification:** dev server serves `/` and the gallery module (HTTP 200); production CSS inspected for every primitive utility (`size-4.5`, `data-[state=...]` variants, `aria-invalid`, `animate-spin`, `animate-fade-in`, `field-sizing-content`, `sr-only`, `divide-line`) with no undefined custom properties. Component tests cover roles, names, keyboard activation, focus/roving behavior, error association without data loss, clipboard success/failure/missing-API, and zero console warnings while toggling both themes.
+  - **Deviation:** the spec's "gallery route `/design`" is delivered as a route-ready component rendered at the root, because routing does not exist until TASK-008; recorded as ADR-21 and in `docs/ARCHITECTURE.md` §11. "Manual pass in both themes" was executed as an automated DOM/theme pass plus compiled-CSS inspection because no browser is available in this sandbox (documented).
+  - **Notes/limitations:** overlays, toasts, empty/error states, and skeletons remain TASK-004; `theme` segmented control is still bespoke until the shell refactors it; no screenshot-level visual verification yet (TASK-027/028). Component usage notes are in `docs/ARCHITECTURE.md` §11 and decisions in `docs/DECISIONS.md` (ADR-16…ADR-21).
 
 ---
 

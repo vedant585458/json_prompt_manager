@@ -191,6 +191,152 @@ short and suppressed for reduced-motion users; no decorative animation loops exi
 
 ---
 
+## ADR-16 — Radix behavior with bespoke visuals
+
+**Context.** Tabs, tooltips, switches, checkboxes, and radio groups are easy to get _almost_ right
+and hard to get fully right: roving focus, Escape handling, `aria-*` relationships, portal
+positioning, and touch behavior all have edge cases.
+
+**Decision.** Use unstyled Radix UI primitives for behavior (`react-tabs`, `react-tooltip`,
+`react-switch`, `react-checkbox`, `react-radio-group`) and own 100% of the visuals with token
+utilities. Simple controls (`Button`, `Input`, `Textarea`, `Select`, `Badge`, `Separator`,
+`ProgressBar`, `Kbd`) stay hand-written because the platform already provides the semantics.
+
+**Consequences.** Keyboard and screen-reader behavior comes from a maintained implementation while
+the design stays product-specific. Radix adds six small packages; nothing is used before the task
+that needs it (dialog, dropdown, and toast arrive in TASK-004).
+
+**Verified in tests:** tooltip opens on focus and closes on Escape; tabs move with arrow keys and
+skip disabled tabs; radio group is one tab stop with roving focus; checkbox/switch expose state.
+
+---
+
+## ADR-17 — Variant recipes in dedicated modules
+
+**Context.** `class-variance-authority` recipes are naturally co-located with their component, but
+exporting both a component and a constant from one module breaks React Fast Refresh and produced
+four lint warnings during TASK-003.
+
+**Decision.** Recipes live in `buttonVariants.ts`, `fieldVariants.ts`, `surfaceVariants.ts`,
+`badgeVariants.ts`, plus `controlStyles.ts` for text-entry controls. Component files export only
+components; the barrel re-exports recipes for consumers that need them (e.g. composing a custom
+control with the standard button look).
+
+**Consequences.** Lint is clean with zero warnings, recipes are reviewable in one place, and the
+shared text-control treatment cannot drift between `Input`, `Textarea`, and `Select`.
+
+---
+
+## ADR-18 — `Field` uses a render prop for ARIA wiring
+
+**Context.** Label association and error announcements are the most commonly broken accessibility
+details in forms. Passing ids around by hand invites omissions.
+
+**Decision.** `Field` generates the control id, hint id, and error id, then passes
+`{ id, 'aria-describedby', 'aria-invalid', required }` into a render function that spreads them
+onto the control.
+
+**Consequences.** Association is structural rather than conventional. The trade-off is a slightly
+less conventional API (render prop instead of children), which is documented in the architecture
+guide. Tests assert label association, two-id `aria-describedby`, `aria-invalid`, `required`, and
+that typed content survives an error.
+
+---
+
+## ADR-19 — Native `<select>` over a custom listbox
+
+**Context.** A searchable combobox is attractive for long lists, but a correct custom listbox costs
+a lot of keyboard and screen-reader work.
+
+**Decision.** `Select` styles a native `<select>` with `appearance-none`, a chevron, and token
+colors. Options support `disabled` and an optional placeholder.
+
+**Consequences.** Platform keyboard behavior, form participation, and assistive-tech support come
+for free; styling is limited to the closed control. If a later task needs searchable selection, it
+will be a separate `Combobox` component with explicit ARIA, not a silent replacement of `Select`.
+
+---
+
+## ADR-20 — Loading announcements are sibling live regions
+
+**Context.** Adding the loading message to the button's text changes its accessible name
+("Saving" becomes "Saving Saving prompt"), which is noisy and breaks name-based queries.
+
+**Decision.** The button keeps a stable label and `aria-busy`; when `loadingLabel` is supplied, a
+sibling `role="status"` element announces the pending action.
+
+**Consequences.** Screen-reader users hear a stable control name plus one clear status message.
+The component returns a fragment in that case, which is documented in the reference table.
+
+---
+
+## ADR-21 — The design gallery is a real route component
+
+**Context.** TASK-003 requires a `/design` gallery, but routing is intentionally scheduled for
+TASK-008 and no router exists yet.
+
+**Decision.** Build `DesignGallery` as a standalone route component and render it as the temporary
+application root. TASK-008 mounts it at `/design` and links it from settings; no code rewrites.
+
+**Consequences.** The gallery is reviewable now without inventing a fake navigation shell. The
+deviation is recorded here and in `tasks.md`.
+
+---
+
+## TASK-003 scope notes
+
+1. **Installed:** `class-variance-authority@0.7.1`, `@radix-ui/react-tooltip@1.4.1`,
+   `@radix-ui/react-tabs@1.2.1`, `@radix-ui/react-switch@1.4.1`, `@radix-ui/react-checkbox@1.4.1`,
+   `@radix-ui/react-radio-group@1.5.1`. Dialog/dropdown-menu were **not** installed: they are
+   TASK-004 primitives and are not used anywhere yet.
+2. **Not delivered (by design):** Dialog, Sheet, Toast, EmptyState, Skeleton, Alert/InlineError,
+   ErrorState — all TASK-004. The gallery therefore contains no overlay demos.
+3. **No product navigation, no mock data.** The single stateful specimen (snapshot list) is clearly
+   labelled as a composition demo and uses in-memory React state only.
+4. **`Input` size prop is renamed in type space** (`Omit<ComponentPropsWithRef<'input'>, 'size'>`)
+   because the native attribute is numeric and the design scale is semantic.
+5. **Copy behavior** uses `navigator.clipboard` with no legacy `execCommand` fallback: failure is
+   announced instead of silently pretending to copy. Tests cover success, rejection, and a missing
+   API.
+6. **`sr-only` usage** relies on Tailwind's built-in utility; no custom visually-hidden class was
+   added.
+
+---
+
+## Verification log — TASK-003
+
+| Check        | Command                                 | Result (2026-10-24)                                                                                                                                                                |
+| ------------ | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Types        | `npm run typecheck`                     | exit 0                                                                                                                                                                             |
+| Lint         | `npm run lint`                          | exit 0, **0 warnings** (after ADR-17)                                                                                                                                              |
+| Tests        | `npm run test:run`                      | 12 files / 92 tests passed                                                                                                                                                         |
+| Formatting   | `npm run format:check`                  | clean                                                                                                                                                                              |
+| Build        | `npm run build`                         | exit 0 — CSS 37.66 kB (10.34 kB gzip), JS 370.69 kB (115.91 kB gzip)                                                                                                               |
+| Contrast     | `npm run check:contrast`                | 52 pairings pass                                                                                                                                                                   |
+| Dev server   | `GET /` and gallery module              | HTTP 200; gallery compiles and serves                                                                                                                                              |
+| Compiled CSS | inspection of `dist/assets/index-*.css` | all primitive utilities present (`size-4.5`, state variants, `aria-invalid`, `animate-spin`, `animate-fade-in`, `field-sizing-content`, `sr-only`); no undefined custom properties |
+
+### Test inventory added in this task
+
+| File                     | Coverage                                                                                                                                                                                                 |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Button.test.tsx`        | accessible naming, click, keyboard activation, loading (`aria-busy`, blocked click, stable name), icon-slot hiding, variants/sizes, disabled                                                             |
+| `Field.test.tsx`         | label association, described-by wiring, `aria-invalid`, required state, input preserved on error, hidden label, textarea support                                                                         |
+| `Tooltip.test.tsx`       | hidden by default, opens on keyboard focus, `aria-describedby`, Escape dismissal, pointer hover                                                                                                          |
+| `Tabs.test.tsx`          | tablist naming, selection/panel relationships, arrow navigation, wrap-around, disabled skipping, click                                                                                                   |
+| `CopyButton.test.tsx`    | success + live region, rejection reported, missing API reported, callback timing, icon variant naming                                                                                                    |
+| `controls.test.tsx`      | checkbox (label click, indeterminate), switch, radio group (roving focus, Space selection, label click), select, input/textarea, badge, status pill, progress bar, spinner, separator, kbd, surface/card |
+| `DesignGallery.test.tsx` | all sections render, every button state present, invalid-field demo preserves input, labelled controls, composed specimen state, both themes with zero console warnings                                  |
+
+### Known limitations at this stage
+
+- Overlays, toasts, and loading skeletons are absent by design (TASK-004).
+- No screenshot-level visual verification; see `docs/ARCHITECTURE.md` §12.
+- `Toggle`-style button groups do not exist yet; the theme control is still a bespoke segmented
+  control and will be restyled with primitives in TASK-008.
+
+---
+
 ## Contrast evidence (generated from `src/styles/tokens.css`)
 
 Run `npm run check:contrast` to reproduce. Thresholds: 4.5:1 for text, 3:1 for UI boundaries.

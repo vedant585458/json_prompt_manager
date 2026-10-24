@@ -2,11 +2,11 @@
 
 **Advanced JSON Prompt Management Studio** — a local-first workspace for creating, organizing, validating, versioning, comparing, and optimizing structured JSON prompts.
 
-> **Status: TASK-002 complete — foundation and design system.**
-> The repository contains the application toolchain, the Prompt Observatory token system with
-> dark and light themes, and a temporary token-proof page. No PromptForge product features are
-> implemented yet. Each subsequent feature is built in a separate, explicitly authorized task
-> tracked in [`tasks.md`](./tasks.md).
+> **Status: TASK-003 complete — design-system primitives.**
+> The repository contains the toolchain, the Prompt Observatory token system with dark and light
+> themes, and a complete primitive layer (buttons, form controls, tabs, tooltips, status, progress)
+> with a design gallery. No PromptForge product features are implemented yet. Each subsequent
+> feature is built in a separate, explicitly authorized task tracked in [`tasks.md`](./tasks.md).
 
 ---
 
@@ -95,6 +95,26 @@ the generated contrast table.
   fails the build threshold on regression.
 - **Reduced motion** is honored through the OS preference and a `data-reduced-motion` hook for the
   future in-app setting.
+
+## Component library
+
+`src/components/ui/` holds framework-level primitives with **no domain knowledge** — the same
+components every later screen composes:
+
+- **Actions:** `Button` (primary / secondary / ghost / danger, three sizes, loading), `IconButton`,
+  `CopyButton`, `CopyIconButton`
+- **Forms:** `Field` (label, hint, error, `aria-describedby`/`aria-invalid` wiring), `Input`,
+  `Textarea`, `Select`, `Checkbox`, `Switch`, `RadioGroup`
+- **Structure:** `Surface`, `Card`, `Separator`, `Tabs`
+- **Feedback:** `Badge`, `StatusPill`, `ProgressBar`, `Spinner`, `Tooltip`, `Kbd`
+
+Composite widgets delegate keyboard and screen-reader behavior to Radix UI while keeping bespoke,
+token-driven styling. Component tests cover roles, accessible names, keyboard interaction, error
+association, and loading announcements.
+
+The **design gallery** (`src/routes/design/DesignGallery.tsx`) renders every primitive in every
+state and is the visual reference for later tasks. It becomes the `/design` route in TASK-008 and
+is the temporary application root until then.
 
 ## Data and privacy
 

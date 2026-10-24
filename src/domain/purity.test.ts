@@ -57,6 +57,7 @@ describe('domain layer purity', () => {
       'jsonText.ts',
       'jsonTree.ts',
       'promptDocument.ts',
+      'render.ts',
       'revisions.ts',
       'search.ts',
       'serialization.ts',
@@ -64,6 +65,7 @@ describe('domain layer purity', () => {
       'textDiff.ts',
       'types.ts',
       'validation.ts',
+      'variables.ts',
     ]);
   });
 
@@ -126,6 +128,7 @@ describe('domain layer purity', () => {
       '@/domain/jsonText',
       '@/domain/jsonTree',
       '@/domain/promptDocument',
+      '@/domain/render',
       '@/domain/revisions',
       '@/domain/search',
       '@/domain/serialization',
@@ -133,6 +136,7 @@ describe('domain layer purity', () => {
       '@/domain/textDiff',
       '@/domain/types',
       '@/domain/validation',
+      '@/domain/variables',
     ]);
   });
 });

@@ -2809,3 +2809,121 @@ history and editor entry points; and both palette commands.
 - **No path jump into the editor.** A change names its pointer, but the raw editor has no "scroll to path"
   command yet; that would be a separate piece of work.
 - **No revision is created by comparing**, so a comparison can never change what it is looking at.
+
+## ADR-105 — Playground inputs live in `sessionStorage`, never `localStorage`
+
+**Context.** The playground needs values between rerenders and should survive an accidental reload of the
+tab, but a variable's value is usually the sentence a prompt will be sent with — often a customer's text.
+The library already persists prompts, revisions, and a recovery draft: prompts and revisions in IndexedDB,
+recovery drafts in `localStorage` keyed by prompt id.
+
+**Decision.** Inputs are stored in `sessionStorage`, one key per prompt
+(`promptforge.playground.<promptId>`), holding `{ promptId, values, savedAt }` where `values` is a map of
+raw field text. A record is capped (200 entries, 200,000 characters) and validated on read: wrong prompt id,
+unparsable JSON, a non-string value, or an over-cap payload is treated as _absent_ rather than repaired. Writes
+are debounced and their result is reported; `canUsePlaygroundStorage` probes with a real set/remove, so a
+browser that refuses storage simply has no remembered inputs. Nothing is written to a prompt, a revision, or
+the app's IndexedDB.
+
+**Why not `localStorage`.** Persisting a customer's text in a profile that survives the tab — and that the
+next person to open this browser can read — is a privacy cost with no product benefit: playground values are
+a scratch pad for one working session, not document state. `sessionStorage` gives the useful half of
+persistence (reload-safe in the same tab) and drops the risky half (a permanent record). It also keeps the
+"what is a draft?" story simple: a recovery draft belongs to a real edit and is cleared when that edit is
+saved; playground text belongs to no edit and is cleared when the tab closes.
+
+**Why not IndexedDB or the prompt itself.** A saved test case is a deliberate artifact with a name and a
+purpose (TASK-022). Silently attaching values to a prompt would blur "the prompt" and "one attempt at using
+it", and would change the document without a save. The panel says, in words, that inputs are kept in this tab
+only and never leave the browser.
+
+**Consequences.** A reload keeps the inputs; a new tab starts empty; a closed tab loses them with no
+warning, which is the point. Clearing a field is a real edit to stored text, so a cleared _required_ field is
+treated as unanswered (the render blocks) rather than substituting an empty string, and a declared default of
+`""` still resolves because defaults are applied by the renderer, not by the form. `localStorage` remains
+reserved for the editor's recovery draft (ADR-76) and preferences.
+
+## ADR-106 — The template language is substitution, and there is no evaluator to disable
+
+**Context.** Text in a prompt document contains `{{name}}` placeholders. The obvious next requests are
+expressions (`{{price * 1.2}}`), helpers, and conditionals, and the obvious implementation shortcut is to
+`eval` or `new Function` a token. Losing the boundary would let a document — which may have been imported from
+somewhere else — execute code in this origin, where the whole library lives.
+
+**Decision.** `{{name}}` is matched by a scanner, the identifier is checked against
+`^[A-Za-z_][A-Za-z0-9_]*$`, and the name is looked up in a plain object of declared variables. That is the
+entire language. Nothing is evaluated, no helper table is consulted, and no code is constructed. Values are
+inserted by declaration: a string as-is, a number and a boolean as literals, JSON as compact JSON. A value
+whose type does not match the declaration is an error, not a coercion attempt. Tokens that do not resolve are
+copied through unchanged and reported — the placeholder stays visible rather than disappearing.
+
+**Enforcement.** `src/domain/render.ts` and `src/domain/variables.ts` contain no `eval(`, `new Function`,
+`Function(`, `setTimeout(`, or dynamic `import(`; `src/domain/render.test.ts` reads both files, strips
+comments, and fails the suite if any of those appear. The same suite renders `{{1 + 1}}`, `{{constructor}}`,
+`{{__proto__}}`, and `{{toString}}` and asserts they come out as literal text. A declared name is looked up
+with `Object.hasOwn`, so inherited prototype members are never read.
+
+**Consequences.** No expression, loop, or helper syntax is possible in v1, and documents that use one are
+reported as unusable placeholders rather than half-working. Bounded work is explicit: at most 1,000 tokens per
+string and 200,000 characters of output, past which the render is refused with a message instead of slowing
+the tab. A future expression language would be a new, deliberately sandboxed decision (ADR-105's neighbours),
+not a quiet relaxation of this one.
+
+## Verification log — TASK-021
+
+**Scope verified:** the scanner's token boundaries and problem kinds (unclosed, empty name, invalid name,
+truncation); reference extraction across every string in a document, including fields that are not rendered;
+reconciliation of declarations against references; input parsing and formatting for all four declared types;
+coercion and its error path; section layout, ordering, and omission; missing-required blocking versus
+optional fallback to a default; undeclared and unused reporting; determinism; the security boundary; the
+storage layer's caps and fail-soft reads; the hook's debounce, resets, and restoration; the screen's blocked,
+undeclared, boolean, no-variable, broken-document, and missing-prompt states; the editor Preview tab; and the
+palette command.
+
+### Tests added (84 cases)
+
+| File                                             | Cases | Covers                                                                                                                                                                                                              |
+| ------------------------------------------------ | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/variables.test.ts`                   | 26    | Token scanning and problem kinds, caps, path extraction across nested strings, per-path occurrence counts, reconciliation order, per-type parsing/formatting, coercion, type wording                                |
+| `src/domain/render.test.ts`                      | 26    | Section order and omission, substitution for all four types, defaults, blocked renders, unknown/invalid tokens, determinism, unicode/newlines/nested braces, caps, no-evaluator grep                                |
+| `src/features/playground/valuesStorage.test.ts`  | 6     | Round-trip per prompt, foreign/corrupt payloads treated as absent, write and read caps, throwing storage, clearing one prompt                                                                                       |
+| `src/features/playground/usePlayground.test.ts`  | 12    | Defaults, required blocking, blank-field semantics, invalid number/JSON, resets, reconciliation, debounce timing, restoration, disabled persistence, variable-set changes                                           |
+| `src/routes/playground/PlaygroundRoute.test.tsx` | 10    | Blocked render and copy absence, typed input and live preview, invalid number/JSON, undeclared/unused reporting, boolean switch, no-variable document, tab restoration, broken document, missing prompt, scope note |
+| `src/routes/editor/EditorRoute.test.tsx`         | +3    | Preview tab follows the draft, pauses on invalid JSON, links to the standalone playground                                                                                                                           |
+| `src/lib/commands/coreCommands.test.ts`          | +1    | `playground.open` only from a prompt workspace, and its navigation target                                                                                                                                           |
+
+### Gates
+
+| Gate                        | Result                                                                                                                                                                                                                                                                   |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npx tsc --noEmit`          | exit 0                                                                                                                                                                                                                                                                   |
+| `npx eslint .`              | exit 0, 0 warnings                                                                                                                                                                                                                                                       |
+| `npx vitest run`            | **90 files / 1,389 tests passed, 0 failures**                                                                                                                                                                                                                            |
+| `npx vitest run --coverage` | thresholds pass — all files 96.28/90.93/97.46/97.19; `src/domain` 96.47/92.68/99.29/97.1 (`render.ts` 100/93.1/100/100, `variables.ts` 96.99/94.18/100/97.47); `src/store` 96.49/89.24/97.4/97.8; `src/data` 96.51/87.03/100/97.22 (statements/branches/functions/lines) |
+| `npx prettier --check .`    | clean                                                                                                                                                                                                                                                                    |
+| `npm run check:contrast`    | 64 pairings pass in both themes                                                                                                                                                                                                                                          |
+| `npm run build`             | exit 0 — CSS 58.96 kB (13.85 kB gzip), app JS 1,005.20 kB (291.15 kB gzip), lazy `JsonEditor` chunk 427.66 kB (138.58 kB gzip)                                                                                                                                           |
+| no-evaluator grep           | `grep -nE '\beval\s*\(\|new\s+Function\|Function\s*\(\|setTimeout\s*\(\|import\s*\(' src/domain/render.ts src/domain/variables.ts` finds no call sites (only prose in comments, which the test strips) and the same rule is asserted in `src/domain/render.test.ts`      |
+
+### Known limitations and honesty notes
+
+- **No browser binary exists in this environment**, so there was no manual pass at 390 px, no pointer or
+  keyboard walkthrough of the form or the output block on a real device, and no screenshot. Responsive and
+  keyboard claims rest on wrapping monospace output, `lg`/`xl` breakpoints, labelled native controls, and
+  jsdom tests against the real route.
+- **No model is called, ever.** The playground renders text; it cannot tell whether the prompt is good, and
+  the scope note says so.
+- **"Save as test case" is not rendered.** It belongs to TASK-022, and a button that did nothing would be
+  worse than no button.
+- **A blank field is an unanswered question for every type, including string.** Whitespace-only text is
+  treated as blank too, so a prompt cannot currently be rendered with a value that is intentionally spaces.
+- **Only the prose fields are rendered.** Examples, output configuration, and metadata stay out of the text;
+  variable extraction still scans them, and the screen states the difference.
+- **Values are inserted verbatim.** There is no escaping, templating, or quoting: a string containing
+  `{{other}}` is inserted as written and is not re-scanned, because substitution is a single pass over the
+  source text.
+- **Re-ordering or re-rendering is not cheap for very large documents**: the render is capped at 200,000
+  characters and 1,000 tokens per string, and the render is refused with a message past that, rather than
+  attempting to stream.
+- **Inputs are per tab.** A reload keeps them; a second tab starts empty; closing the tab loses them without
+  warning (ADR-105).

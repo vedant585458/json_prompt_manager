@@ -213,7 +213,7 @@ selection is never half-changed.
 ## JSON editor
 
 `/prompts/:promptId` opens the workspace: the prompt's metadata header (with favorite, pin, and
-archive), a raw/tree tab strip, the editor, a syntax-error panel, a status bar, and a collapsible
+archive), a raw/tree/preview tab strip, the editor, a syntax-error panel, a status bar, and a collapsible
 inspector.
 
 - **Raw JSON.** CodeMirror 6 with JSON highlighting, line numbers, fold gutters, bracket matching,
@@ -243,8 +243,10 @@ inspector.
 - **Snapshots.** "Save snapshot" in the header (or the palette) captures the stored document, title,
   description, tags, and variables together, with an optional label. Autosave never creates one, so
   history stays the record of decisions rather than of keystrokes.
-- **Not here yet.** Variables arrive in TASK-021 and the structural diff in TASK-020; no control pretends
-  otherwise. CodeMirror is a lazy chunk, so the rest of the app does not pay for it.
+- **Preview.** The third tab renders the _draft_ with its declared variables filled in, using the same
+  panel as the standalone playground below; it pauses while the draft is not valid JSON rather than
+  showing stale text. CodeMirror is a lazy chunk, so the rest of the app does not pay for it.
+- **Not here yet.** Saved test cases arrive in TASK-022; no control pretends otherwise.
 
 ## Version history
 
@@ -286,6 +288,29 @@ snapshots**, or from the command palette.
 - **Honest scope.** Whitespace and object key order are not differences. The comparison reports what
   changed, not what it means, and it never writes to your prompts or snapshots. Pasted JSON is not stored
   and is not part of the URL, so a reload clears it — the screen says so.
+
+## Variable playground and preview
+
+`/prompts/:promptId/playground` (or the editor's **Preview** tab) renders a prompt with values filled in.
+The template language is one thing: `{{name}}` is replaced by that declared variable's value. There are no
+expressions, helpers, or loops, and nothing is evaluated as code.
+
+- **Typed fields.** One input per declared variable: text, a number, a switch for booleans, and a JSON
+  field with a parsed error message. Required variables are marked, each field offers a reset to its
+  declared default, and "Reset all" restores the whole form.
+- **Missing is not empty.** A required variable with no value and no default blocks the render, and the
+  panel lists exactly what to fill in. An optional variable falls back to its default; with no default its
+  placeholder stays visible and is reported. A cleared field counts as unanswered for every type.
+- **Nothing is silently dropped.** Undeclared references, unusable placeholders (`{{1 + 1}}`,
+  `{{#each}}`), and declared variables the text never uses are all named under the form, and unresolved
+  placeholders are marked inline in the output.
+- **The output.** A scrollable, focusable monospace block with wrapping text, a character count, and a copy
+  button — the same characters the prompt would contain, with no hidden rewriting. Rendering is debounced
+  so typing stays responsive, and the count, the errors, and the text always describe the same inputs.
+- **Session-only inputs.** Values are kept in this tab's `sessionStorage`, per prompt: a reload keeps them,
+  closing the tab drops them, and nothing is written to the prompt, its history, or anywhere else.
+- **Honest scope.** It previews text; it does not call a model, and it cannot tell you whether the prompt
+  is good. "Save as test case" is not shown, because saved test cases are TASK-022's work.
 
 ## Guided composer
 
@@ -446,7 +471,9 @@ timeline belongs to the user. Details: [`docs/PERSISTENCE.md`](./docs/PERSISTENC
 PromptForge is designed to be **local-first and single-user**. Prompts, revisions, and settings are
 stored in the browser's IndexedDB on this device (or in memory in ephemeral mode). The application
 does not send prompt content to any server, makes no external runtime requests, and integrates no AI
-model provider in its planned v1 scope.
+model provider in its planned v1 scope. Playground values are the one exception to "stored in
+IndexedDB": they live in this tab's `sessionStorage` (reload-safe, gone when the tab closes), because a
+variable's value is often a customer's text rather than document state.
 
 ## Roadmap
 

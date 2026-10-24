@@ -653,3 +653,80 @@ describe('revision history entry points (TASK-019)', () => {
     });
   });
 });
+
+describe('preview tab (TASK-021)', () => {
+  function promptWithVariables(): Prompt {
+    return makePrompt({
+      id: 'alpha',
+      title: 'Invoice parser',
+      content: createBlankDocument({
+        name: 'Invoice parser',
+        role: 'Bookkeeper',
+        objective: 'Extract {{customer}} from the invoice.',
+        instructions: ['Read the invoice.', 'Return JSON.'],
+        variables: [
+          { name: 'customer', type: 'string', required: true },
+          { name: 'threshold', type: 'number', required: false, defaultValue: 100 },
+        ],
+      }),
+    });
+  }
+
+  beforeEach(() => {
+    usePreferencesStore.setState({ autosaveEnabled: false });
+    window.localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  it('renders the stored document in a Preview tab and fills its variables', async () => {
+    const user = userEvent.setup();
+    await openEditor({ prompts: [promptWithVariables()] });
+
+    await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
+    await user.click(screen.getByRole('tab', { name: 'Preview' }));
+
+    expect(screen.getByText(/This preview follows the draft/)).toBeVisible();
+    // The required customer has no value, so there is nothing to copy yet.
+    expect(screen.getByText('Rendering is paused')).toBeVisible();
+    expect(screen.queryByRole('button', { name: /Copy rendered text/ })).not.toBeInTheDocument();
+
+    await user.type(await screen.findByRole('textbox', { name: 'customer' }), 'Acme Ltd');
+
+    const output = await screen.findByRole('region', { name: 'Rendered prompt text' });
+    await waitFor(() => expect(output).toHaveTextContent('Extract Acme Ltd from the invoice.'));
+    expect(screen.getByRole('button', { name: /Copy rendered text/ })).toBeVisible();
+    // The number default is filled in from the declaration, not typed.
+    expect(screen.getByRole('textbox', { name: 'threshold' })).toHaveValue('100');
+  });
+
+  it('waits for a valid draft rather than previewing stale text', async () => {
+    const user = userEvent.setup();
+    await openEditor({ prompts: [promptWithVariables()] });
+
+    const editor = await screen.findByRole('textbox', {
+      name: 'JSON document for Invoice parser',
+    });
+    await user.click(editor);
+    await user.keyboard('x');
+    await screen.findByText(/This is not valid JSON/);
+
+    await user.click(screen.getByRole('tab', { name: 'Preview' }));
+
+    expect(await screen.findByText('There is nothing to preview yet')).toBeVisible();
+    expect(screen.getByText(/The preview needs valid JSON/)).toBeVisible();
+    expect(screen.queryByRole('region', { name: 'Rendered prompt text' })).not.toBeInTheDocument();
+  });
+
+  it('links to the standalone playground for this prompt', async () => {
+    await openEditor({ prompts: [promptWithVariables()] });
+
+    const user = userEvent.setup();
+    await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
+    await user.click(screen.getByRole('tab', { name: 'Preview' }));
+
+    expect(await screen.findByRole('link', { name: 'Open the playground' })).toHaveAttribute(
+      'href',
+      '/prompts/alpha/playground',
+    );
+  });
+});

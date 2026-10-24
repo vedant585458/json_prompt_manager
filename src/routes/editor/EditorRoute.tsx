@@ -9,6 +9,7 @@ import { EditorStatusBar } from '@/components/editor/EditorStatusBar';
 import { EditorToolbar } from '@/components/editor/EditorToolbar';
 import { JsonErrorPanel } from '@/components/editor/JsonErrorPanel';
 import { TreeView } from '@/components/editor/TreeView';
+import { PlaygroundPanel } from '@/components/playground/PlaygroundPanel';
 import { PromptSummaryCard } from '@/components/prompts/PromptSummaryCard';
 import { SnapshotDialog } from '@/components/revisions/SnapshotDialog';
 import {
@@ -28,6 +29,7 @@ import {
 import type { JsonEditorHandle } from '@/components/editor/JsonEditor';
 import type { JsonSyntaxError } from '@/domain/jsonText';
 import { formatJsonText, minifyJsonText } from '@/domain/jsonText';
+import { parseDocument } from '@/domain/serialization';
 import { validateJsonText } from '@/domain/validation';
 import { revisionsForPrompt } from '@/domain/revisions';
 import { useSavePipeline } from '@/features/save/useSavePipeline';
@@ -99,7 +101,7 @@ export function EditorRoute() {
   const now = useMemo(() => new Date(), []);
   const prompt = promptId ? (prompts.find((candidate) => candidate.id === promptId) ?? null) : null;
 
-  const [view, setView] = useState<'raw' | 'tree'>('raw');
+  const [view, setView] = useState<'raw' | 'tree' | 'preview'>('raw');
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [snapshotOpen, setSnapshotOpen] = useState(false);
   const [caret, setCaret] = useState(EMPTY_CARET);
@@ -114,6 +116,15 @@ export function EditorRoute() {
   const handleCaret = useCallback((position: { line: number; column: number }) => {
     setCaret(position);
   }, []);
+
+  // The Preview tab renders the *draft*. `save.parse.value` is null while the
+  // text is not valid JSON, so the tab can never show a stale document as if it
+  // were the current one.
+  const draftDocument = useMemo(() => {
+    if (save.parse.value === null) return null;
+    const parsed = parseDocument(save.parse.value);
+    return parsed.ok ? parsed.value : null;
+  }, [save.parse.value]);
 
   const revisionCount = useMemo(
     () => (prompt ? revisionsForPrompt(revisions, prompt.id).length : 0),
@@ -502,10 +513,14 @@ export function EditorRoute() {
             onRetry={() => void save.retry()}
           />
 
-          <Tabs value={view} onValueChange={(value) => setView(value as 'raw' | 'tree')}>
+          <Tabs
+            value={view}
+            onValueChange={(value) => setView(value as 'raw' | 'tree' | 'preview')}
+          >
             <TabsList aria-label="Editor view">
               <TabsTrigger value="raw">Raw JSON</TabsTrigger>
               <TabsTrigger value="tree">Tree view</TabsTrigger>
+              <TabsTrigger value="preview">Preview</TabsTrigger>
             </TabsList>
 
             <TabsContent value="raw" className="space-y-3">
@@ -539,6 +554,34 @@ export function EditorRoute() {
 
             <TabsContent value="tree">
               <TreeView value={save.parse.value} error={syntaxError} />
+            </TabsContent>
+
+            <TabsContent value="preview">
+              {draftDocument ? (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-2xs leading-relaxed text-ink-muted">
+                      This preview follows the draft, not the saved prompt. Nothing here is written
+                      to it.
+                    </p>
+                    <Link
+                      to={`/prompts/${prompt.id}/playground`}
+                      className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }))}
+                    >
+                      Open the playground
+                    </Link>
+                  </div>
+                  <PlaygroundPanel promptId={prompt.id} document={draftDocument} />
+                </div>
+              ) : (
+                <Alert tone="info" title="There is nothing to preview yet">
+                  <p className="text-xs leading-relaxed">
+                    {syntaxError
+                      ? 'The preview needs valid JSON, and the draft currently has a syntax error. Fix it and this tab fills in.'
+                      : 'The draft parses as JSON but does not match the prompt document shape, so no variables can be read from it. The document must be an object with a version, a metadata object, and the expected sections.'}
+                  </p>
+                </Alert>
+              )}
             </TabsContent>
           </Tabs>
 

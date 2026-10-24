@@ -11,6 +11,7 @@ import { DiffRoute } from '@/routes/diff/DiffRoute';
 import { HistoryRoute } from '@/routes/history/HistoryRoute';
 import { LibraryRoute } from '@/routes/library/LibraryRoute';
 import { NotFoundRoute } from '@/routes/not-found/NotFoundRoute';
+import { PlaygroundRoute } from '@/routes/playground/PlaygroundRoute';
 import { RouteErrorScreen } from '@/routes/route-error/RouteErrorScreen';
 import { SettingsRoute } from '@/routes/settings/SettingsRoute';
 import { TemplatesRoute } from '@/routes/templates/TemplatesRoute';
@@ -35,6 +36,7 @@ export const routes: RouteObject[] = [
       { path: 'prompts/:promptId', element: <EditorRoute /> },
       { path: 'prompts/:promptId/compose', element: <ComposerEditRoute /> },
       { path: 'prompts/:promptId/history', element: <HistoryRoute /> },
+      { path: 'prompts/:promptId/playground', element: <PlaygroundRoute /> },
       { path: 'diff', element: <DiffRoute /> },
       { path: 'composer', element: <ComposerRoute /> },
       { path: 'templates', element: <TemplatesRoute /> },

@@ -4,7 +4,7 @@
 **Created:** 2026-10-24
 **Repository:** `vedant585458/json_prompt_manager`
 **Branch:** `arena/3b0d1d76-json-prompt-manager`
-**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-018 is the latest completed task.
+**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-021 is the latest completed task.
 **Authoritative status source:** This file. One status per task, maintained here only.
 
 ---
@@ -602,7 +602,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-018 — Template catalog and custom templates — Medium — deps: 012, 017
 - [x] TASK-019 — Version history and safe restoration — High — deps: 015
 - [x] TASK-020 — Structural diff explorer — High — deps: 019
-- [ ] TASK-021 — Variable playground and prompt preview — High — deps: 015
+- [x] TASK-021 — Variable playground and prompt preview — High — deps: 015
 - [ ] TASK-022 — Prompt laboratory with saved test cases — Medium — deps: 021
 - [ ] TASK-023 — Blueprint dependency graph — Medium — deps: 016, 019
 - [ ] TASK-024 — Quality inspector — Medium — deps: 016, 021
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 20 of 31 tasks complete. TASK-001 through TASK-020 were completed on 2026-10-24.
+**Progress:** 21 of 31 tasks complete. TASK-001 through TASK-021 were completed on 2026-10-24.
 
 ---
 
@@ -1388,7 +1388,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-021 — Variable playground and prompt preview
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-015
 - **Objective:** Provide safe, predictable variable resolution with typed inputs, missing-value detection, and a live rendered preview.
@@ -1408,6 +1408,19 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Extensive unit tests for renderer/extractor (security-oriented cases included); integration test for editing variables → filling inputs → preview; manual check that no `eval`-like API exists in the module (`grep` check documented); typecheck/lint/tests/build.
 - **Deliverables:** `src/domain/render.ts`, extraction module, `src/routes/playground/*`, `src/components/playground/{VariableForm,RenderedPreview}.tsx`, tests.
 - **Out of scope:** Saved test cases (TASK-022), actual model execution (never in v1), AI provider integration.
+
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Domain (`src/domain/variables.ts`):** the block scanner and everything about *names*. `scanTemplate(text, maxTokens?)` returns `{ tokens, truncated }`, each token carrying `start`, `end`, `raw`, `name`, and a `problem` (`'unclosed' | 'empty-name' | 'invalid-name'`); names must match `VARIABLE_NAME_PATTERN` (`/^[A-Za-z_][A-Za-z0-9_]*$/`) and a string is capped at 1,000 tokens. `extractVariableReferences(document)` walks every string in the document — including examples and metadata, which are not rendered — reporting `{ name, path, occurrences }` per (name, path), sorted by name then path, plus unusable placeholders and a truncation flag. `reconcileVariables(variables, references)` returns `{ used, unused, undeclared }` in a fixed order. `parseVariableInput` / `formatVariableInput` own the four types (decimal pattern rather than `Number()`, so `0x10` is rejected), `describeVariableDefault` caps its preview at 80 characters, and `coerceVariableText` is the single place that decides what a value inserts: a string as-is, a number and a boolean as literals, JSON as compact JSON, and an error for a value that does not match its declaration.
+  - **Renderer (`src/domain/render.ts`):** `renderPrompt(document, values)` returns `{ sections, text, characters, blocked, issues, missing, values }`. Sections are role, objective, instructions, context description, references, and constraints, in that order, under fixed uppercase titles, joined by blank lines, with empty sections omitted; examples, output configuration, and metadata are not part of the text. Segments are `text | value | unresolved | unknown | invalid` so unresolved placeholders can be marked inline without being dropped. Issues carry `missing-required | missing-optional | undeclared | invalid-token | type-mismatch | too-many-tokens | too-large` with a severity; any error blocks the render (`text` empty, `characters` 0). `renderTemplateString`, `describeRenderedPrompt`, `describeRenderIssues`, and `missingVariables` round it out. Caps: `MAX_RENDER_CHARACTERS = 200_000` and 1,000 tokens per string.
+  - **Inputs (`src/features/playground/valuesStorage.ts`, `usePlayground.ts`):** inputs live in `sessionStorage` under `promptforge.playground.<promptId>` (200 entries / 200,000 characters, validated on read, fail-soft everywhere) — deliberately not `localStorage` (ADR-105). `usePlayground` prefills declared defaults, parses each field, applies an empty field as *unanswered*, debounces the derived render (150 ms) so the preview, errors, and count always describe the same inputs, writes inputs after a 300 ms pause, restores them for the same prompt only, and re-fills fields when the document's variable set changes without discarding answers that still apply.
+  - **Screen and components (`src/routes/playground/*`, `src/components/playground/*`):** a route at `/prompts/:promptId/playground` with breadcrumbs, loading/error states, a missing-prompt empty state, an unreadable-document panel that lists the parse issues instead of rendering half a document, and a scope note that says what the screen does and does not do. `VariableForm` gives each declared variable a labelled field (text area, decimal keyboard input, switch, JSON text area), a worded type badge, a required/optional marker, a reset to its default, and a reconciliation report naming unused declarations, undeclared references, and unusable placeholders. `RenderedPreview` shows the exact text in a focusable, wrapping monospace block with a character count, a copy action, inline marks for unresolved placeholders, and a blocked state that lists the reasons and offers no copy of text that does not exist. `PlaygroundPanel` is shared by the route and the editor's new **Preview** tab, so the two can never disagree; the tab follows the *draft* and pauses while the draft is not valid JSON.
+  - **Integration:** the editor's `view` union gained `'preview'` with a third `TabsTrigger`/`TabsContent` over `parseDocument(save.parse.value)`; the router gained the route; the palette gained `playground.open` (available from a prompt workspace, navigating to its playground). "Save as test case" is deliberately **not rendered**, because TASK-022 does not exist yet.
+  - **Security:** there is no evaluator. `src/domain/render.test.ts` reads both domain files, strips comments, and fails if `eval(`, `new Function`, `Function(`, `setTimeout(`, or dynamic `import(` appear; it also renders `{{1 + 1}}`, `{{constructor}}`, `{{__proto__}}`, and `{{toString}}` and asserts literal output. The documented manual check is `grep -nE '(eval|new Function|Function|setTimeout|import)[[:space:]]*\(' src/domain/render.ts src/domain/variables.ts`, which matches only prose in comments.
+  - **Tests added (84 cases; whole suite 1,389 across 90 files):** `src/domain/variables.test.ts` 26, `src/domain/render.test.ts` 26, `src/features/playground/valuesStorage.test.ts` 6, `src/features/playground/usePlayground.test.ts` 12, `src/routes/playground/PlaygroundRoute.test.tsx` 10, `src/routes/editor/EditorRoute.test.tsx` +3, `src/lib/commands/coreCommands.test.ts` +1.
+  - **Validation executed:** `npx tsc --noEmit` exit 0; `npx eslint .` exit 0 with 0 warnings; `npx vitest run` — **90 files / 1,389 tests passed, 0 failures**; `npx vitest run --coverage` — thresholds pass (all files 96.28/90.93/97.46/97.19; `src/domain` 96.47/92.68/99.29/97.1 with `render.ts` at 100/93.1/100/100 and `variables.ts` at 96.99/94.18/100/97.47; `src/store` 96.49/89.24/97.4/97.8; `src/data` 96.51/87.03/100/97.22); `npx prettier --check .` clean; `npm run check:contrast` — 64 pairings pass in both themes; `npm run build` exit 0 — CSS 58.96 kB (13.85 kB gzip), app JS 1,005.20 kB (291.15 kB gzip), lazy `JsonEditor` chunk 427.66 kB (138.58 kB gzip).
+  - **Not performed (stated honestly):** no browser binary exists in this environment, so there was no manual pass at 390 px, no pointer or keyboard walkthrough of the form or the output block on a real device, and no screenshot. Responsive and keyboard claims rest on wrapping monospace output, `lg`/`xl` breakpoints, labelled native controls, and jsdom tests against the real route.
+  - **Deviations recorded:** a blank field counts as *unanswered* for every type including string (whitespace-only included), because substituting `''` would silently drop a required value and hide an optional placeholder; the number field is `type="text"` with `inputMode="decimal"` so a browser cannot discard a typed character without a word; input values are per tab (ADR-105); "Save as test case" is absent until TASK-022; substitution is a single pass, so an inserted value is never re-scanned for tokens.
+  - **Docs:** `docs/DECISIONS.md` gained ADR-105, ADR-106, and a TASK-021 verification log; `docs/ARCHITECTURE.md` gained a "Variable rendering and playground (TASK-021)" section, the `/prompts/:promptId/playground` route row, and the `sessionStorage` note in the data lifecycle; `README.md` gained a "Variable playground and preview" section and an updated editor description; `tasks.md` updated.
 
 ---
 

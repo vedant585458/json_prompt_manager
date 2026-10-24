@@ -140,19 +140,20 @@ shares the same landmarks, focus behaviour, and navigation; `*` is a child of th
 URL still gets navigation), while the recovery screen is the layout's `errorElement` and therefore
 renders even if the shell itself throws.
 
-| Path                         | Screen                | State                                       |
-| ---------------------------- | --------------------- | ------------------------------------------- |
-| `/`                          | Dashboard             | **Implemented** (TASK-010)                  |
-| `/library`                   | Library               | **Implemented** (TASK-011)                  |
-| `/prompts/:promptId`         | Prompt workspace      | **Implemented** (TASK-014, saved in 015)    |
-| `/prompts/:promptId/history` | Version history       | **Implemented** (TASK-019)                  |
-| `/composer`                  | Composer              | Scaffold → TASK-017                         |
-| `/templates`                 | Templates             | Template catalog, preview, custom templates |
-| `/validation`                | Validation            | Scaffold → TASK-016                         |
-| `/health`                    | Health                | Scaffold → TASK-025                         |
-| `/settings`                  | Settings              | **Implemented** (theme, density, autosave)  |
-| `/design`                    | Design system gallery | **Implemented** (TASK-003/004)              |
-| `*`                          | Not found             | **Implemented** (recovery links)            |
+| Path                            | Screen                | State                                              |
+| ------------------------------- | --------------------- | -------------------------------------------------- |
+| `/`                             | Dashboard             | **Implemented** (TASK-010)                         |
+| `/library`                      | Library               | **Implemented** (TASK-011)                         |
+| `/prompts/:promptId`            | Prompt workspace      | **Implemented** (TASK-014/015; Preview tab in 021) |
+| `/prompts/:promptId/history`    | Version history       | **Implemented** (TASK-019)                         |
+| `/prompts/:promptId/playground` | Variable playground   | **Implemented** (TASK-021)                         |
+| `/composer`                     | Composer              | Scaffold → TASK-017                                |
+| `/templates`                    | Templates             | Template catalog, preview, custom templates        |
+| `/validation`                   | Validation            | Scaffold → TASK-016                                |
+| `/health`                       | Health                | Scaffold → TASK-025                                |
+| `/settings`                     | Settings              | **Implemented** (theme, density, autosave)         |
+| `/design`                       | Design system gallery | **Implemented** (TASK-003/004)                     |
+| `*`                             | Not found             | **Implemented** (recovery links)                   |
 
 - **One navigation model.** `src/components/layout/navigation.ts` declares every destination once
   (path, label, description, icon). The rail, the drawer, the breadcrumbs, and the document title all
@@ -586,6 +587,55 @@ control here writes to storage.
 - **The wording is honest.** The scope note says the comparison is textual and structural, not semantic, and
   that it never judges prompt quality.
 
+## Variable rendering and playground (TASK-021)
+
+`/prompts/:promptId/playground` and the editor's **Preview** tab render one document with values.
+The template language is exactly one thing: `{{name}}` is replaced by that declared variable's value.
+There is no expression syntax, no helper, no loop, and no evaluation.
+
+| Piece                                       | Responsibility                                                                                              |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `src/domain/variables.ts`                   | Token scanning, reference extraction, declaration reconciliation, input parsing, coercion, and type wording |
+| `src/domain/render.ts`                      | Section layout and substitution, blocked-render rules, issue and character accounting, summaries            |
+| `src/features/playground/usePlayground.ts`  | Parses each field, applies defaults, debounces the derived render, and keeps the tab's inputs               |
+| `src/features/playground/valuesStorage.ts`  | `sessionStorage` records per prompt, size-capped, fail-soft (ADR-105)                                       |
+| `src/components/playground/*`               | `VariableForm` (typed fields, resets, reconciliation report) and `RenderedPreview` (output, issues, copy)   |
+| `src/routes/playground/PlaygroundRoute.tsx` | The screen around them: breadcrumbs, missing/blocked-document states, and the scope note                    |
+
+**Rules the renderer follows.**
+
+- **A token is a name, and a name is a lookup.** `{{ticket}}` is matched, its identifier is validated
+  against `[A-Za-z_][A-Za-z0-9_]*`, and looked up in an object of declared variables. Anything else
+  (`{{1 + 1}}`, `{{constructor}}`, `{{__proto__}}`) is copied through and reported — never evaluated,
+  never silently dropped (ADR-105's security note, and a source-level test that greps for `eval`,
+  `Function`, timers, and dynamic `import`).
+- **Values are coerced by declaration.** A string is inserted as-is (newlines kept, no quoting), a number
+  and a boolean use their literals, and JSON uses compact JSON. A value whose type does not match the
+  declaration is an error, not a guess.
+- **Missing is not the same as empty.** A required variable with no value and no default blocks the
+  render: `text` is empty, `characters` is 0, and the panel lists what to fill in. An optional variable
+  falls back to its declared default; with no default the placeholder stays visible and is reported.
+- **Blank fields are unanswered questions.** The form treats an empty field as "no value" for every
+  type, including string, so a cleared required field cannot quietly substitute nothing. A declared
+  default of `""` still works, because defaults are applied by the renderer.
+- **Only the prose fields are rendered** — role, objective, instructions, context description,
+  references, constraints — under fixed uppercase headings, with empty sections omitted. Examples,
+  output configuration, and metadata are part of the document but not of the text, and the screen says
+  so.
+- **Undeclared and unused are both named.** Extraction scans every string in the document (including
+  fields that are not rendered), so a `{{token}}` in `examples` is never invisible, and the form lists
+  declared variables the text never uses.
+- **Both entry points are the same component.** The route renders the stored document; the editor's
+  Preview tab renders the draft (and says so, with the preview pausing while the draft is not valid
+  JSON), so the two can never disagree about what "rendered" means.
+- **Nothing is sent anywhere.** Inputs live in this tab's `sessionStorage`, are never written to a
+  prompt or a revision, and the screen says both things plainly. The panel offers no "Save as test
+  case" button: that belongs to TASK-022 and a control that does nothing would be worse than none.
+- **Keyboard and contrast.** Every field is labelled and errors are wired through `Field`
+  (`aria-describedby`, `aria-invalid`); the numbered placeholders are a list you can tab through; the
+  output block is a focusable `region` with wrapping text so it stays readable at 390 px; and every
+  status is a word plus an icon, never colour alone.
+
 ## Commands and keyboard
 
 Everything a shortcut can do is declared once, in `src/lib/commands/`:
@@ -691,6 +741,9 @@ DataBootstrap renders    loading skeletons → banner + children, or a recovery 
   `applySettings` adopts a persisted record, `toSettings` writes preferences back without losing
   `onboardedAt` or `seedVersion`.
 - **`uiStore`** holds panels, the command palette, and selection — never persisted, reset on reload.
+- **Playground inputs** (TASK-021) are the one deliberate `sessionStorage` record: per prompt, capped,
+  and gone when the tab closes, because a variable's value is often a customer's text (ADR-105). They
+  are never merged into a prompt or a revision.
 - **Editor recovery drafts** (TASK-015) are the one deliberate `localStorage` record outside
   preferences: a namespaced, size-capped copy of the text in this tab, written after a short pause and
   removed only once storage confirmed a write. They are a recovery aid, not a save — the prompt itself

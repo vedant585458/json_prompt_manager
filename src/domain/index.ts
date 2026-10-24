@@ -20,4 +20,6 @@ export * from '@/domain/jsonSchema';
 export * from '@/domain/validation';
 export * from '@/domain/composer';
 export * from '@/domain/diff';
+export * from '@/domain/variables';
+export * from '@/domain/render';
 export * from '@/domain/templates';

@@ -202,6 +202,15 @@ export function createCoreCommands(): readonly CommandDefinition[] {
       run: (context) => context.navigate(`${context.pathname}/history`),
     },
     {
+      id: 'playground.open',
+      title: 'Open the variable playground',
+      group: 'Workspace',
+      description: 'Fill in this prompt\u2019s variables and read the text it renders.',
+      keywords: searchTerms('playground preview variables render template fill inputs'),
+      when: (context) => /^\/prompts\/[^/]+$/.test(context.pathname),
+      run: (context) => context.navigate(`${context.pathname}/playground`),
+    },
+    {
       id: 'library.favorites',
       title: 'Show favorite prompts',
       group: 'Workspace',

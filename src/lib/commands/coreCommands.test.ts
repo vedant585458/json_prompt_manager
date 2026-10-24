@@ -168,6 +168,23 @@ describe('TASK-013 commands', () => {
     expect(navigate).toHaveBeenCalledWith('/prompts/abc/history');
   });
 
+  it('offers the playground only from a prompt workspace', () => {
+    const playground = byId.get('playground.open');
+    if (!playground) throw new Error('Missing playground command');
+
+    expect(isCommandAvailable(playground, createTestContext({ pathname: '/prompts/abc' }))).toBe(
+      true,
+    );
+    expect(isCommandAvailable(playground, createTestContext({ pathname: '/library' }))).toBe(false);
+    expect(isCommandAvailable(playground, createTestContext({ pathname: '/playground' }))).toBe(
+      false,
+    );
+
+    const navigate = vi.fn();
+    run('playground.open', { pathname: '/prompts/abc', navigate });
+    expect(navigate).toHaveBeenCalledWith('/prompts/abc/playground');
+  });
+
   it('opens a comparison from a prompt and from anywhere', () => {
     const compare = byId.get('diff.compare');
     const open = byId.get('diff.open');

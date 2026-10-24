@@ -62,6 +62,10 @@ Status values: **Accepted** (in force), **Planned** (agreed, not yet built), **S
 | ADR-58 | First-run dismissal is a settings write, never an optimistic hide         | Accepted   | TASK-010     |
 | ADR-59 | Screens read the data store from context, not the module singleton        | Accepted   | TASK-010     |
 | ADR-60 | Archived prompts are outside the dashboard's working set                  | Accepted   | TASK-010     |
+| ADR-61 | The library's filter state lives in the URL, and only there               | Accepted   | TASK-011     |
+| ADR-62 | One pure search module serves filtering, counts, and highlighting         | Accepted   | TASK-011     |
+| ADR-63 | Pinned prompts are a separate section, not a separate result set          | Accepted   | TASK-011     |
+| ADR-64 | Selection and view preference are presentation state, never prompt data   | Accepted   | TASK-011     |
 
 ---
 
@@ -1072,6 +1076,101 @@ is the user saying "set this aside". Restoring it brings it back on the next ren
 
 ---
 
+## ADR-61 — The library's filter state lives in the URL, and only there
+
+**Context.** Search, tag, folder, collection, status, validation, archive, date, sort, and view all
+have to survive navigation, work with browser back/forward, and be shareable as an in-app link.
+Keeping a copy in a store would create a second source of truth that can disagree with the address
+bar after a reload.
+
+**Decision.** `src/routes/library/libraryQuery.ts` owns the whole contract: `readLibraryState()` turns
+a query string into an immutable `LibraryState`, `writeLibraryState()` turns it back into a string
+(dropping defaults and empty values), and `toggleTag`/`editedAfter`/`hasActiveFilters` sit beside
+them. `LibraryRoute` derives every filter from `useSearchParams()` and never stores it elsewhere.
+
+- Typing in the search box is debounced by `SEARCH_DEBOUNCE_MS` (250 ms) and written with
+  `replace: true`, so one pause produces one history entry rather than one per keystroke. Every
+  deliberate control (tag, folder, collection, status, validation, archived, favorites, date, sort,
+  clear-all) pushes a new entry.
+- The dashboard's `?filter=` shorthand (ADR-57) is read as a **base layer**; explicit parameters
+  override it. `?filter=favorites&archived=0` therefore means "favorites, live prompts", and the chip
+  row shows the expanded result rather than the shorthand.
+- Unknown or invalid values fall back to the default instead of throwing, so a hand-edited URL cannot
+  break the screen. `search` is capped at `SEARCH_MAX_LENGTH` (120) on read.
+- A `?view=` parameter beats the stored view preference for that navigation, so a link can force a
+  view without overwriting the preference.
+
+**Consequences.** Reload, back/forward, and pasted in-app links reproduce the exact view; there is no
+hydration path to get wrong. Long tag lists make long URLs, which is acceptable for an in-app link.
+Debounced search means the address bar lags a keystroke by design — the result count follows the URL,
+so what is displayed always matches what is shareable.
+
+---
+
+## ADR-62 — One pure search module serves filtering, counts, and highlighting
+
+**Context.** "Why is this prompt in the results?" has to be answerable, and a result must never be
+counted by one implementation and highlighted by another.
+
+**Decision.** `src/domain/search.ts` is the only definition of a match.
+
+- `parseSearchQuery()` lowercases, splits on whitespace, and de-duplicates; terms are **ANDed** across
+  a prompt, while the four fields (title, description, tags, serialized JSON document) are **ORed**
+  for each term. Searching `json schema` therefore requires both words, not just one.
+- `haystackFor()` caches each prompt's lowercased fields and pretty-printed document in a `WeakMap`
+  keyed on object identity. Prompts are immutable values that are replaced on save, so a cached entry
+  can never be stale, and typing does not re-stringify hundreds of documents per keystroke.
+- `matchPrompt()` returns `{ fields, excerpt }`; the excerpt is the first line of the JSON containing
+  a term, trimmed to `SEARCH_EXCERPT_LIMIT` (96) characters, so a card can show _why_ it matched.
+- `highlightSegments()` builds literal, case-insensitive ranges — no regular expression is ever
+  composed from user input — and merges overlapping hits so `<mark>` elements never nest.
+- The selector (`selectLibrary` → `matchPrompt`), the result count, and `HighlightedText` all call this
+  module, so matches, counts, and highlights cannot drift apart.
+
+**Consequences.** Results are ordered by the sort control, never by relevance: a search only narrows
+the set, which keeps the list predictable. Search covers the stored document as text, not as
+structure — it cannot ask "prompts whose `constraints` array is empty" (that is TASK-016/025
+territory). The 500-prompt spot check runs at ~9 ms cold and ~1.5 ms warm per query in this workspace.
+
+---
+
+## ADR-63 — Pinned prompts are a separate section, not a separate result set
+
+**Context.** A pinned section must be visible at the top, but duplicating prompts between "pinned" and
+"all results" would double the count and let "select all shown" select one prompt twice.
+
+**Decision.** The filtered set is computed once. Prompts with `pinned === true` are rendered in a
+`Pinned` section above the main list and removed from the main `Matching prompts` list; filters,
+search, sorting, and the archive toggle apply to both. The header count (`N of M prompts`) and the
+`N shown` label each count a prompt exactly once. When every result is pinned, the results section
+says so instead of vanishing. Both collections carry distinct accessible list names ("Pinned
+prompts" / "Matching prompts"), and the pinned heading is a real `h3` tied to the section.
+
+**Consequences.** No duplicated cards and no double-counted selection; "select all shown" covers pinned
+and unpinned results together, matching what the user can see. Pinning itself remains a TASK-013
+mutation — this task only renders the flag.
+
+---
+
+## ADR-64 — Selection and view preference are presentation state, never prompt data
+
+**Context.** TASK-011 must lay the foundation for TASK-013's bulk actions and remember grid/list
+without pretending either is a persisted change to a prompt.
+
+**Decision.** Checkbox selection lives in `uiStore.selectedPromptIds` (a string array with
+`setSelection`, `toggleSelection`, `clearSelection`). It survives filter changes — a bulk action should
+be able to span several searches — but it is session-only and is reset explicitly by tests' `afterEach`.
+The view preference is written to `localStorage` under `promptforge.library.view` through
+`src/lib/viewPreference.ts`, which validates stored values and falls back to `grid`; the URL `view`
+parameter takes precedence per navigation (ADR-61). Neither path touches a repository, writes an
+activity event, or mutates a prompt.
+
+**Consequences.** Nothing here can lose user data, and the selection bar can honestly say that bulk
+actions arrive in TASK-013. A blocked `localStorage` (private mode, ephemeral storage) leaves the
+in-session toggle working even though the preference will not survive a reload.
+
+---
+
 ## Verification log — TASK-005
 
 | Check              | Command                                               | Result (2026-10-24)                                                                        |
@@ -1378,3 +1477,70 @@ Run `npm run check:contrast` to reproduce. Thresholds: 4.5:1 for text, 3:1 for U
   snapshot statistic has no other source; `hydrate()` therefore performs one revision query per prompt.
 - `BadgeTone` is now exported from `src/components/ui/index.ts` so the shared prompt row can type its
   status→tone table instead of re-deriving the union.
+
+## Verification log — TASK-011
+
+| Check                | Command                                                        | Result (2026-10-24)                                                  |
+| -------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Types                | `npm run typecheck`                                            | exit 0                                                               |
+| Lint                 | `npm run lint`                                                 | exit 0, **0 warnings**                                               |
+| Tests                | `npm run test:run`                                             | 55 files / **658 tests passed** (86 new)                             |
+| Library integration  | `npx vitest run src/routes/library/LibraryRoute.test.tsx`      | 25 tests passed                                                      |
+| Search domain        | `npx vitest run src/domain/search.test.ts`                     | 22 tests passed                                                      |
+| Library URL contract | `npx vitest run src/routes/library/libraryQuery.test.ts`       | 16 tests passed                                                      |
+| Selectors            | `npx vitest run src/store/selectors.test.ts`                   | 20 tests passed                                                      |
+| Folder tree          | `npx vitest run src/lib/folderTree.test.ts`                    | 9 tests passed                                                       |
+| View preference      | `npx vitest run src/lib/viewPreference.test.ts`                | 5 tests passed                                                       |
+| Dashboard (regress)  | `npx vitest run src/routes/dashboard/DashboardRoute.test.tsx`  | 15 tests passed                                                      |
+| Formatting           | `npm run format:check`                                         | clean                                                                |
+| Contrast             | `npm run check:contrast`                                       | 52 pairings pass                                                     |
+| Build                | `npm run build`                                                | exit 0 — CSS 50.52 kB (12.54 kB gzip), JS 678.65 kB (206.09 kB gzip) |
+| Visual checks        | 360 px / 390 px / 1440 px, both themes                         | **not performed** — no browser binary in this workspace              |
+| Keyboard pass        | scripted: `/` focuses search, Enter on a card opens the prompt | jsdom only                                                           |
+
+### Test inventory added in this task
+
+| File                                       | Cases | Focus                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------ | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/search.test.ts`                | 22    | query parsing, per-field matches, AND across terms, tag/content matching, excerpts and their limit, highlight merging and literal input, 500-prompt timing and order stability                                                                                                                                                                                                                                       |
+| `src/routes/library/libraryQuery.test.ts`  | 16    | every parameter round-trip, default omission, `?filter=` base layering, tag toggling, edited windows, `hasActiveFilters`, length cap, unknown-value fallback                                                                                                                                                                                                                                                         |
+| `src/routes/library/LibraryRoute.test.tsx` | 25    | seeded repositories through the real shell: count parity, pinned separation, grid/list parity, parse-failure badge, debounce→URL→results, highlighting and JSON excerpt, tag/folder/status/archive filtering, dashboard shorthand, back/forward, sorting, persisted view, empty library vs no matches, loading skeleton, failed read with recovery detail, selection, Enter-to-open, `/` shortcut, 500-prompt filter |
+| `src/store/selectors.test.ts`              | 9 new | folder subtree, OR/AND tag filters, collection membership, parse-state filter, snapshot filter, edited-after window, combined filters, sort stability                                                                                                                                                                                                                                                                |
+| `src/lib/folderTree.test.ts`               | 9     | ordering, orphan handling, nesting, cycle rejection, subtree ids, flattening                                                                                                                                                                                                                                                                                                                                         |
+| `src/lib/viewPreference.test.ts`           | 5     | validation, default, read/write through a storage stub, failure tolerance                                                                                                                                                                                                                                                                                                                                            |
+
+### Known limitations at this stage
+
+- **No visual verification was performed.** There is no browser in this workspace, so the 360 px /
+  390 px / 1440 px and both-theme pass is deferred to TASK-027/028. Overflow safety rests on
+  `min-w-0`, wrapping grids, `truncate`, and a rail that becomes a full-width block below `lg`; nothing
+  was measured.
+- **Timings are jsdom numbers, not browser numbers.** The search spot check measures the pure
+  filtering pipeline for 500 prompts (~9 ms cold, ~1.5 ms warm), not paint or layout.
+- **No virtualization.** 500 cards render at once. Correct and responsive at that size in this
+  workspace, but windowing is deliberately deferred until it is authorized with evidence.
+- **Bulk actions do not exist yet.** The selection bar counts checkboxes and says that TASK-013 adds
+  the actions; nothing is mutated from the library.
+- **Organization is read-only.** Folders and collections can be navigated but not created or edited
+  (TASK-012), and the rail says so when they are empty. Tags, favorites, pins, and archive are
+  displayed from stored data without mutation controls (TASK-013).
+- **`?filter=` is expanded on arrival.** A shared link using the dashboard's shorthand is rewritten into
+  explicit parameters by the chip row; the shorthand itself is still accepted.
+- The single-chunk build advisory (678 kB / 206 kB gzip) is accepted; route-level code splitting is not
+  authorized yet.
+
+### Deliberate deviations recorded for TASK-011
+
+- Added `src/lib/folderTree.ts`, `src/lib/viewPreference.ts`, `src/routes/library/libraryQuery.ts`, and
+  `src/lib/commands/librarySearchFocus.ts` beyond the deliverables list so the rail's tree maths, the
+  view preference, the URL contract, and the `/` command each have one testable home instead of living
+  inside a component.
+- Added `src/components/library/{PromptBadges,HighlightedText}.tsx` as the shared pieces of the card and
+  row, so the validation pill and the highlight rendering cannot diverge between the two views.
+- `PromptGrid`/`PromptList` gained a `label` prop: the route renders two lists (pinned and results) and
+  both need distinct accessible names.
+- `RouteScaffold` lost its `note` prop and its `Alert` import: the library's "requested filter" note is
+  gone because filters are now real. This removed the dashboard-era assertion on that copy.
+- `src/test/renderAppWithData.tsx` is a new shared harness (real router, shell, store, in-memory
+  repositories) used by both the dashboard and the library integration tests, so neither has to boot
+  storage twice or mock the store.

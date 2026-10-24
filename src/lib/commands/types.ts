@@ -61,6 +61,8 @@ export interface CommandContext {
   toggleTheme: () => void;
   toggleRail: () => void;
   setHelpOpen: (open: boolean) => void;
+  /** Focuses the library's search field; no-op when the library is unmounted. */
+  focusLibrarySearch: () => void;
 }
 
 export interface CommandDefinition {

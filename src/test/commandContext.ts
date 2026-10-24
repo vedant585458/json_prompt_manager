@@ -16,6 +16,7 @@ export function createTestContext(overrides: Partial<CommandContext> = {}): Comm
     toggleTheme: () => undefined,
     toggleRail: () => undefined,
     setHelpOpen: () => undefined,
+    focusLibrarySearch: () => undefined,
     ...overrides,
   };
 }

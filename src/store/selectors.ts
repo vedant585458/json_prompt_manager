@@ -8,12 +8,16 @@
  * Nothing in this module touches storage or React.
  */
 
+import { matchPrompt } from '@/domain/search';
 import type { ActivityEvent, Prompt, PromptStatus } from '@/domain/types';
 
 export type PromptSort = 'updated' | 'created' | 'title';
 
 export interface LibraryQuery {
-  /** Case-insensitive search over title, description, and tags. */
+  /**
+   * Case-insensitive search over title, description, tags, and the stored JSON
+   * document (TASK-011). Every term must appear somewhere.
+   */
   readonly search?: string;
   /** `false` (default) hides archived prompts; `true` shows only archived. */
   readonly archived?: boolean;
@@ -21,9 +25,29 @@ export interface LibraryQuery {
   readonly pinnedOnly?: boolean;
   /** `null` selects Unfiled prompts; omit for every folder. */
   readonly folderId?: string | null;
+  /** Several folders at once, used by a folder and its descendants. */
+  readonly folderIds?: readonly string[];
   readonly collectionId?: string;
+  /** Several collections at once; a prompt may belong to any of them. */
+  readonly collectionIds?: readonly string[];
+  /** Prompts that belong to at least one collection. */
+  readonly hasCollection?: boolean;
   readonly tag?: string;
+  /** Every listed tag must be present (AND), matching the multi-select chip UI. */
+  readonly tags?: readonly string[];
   readonly status?: PromptStatus | 'all';
+  /**
+   * Document-health filter. The ids come from the caller because parsing is
+   * expensive: the library computes the set once per data change (TASK-011).
+   */
+  readonly documentFilter?: {
+    readonly kind: 'parsable' | 'unparsable';
+    readonly ids: readonly string[];
+  };
+  /** Prompts that have at least one stored revision. */
+  readonly snapshotPromptIds?: readonly string[];
+  /** ISO timestamp; prompts edited before it are excluded. */
+  readonly updatedAfter?: string;
   readonly sort?: PromptSort;
 }
 
@@ -58,14 +82,6 @@ export interface DashboardSummary {
   readonly activityCount: number;
 }
 
-function matchesSearch(prompt: Prompt, needle: string): boolean {
-  return (
-    prompt.title.toLowerCase().includes(needle) ||
-    prompt.description.toLowerCase().includes(needle) ||
-    prompt.tags.some((tag) => tag.toLowerCase().includes(needle))
-  );
-}
-
 function compare(sort: PromptSort, left: Prompt, right: Prompt): number {
   if (sort === 'title') {
     const byTitle = left.title.toLowerCase().localeCompare(right.title.toLowerCase());
@@ -85,22 +101,43 @@ function compare(sort: PromptSort, left: Prompt, right: Prompt): number {
  * result can be compared directly with `prompts.query()` in tests.
  */
 export function selectLibrary(prompts: readonly Prompt[], query: LibraryQuery = {}): Prompt[] {
-  const needle = query.search?.trim().toLowerCase() ?? '';
+  const needle = query.search?.trim() ?? '';
   const archived = query.archived ?? false;
+  const folderIds = query.folderIds ? new Set(query.folderIds) : null;
+  const collectionIds = query.collectionIds ? new Set(query.collectionIds) : null;
+  const tags = query.tags ?? [];
+  const unparsable = query.documentFilter ? new Set(query.documentFilter.ids) : null;
+  const withSnapshots = query.snapshotPromptIds ? new Set(query.snapshotPromptIds) : null;
 
   const filtered = prompts.filter((prompt) => {
     if (prompt.archived !== archived) return false;
     if (query.favoritesOnly === true && !prompt.favorite) return false;
     if (query.pinnedOnly === true && !prompt.pinned) return false;
     if (query.folderId !== undefined && prompt.folderId !== query.folderId) return false;
+    if (folderIds && !folderIds.has(prompt.folderId ?? '')) return false;
+    if (query.hasCollection === true && prompt.collectionIds.length === 0) return false;
     if (query.collectionId !== undefined && !prompt.collectionIds.includes(query.collectionId)) {
       return false;
     }
+    if (
+      collectionIds &&
+      !prompt.collectionIds.some((collectionId) => collectionIds.has(collectionId))
+    ) {
+      return false;
+    }
     if (query.tag !== undefined && !prompt.tags.includes(query.tag)) return false;
+    if (tags.length > 0 && !tags.every((tag) => prompt.tags.includes(tag))) return false;
     if (query.status !== undefined && query.status !== 'all' && prompt.status !== query.status) {
       return false;
     }
-    if (needle.length > 0 && !matchesSearch(prompt, needle)) return false;
+    if (query.documentFilter && unparsable) {
+      const unreadable = unparsable.has(prompt.id);
+      if (query.documentFilter.kind === 'unparsable' && !unreadable) return false;
+      if (query.documentFilter.kind === 'parsable' && unreadable) return false;
+    }
+    if (withSnapshots && !withSnapshots.has(prompt.id)) return false;
+    if (query.updatedAfter !== undefined && prompt.updatedAt < query.updatedAfter) return false;
+    if (needle.length > 0 && matchPrompt(prompt, needle) === null) return false;
     return true;
   });
 

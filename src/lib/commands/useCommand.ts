@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'r
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { useTheme } from '@/app/providers/theme-context';
+import { focusLibrarySearch } from '@/lib/commands/librarySearchFocus';
 import { isWithinOverlay } from '@/lib/overlay';
 import {
   commandRegistry,
@@ -60,6 +61,9 @@ export function useCommandEnvironment(): CommandEnvironment {
       toggleTheme: () => setPreference(preferences.resolvedTheme === 'dark' ? 'light' : 'dark'),
       toggleRail: () => useUiStore.getState().toggleSidebar(),
       setHelpOpen: (open) => useUiStore.getState().setHelpOpen(open),
+      focusLibrarySearch: () => {
+        focusLibrarySearch();
+      },
     };
   }, [navigate, pathname, platform, setPreference]);
 

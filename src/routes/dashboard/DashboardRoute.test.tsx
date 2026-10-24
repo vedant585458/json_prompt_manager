@@ -1,13 +1,8 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { DataBootstrap } from '@/app/DataBootstrap';
-import { AppProviders } from '@/app/providers/AppProviders';
-import { routes } from '@/app/router';
 import { createInMemoryRepositories, type Repositories } from '@/data';
-import { bootData } from '@/app/dataBoot';
 import {
   createActivityEvent,
   createCollection,
@@ -26,7 +21,7 @@ import type {
   PromptTemplate,
   Settings,
 } from '@/domain/types';
-import { createDataStore, type DataStore } from '@/store/dataStore';
+import { renderAppWithData } from '@/test/renderAppWithData';
 import { useUiStore } from '@/store/uiStore';
 
 /**
@@ -38,13 +33,6 @@ import { useUiStore } from '@/store/uiStore';
  * travelled the same path a real record does. Only the storage adapter and the
  * seed are injected; boot is exercised for real in `dataBoot.test.ts`.
  */
-
-const NO_SEED = {
-  seeded: false,
-  version: 0,
-  previousVersion: 0,
-  created: { folders: 0, collections: 0, prompts: 0, templates: 0 },
-} as const;
 
 const COMPLETED_ONBOARDING = '2026-01-02T09:00:00.000Z';
 
@@ -114,24 +102,10 @@ function renderDashboard(options: HarnessOptions = {}) {
       settings: options.settings === undefined ? settings() : options.settings,
     });
 
-  const store = createDataStore();
-  const boot = (target: DataStore) =>
-    bootData({
-      store: target,
-      openStorage: async () => ({ repositories, mode: 'ephemeral', notice: null }),
-      seed: async () => NO_SEED,
-    });
-
-  const router = createMemoryRouter(routes, { initialEntries: [options.path ?? '/'] });
-  const view = render(
-    <AppProviders>
-      <DataBootstrap store={store} boot={boot}>
-        <RouterProvider router={router} />
-      </DataBootstrap>
-    </AppProviders>,
-  );
-
-  return { ...view, router, repositories, store };
+  return {
+    ...renderAppWithData({ repositories, path: options.path ?? '/' }),
+    repositories,
+  };
 }
 
 async function openDashboard(options: HarnessOptions = {}) {
@@ -196,18 +170,23 @@ describe('dashboard counts and links', () => {
     ).toBeVisible();
   });
 
-  it('follows the requested library filter into the library route', async () => {
+  it('carries the requested library filter into the real library', async () => {
     const user = userEvent.setup();
+    const plain = prompt({ title: 'Plain', updatedAt: '2026-10-02T09:00:00.000Z' });
     const { router } = await openDashboard({
-      prompts: [prompt({ title: 'Starred', favorite: true })],
+      prompts: [prompt({ title: 'Starred', favorite: true }), plain],
     });
 
     await user.click(stat(/^Favorites/));
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/library'));
     expect(router.state.location.search).toBe('?filter=favorites');
-    expect(screen.getByRole('heading', { level: 1, name: 'Library' })).toBeVisible();
-    expect(screen.getByText(/You arrived with a request for/)).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Library' })).toBeVisible();
+
+    // The shorthand arrives as a visible, removable filter — and it filters.
+    expect(await screen.findByRole('button', { name: 'Remove filter: Favorites' })).toBeVisible();
+    expect(await screen.findByRole('link', { name: /Starred/ })).toBeVisible();
+    expect(screen.queryByRole('link', { name: /Plain/ })).not.toBeInTheDocument();
   });
 });
 

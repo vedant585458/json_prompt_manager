@@ -4,7 +4,7 @@
 **Created:** 2026-10-24
 **Repository:** `vedant585458/json_prompt_manager`
 **Branch:** `arena/3b0d1d76-json-prompt-manager`
-**Current phase:** Phase 1 — Planning and Task Definition (complete). No implementation has begun.
+**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-011 is the latest completed task.
 **Authoritative status source:** This file. One status per task, maintained here only.
 
 ---
@@ -592,7 +592,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-008 — Application shell, routing, and responsive navigation — High — deps: 004, 007
 - [x] TASK-009 — Keyboard shortcut registry and command palette — High — deps: 008
 - [x] TASK-010 — Dashboard with real library data — High — deps: 008, 009
-- [ ] TASK-011 — Prompt library browsing, search, filters, and views — High — deps: 008
+- [x] TASK-011 — Prompt library browsing, search, filters, and views — High — deps: 008
 - [ ] TASK-012 — Prompt CRUD, folders, and collections — High — deps: 011
 - [ ] TASK-013 — Tags, favorites, pins, archive, and bulk actions — Medium — deps: 012
 - [ ] TASK-014 — JSON editor workspace (raw + tree views) — High — deps: 012
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 10 of 31 tasks complete. TASK-001 through TASK-010 were completed on 2026-10-24.
+**Progress:** 11 of 31 tasks complete. TASK-001 through TASK-011 were completed on 2026-10-24.
 
 ---
 
@@ -1002,7 +1002,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-011 — Prompt library browsing, search, filters, and views
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-008
 - **Objective:** Make the prompt library a fast, legible place to discover work: search, filters, sorting, grid/list views, and organization navigation.
@@ -1022,6 +1022,20 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Unit tests for search/filter/sort selectors (multi-field, tags, dates, archived); integration test for URL sync and empty state; performance spot-check with 500 fixture prompts (no filter keystroke > 100 ms observed); accessibility keyboard pass; typecheck/lint/tests/build.
 - **Deliverables:** `src/routes/library/*`, `src/components/library/{FilterBar,PromptGrid,PromptList,PromptCard,PromptRow,IngredientRail}.tsx`, `src/domain/search.ts`, tests.
 - **Out of scope:** Create/edit/delete dialogs and folder/collection management (TASK-012), tags/favorites/pins/archive mutations and bulk operations (TASK-013), import/export (TASK-026).
+
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Search (`src/domain/search.ts`):** one pure module defines a match. `parseSearchQuery` lowercases, splits, and de-duplicates terms (ANDed across a prompt); the four fields (title, description, tags, serialized JSON document) are ORed per term. `matchPrompt` returns the matched fields plus a 96-character excerpt of the first JSON line that matched, so the UI can say *why*. `highlightSegments` builds literal, case-insensitive ranges (no regex from user input) and merges overlaps. Haystacks are cached in a `WeakMap` keyed on prompt identity, so typing never re-stringifies hundreds of documents.
+  - **URL contract (`src/routes/library/libraryQuery.ts`):** `LibraryState` for `q`, `folder` (including `unfiled`), repeatable `tag`, `collection`, `status`, `validation`, `archived`, `favorites`, `snapshots`, `incollection`, `edited`, `sort`, `view`; `readLibraryState`/`writeLibraryState` round-trip, drop defaults, cap the query at 120 characters, and fall back on unknown values. The dashboard's `?filter=` shorthand is a base layer that explicit parameters override (ADR-61).
+  - **Rail maths and preference:** `src/lib/folderTree.ts` (`buildFolderTree`, `flattenFolderTree`, `folderSubtreeIds`, cycle rejection via reachability) and `src/lib/viewPreference.ts` (validated `localStorage` grid/list preference, default grid).
+  - **Selectors (`src/store/selectors.ts`):** `LibraryQuery` gained `folderIds` (subtree), `tags` (AND), `collectionIds`, `hasCollection`, `documentFilter` (parse state), `snapshotPromptIds`, and `updatedAfter`; `matchesSearch` was replaced by the shared `matchPrompt`, so counted results and highlighted results cannot diverge. `selectTagCounts` feeds the rail.
+  - **Components (`src/components/library/`):** `PromptCard` (grid artifact card: status, parsability, pin/favorite markers, highlighted title/description, JSON excerpt, tags, relative edit time, sibling selection checkbox), `PromptRow` (dense list with the same facts), `PromptGrid`/`PromptList` (labelled lists with empty slots), `FilterBar` (debounced search, removable chips, clear-all, sort/status/validation/edited selects, archived and favorites toggles, live result count), `IngredientRail` (folder tree, collections, tag multi-select with archive-scoped counts), plus the shared `PromptBadges` and `HighlightedText`.
+  - **Route (`src/routes/library/LibraryRoute.tsx`):** session-only local state is avoided entirely — filters come from `useSearchParams()`; typing replaces history, deliberate filters push. Renders a separated pinned section, result count parity, selection bar (count + clear, ready for TASK-013), loading skeletons with `aria-busy`, an error state with a retry that re-runs `hydrate()` and a collapsed technical detail, an empty-library state (composer + templates) distinct from a no-match state (clear filters).
+  - **Command:** `library.focus-search` (`/`, group `Workspace`, only on `/library`) is registered with the field, closing the TASK-009 deviation; `focusLibrarySearch` is wired through `CommandContext` and `useCommandEnvironment`.
+  - **Tests added (86 new cases; whole suite 658 across 55 files):** `src/domain/search.test.ts` 22 (parsing, per-field matches, AND semantics, excerpts and limit, merge/literal highlighting, 500-prompt timing and order), `src/routes/library/LibraryRoute.test.tsx` 25 (seeded in-memory repositories through the real shell: count parity, pinned separation, grid/list parity, parse-failure badge, debounce→URL→results, highlighting plus JSON excerpt, tag/folder/archive filtering, dashboard shorthand, back/forward, sorting, persisted view, both empty states, loading, failed read with recovery, selection, Enter-to-open, `/` shortcut, 500-prompt filter), `src/routes/library/libraryQuery.test.ts` 16, `src/store/selectors.test.ts` 9 new (folder subtree, tag AND, collection membership, parse-state, snapshots, edited window, combined filters, stability), `src/lib/folderTree.test.ts` 9, `src/lib/viewPreference.test.ts` 5.
+  - **Validation executed:** `npm run typecheck` exit 0; `npm run lint` exit 0 with **0 warnings**; `npm run test:run` — **55 files / 658 tests passed**; `npm run format:check` clean; `npm run check:contrast` 52 pairings pass; `npm run build` exit 0 — CSS 50.52 kB (12.54 kB gzip), JS 678.65 kB (206.09 kB gzip).
+  - **Not performed (stated honestly):** the visual pass at 360/390/1440 px in both themes and the manual keyboard walkthrough — no browser binary exists here. The keyboard checks are scripted in jsdom (`/` focuses search, Enter on a card opens `/prompts/:id`, checkbox order), and timings are jsdom measurements of the pure filtering pipeline (~9 ms cold / ~1.5 ms warm for 500 prompts), not paint times. Deferred to TASK-027/028.
+  - **Deviations recorded:** added `src/lib/folderTree.ts`, `src/lib/viewPreference.ts`, `src/routes/library/libraryQuery.ts`, `src/lib/commands/librarySearchFocus.ts`, `src/components/library/{PromptBadges,HighlightedText}.tsx`, and `src/test/renderAppWithData.tsx` beyond the deliverables list; `PromptGrid`/`PromptList` gained a `label` prop for distinct accessible names; `RouteScaffold`'s unused `note` prop was removed now that library filters are real. Rationale and consequences are in ADR-61…ADR-64.
+  - **Docs:** `docs/DECISIONS.md` gained ADR-61…ADR-64, four index rows, and a TASK-011 verification log with the test inventory, limitations, and deviations; `docs/ARCHITECTURE.md` gained a "Library" section and an updated route table; `README.md` and `tasks.md` updated.
 
 ---
 
@@ -1567,7 +1581,9 @@ Each task follows the required template. **No task may begin without explicit us
 6. `/design` gallery is retained as an internal development route (documented, not part of the primary navigation).
 
 **Decisions that will be confirmed or revised during execution (and recorded in `docs/DECISIONS.md` if changed):**
-- Whether to window the library list at 1,000+ prompts (decided by profiling in TASK-011).
+- Whether to window the library list at 1,000+ prompts. TASK-011 profiled 500 prompts (search ~9 ms cold /
+  ~1.5 ms warm; all cards rendered at once) and did **not** add virtualization, because it was not
+  authorized and 500 is not 1,000. Revisit with measurements at the 1,000+ scale in TASK-029/030.
 - Final accent color contrast pairings for light theme interactive text (TASK-002/028).
 - Whether revision pruning is user-exposed or settings-only (TASK-019/025).
 - Retention cap for activity events (default 500) and whether it becomes configurable (TASK-025).

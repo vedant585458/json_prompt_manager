@@ -9,6 +9,7 @@ import {
   selectTagCounts,
 } from '@/store/selectors';
 import { createPrompt, type CreatePromptInput } from '@/domain/factories';
+import { createBlankDocument } from '@/domain/promptDocument';
 import type { ActivityEvent, Prompt } from '@/domain/types';
 
 /** Deterministic prompt: day-of-month sets `updatedAt`, id is `p<day>`. */
@@ -184,5 +185,128 @@ describe('selectDashboard', () => {
     expect(summary.recent).toHaveLength(2);
     expect(summary.topTags).toHaveLength(1);
     expect(summary.activityCount).toBe(0);
+  });
+});
+
+describe('library filters added in TASK-011', () => {
+  function libraryPrompt(
+    id: string,
+    overrides: CreatePromptInput & { updatedAt?: string } = {},
+  ): Prompt {
+    const prompt = createPrompt(
+      { title: `Prompt ${id}`, ...overrides },
+      { now: () => new Date('2026-10-01T09:00:00.000Z'), newId: () => id },
+    );
+
+    return overrides.updatedAt ? { ...prompt, updatedAt: overrides.updatedAt } : prompt;
+  }
+
+  const collectionPrompts: readonly Prompt[] = [
+    libraryPrompt('a', { tags: ['finance', 'legal'], collectionIds: ['c1'] }),
+    libraryPrompt('b', { tags: ['finance'], collectionIds: ['c1', 'c2'] }),
+    libraryPrompt('c', { tags: ['legal'] }),
+  ];
+
+  it('requires every selected tag', () => {
+    expect(selectLibrary(collectionPrompts, { tags: ['finance'] }).map((p) => p.id)).toEqual([
+      'a',
+      'b',
+    ]);
+    expect(
+      selectLibrary(collectionPrompts, { tags: ['finance', 'legal'] }).map((p) => p.id),
+    ).toEqual(['a']);
+    expect(selectLibrary(collectionPrompts, { tags: ['nope'] })).toEqual([]);
+  });
+
+  it('filters by several folders at once', () => {
+    const prompts = [
+      libraryPrompt('one', { folderId: 'f1' }),
+      libraryPrompt('two', { folderId: 'f2' }),
+      libraryPrompt('three', { folderId: null }),
+    ];
+
+    expect(selectLibrary(prompts, { folderIds: ['f1', 'f2'] }).map((p) => p.id)).toEqual([
+      'one',
+      'two',
+    ]);
+    expect(selectLibrary(prompts, { folderId: null }).map((p) => p.id)).toEqual(['three']);
+  });
+
+  it('filters by any of several collections, and by having a collection at all', () => {
+    expect(selectLibrary(collectionPrompts, { collectionIds: ['c2'] }).map((p) => p.id)).toEqual([
+      'b',
+    ]);
+    expect(selectLibrary(collectionPrompts, { hasCollection: true }).map((p) => p.id)).toEqual([
+      'a',
+      'b',
+    ]);
+  });
+
+  it('filters by document health using the ids it is given', () => {
+    expect(
+      selectLibrary(collectionPrompts, {
+        documentFilter: { kind: 'unparsable', ids: ['b'] },
+      }).map((p) => p.id),
+    ).toEqual(['b']);
+
+    expect(
+      selectLibrary(collectionPrompts, {
+        documentFilter: { kind: 'parsable', ids: ['b'] },
+      }).map((p) => p.id),
+    ).toEqual(['a', 'c']);
+  });
+
+  it('filters by prompts that have a stored revision', () => {
+    expect(
+      selectLibrary(collectionPrompts, { snapshotPromptIds: ['a', 'c'] }).map((p) => p.id),
+    ).toEqual(['a', 'c']);
+  });
+
+  it('filters by the last edit date', () => {
+    const prompts = [
+      libraryPrompt('new', { updatedAt: '2026-10-20T09:00:00.000Z' }),
+      libraryPrompt('old', { updatedAt: '2026-09-01T09:00:00.000Z' }),
+    ];
+
+    expect(
+      selectLibrary(prompts, { updatedAfter: '2026-10-01T00:00:00.000Z' }).map((p) => p.id),
+    ).toEqual(['new']);
+  });
+
+  it('searches inside the stored JSON document', () => {
+    const prompt = createPrompt(
+      {
+        title: 'Neutral name',
+        description: 'Neutral description',
+        content: createBlankDocument({
+          name: 'Neutral name',
+          objective: 'Score the reply with a four point rubric.',
+        }),
+      },
+      { now: () => new Date('2026-10-01T09:00:00.000Z'), newId: () => 'content-hit' },
+    );
+
+    expect(selectLibrary([prompt], { search: 'rubric' }).map((p) => p.id)).toEqual(['content-hit']);
+  });
+
+  it('excludes archived prompts by default and shows them when asked', () => {
+    const prompts = [libraryPrompt('live'), libraryPrompt('archived', { archived: true })];
+
+    expect(selectLibrary(prompts).map((p) => p.id)).toEqual(['live']);
+    expect(selectLibrary(prompts, { archived: true }).map((p) => p.id)).toEqual(['archived']);
+  });
+
+  it('combines filters (AND) and keeps the sort order stable', () => {
+    const prompts = [
+      libraryPrompt('first', { tags: ['finance'], status: 'active' }),
+      libraryPrompt('second', { tags: ['finance'], status: 'draft' }),
+      libraryPrompt('third', { tags: ['legal'], status: 'active' }),
+    ];
+
+    expect(
+      selectLibrary(prompts, { tags: ['finance'], status: 'active', sort: 'title' }).map(
+        (p) => p.id,
+      ),
+    ).toEqual(['first']);
   });
 });

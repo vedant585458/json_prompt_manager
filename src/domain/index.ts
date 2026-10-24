@@ -10,3 +10,4 @@ export * from '@/domain/invariants';
 export * from '@/domain/promptDocument';
 export * from '@/domain/serialization';
 export * from '@/domain/factories';
+export * from '@/domain/search';

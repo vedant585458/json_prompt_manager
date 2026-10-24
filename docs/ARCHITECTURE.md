@@ -143,7 +143,7 @@ renders even if the shell itself throws.
 | Path                 | Screen                | State                                      |
 | -------------------- | --------------------- | ------------------------------------------ |
 | `/`                  | Dashboard             | **Implemented** (TASK-010)                 |
-| `/library`           | Library               | Scaffold → TASK-011                        |
+| `/library`           | Library               | **Implemented** (TASK-011)                 |
 | `/prompts/:promptId` | Prompt workspace      | Scaffold → TASK-014                        |
 | `/composer`          | Composer              | Scaffold → TASK-017                        |
 | `/templates`         | Templates             | Scaffold → TASK-018                        |
@@ -211,6 +211,46 @@ narrow: **store → one pure selector → presentational sections**. No componen
   settings write succeeds; a failure is reported and the guide stays (ADR-58).
 - Empty states differ for "no prompts at all", "all archived", and "nothing in this section yet",
   because those mean different things to the user.
+
+## Library (TASK-011)
+
+The library is a view over stored prompts: nothing is cached, nothing is mutated, and the URL is the
+only filter state (ADR-61). Search, filtering, and sorting run through `src/store/selectors.ts`; the
+matching rules themselves live in `src/domain/search.ts` (ADR-62).
+
+| Piece                                        | Responsibility                                                                                                                                                                  |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/routes/library/libraryQuery.ts`         | URL ⇄ `LibraryState` contract: `readLibraryState`, `writeLibraryState`, `SEARCH_MAX_LENGTH`, `SEARCH_DEBOUNCE_MS`, option lists, `toggleTag`, `editedAfter`, `hasActiveFilters` |
+| `src/domain/search.ts`                       | `parseSearchQuery`, `matchPrompt`, `searchPrompts`, `highlightSegments` — the only definition of a match (ADR-62)                                                               |
+| `src/lib/folderTree.ts`                      | `buildFolderTree`, `flattenFolderTree`, `folderSubtreeIds`: nesting for the rail and subtree filtering, with cycle rejection                                                    |
+| `src/lib/viewPreference.ts`                  | Validated `localStorage` grid/list preference (ADR-64)                                                                                                                          |
+| `src/components/library/IngredientRail.tsx`  | Folder tree, collections, and tag multi-select with counts scoped to the archive scope                                                                                          |
+| `src/components/library/FilterBar.tsx`       | Debounced search, removable filter chips, clear-all, sort / status / validation / date selects, archived and favorites toggles, result count                                    |
+| `src/components/library/PromptBadges.tsx`    | Status pill and the "Parses / Will not parse" badge shared by both views                                                                                                        |
+| `src/components/library/HighlightedText.tsx` | Renders `highlightSegments` output as `<mark>` runs — no user text is ever treated as markup                                                                                    |
+| `src/components/library/PromptCard.tsx`      | Artifact card (grid): title, description, tags, status, parsability, pin/favorite markers, relative edit time, JSON excerpt when the document matched                           |
+| `src/components/library/PromptRow.tsx`       | Dense row (list) showing the same facts with a stable column rhythm                                                                                                             |
+| `src/components/library/PromptGrid.tsx`      | Responsive grid + empty slot, labelled for the a11y tree                                                                                                                        |
+| `src/components/library/PromptList.tsx`      | Table-like list + empty slot, labelled for the a11y tree                                                                                                                        |
+| `src/routes/library/LibraryRoute.tsx`        | Derives the query from the URL, renders pinned and matching sections, the selection bar, and the loading/empty/error states                                                     |
+
+**Rules the screen follows.**
+
+- The URL is the state. Typing is debounced and replaced in history; deliberate filters push an entry,
+  so back/forward walks the filter history (ADR-61).
+- A result is counted, listed, and highlighted by the same search module, so the count always equals the
+  rendered items (ADR-62).
+- Pinned prompts appear once, in their own section, and the count still counts them once (ADR-63).
+- Grid and list render the same prompts with the same facts; the preference is persisted, and a `?view=`
+  link overrides it for that navigation (ADR-64).
+- Archived prompts are excluded unless the archive toggle is on; every rail count describes the current
+  archive scope, not the current search.
+- The selection checkbox is a sibling of the card link (never nested inside it), the selection bar counts
+  the set, and it says that bulk actions arrive in TASK-013.
+- Empty states distinguish "this library has no prompts" (offers composer and templates) from "nothing
+  matches these filters" (offers clear-filters).
+- Loading renders skeleton cards with `aria-busy`; a failed read renders `ErrorState` with a retry that
+  re-runs `hydrate()` and the technical detail collapsed behind a disclosure.
 
 Screens read the store through `useDataStoreApi()` (`src/store/dataStoreContext.ts`), which returns the
 store provided by `DataBootstrap` or the application singleton. That is what lets the integration tests
@@ -313,7 +353,8 @@ DataBootstrap renders    loading skeletons → banner + children, or a recovery 
   `applySettings` adopts a persisted record, `toSettings` writes preferences back without losing
   `onboardedAt` or `seedVersion`.
 - **`uiStore`** holds panels, the command palette, and selection — never persisted, reset on reload.
-- **`selectors.ts`** filters/sorts the library, memoizes with a single-entry cache keyed on array
+- **`selectors.ts`** filters/sorts the library (search, tags, folders and subtrees, collections,
+  status, parse state, snapshot coverage, edited-after window), memoizes with a single-entry cache keyed on array
   identity plus query, and computes dashboard aggregates. It is pure and tested without a renderer.
 - **`DataBootstrap`** renders nothing but skeletons until data is ready, labels ephemeral mode with
   a warning banner that says changes are not saved, and offers retry from typed failures.

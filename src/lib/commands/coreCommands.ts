@@ -95,6 +95,16 @@ export function createCoreCommands(): readonly CommandDefinition[] {
       run: (context) => context.toggleRail(),
     },
     {
+      id: 'library.focus-search',
+      title: 'Search the library',
+      group: 'Workspace',
+      description: 'Put the cursor in the library search field.',
+      keywords: searchTerms('search find filter library prompts'),
+      shortcut: '/',
+      when: (context) => context.pathname === '/library',
+      run: (context) => context.focusLibrarySearch(),
+    },
+    {
       id: 'development.design-gallery',
       title: 'Open the design system gallery',
       group: 'Development',

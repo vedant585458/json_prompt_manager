@@ -51,6 +51,7 @@ describe('domain layer purity', () => {
       'index.ts',
       'invariants.ts',
       'promptDocument.ts',
+      'search.ts',
       'serialization.ts',
       'types.ts',
     ]);
@@ -109,6 +110,7 @@ describe('domain layer purity', () => {
       '@/domain/factories',
       '@/domain/invariants',
       '@/domain/promptDocument',
+      '@/domain/search',
       '@/domain/serialization',
       '@/domain/types',
     ]);

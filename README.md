@@ -2,20 +2,22 @@
 
 **Advanced JSON Prompt Management Studio** — a local-first workspace for creating, organizing, validating, versioning, comparing, and optimizing structured JSON prompts.
 
-> **Status: TASK-010 complete — dashboard with real library data and the first-run guide.**
+> **Status: TASK-011 complete — the prompt library: search, filters, sorting, and grid/list views.**
 > The repository contains the toolchain, the Prompt Observatory token system with dark and light
 > themes, the primitive layer, the overlay/feedback layer demonstrated in a design gallery, the typed
 > domain model, the persistence layer (repository interfaces, IndexedDB with migrations, an in-memory
-> parity adapter, typed storage errors), and the application data lifecycle: storage selection with a
-> labelled ephemeral fallback, versioned first-run seeding, data/preferences/UI stores, pure
-> selectors, a hydrating bootstrap, and an error boundary — plus the application shell: route table,
-> collapsible rail, drawer navigation, breadcrumbs, skip link, route focus/title/scroll behaviour,
-> recovery screens, and a working settings screen for theme, density, and autosave), and the command
-> system (a declarative registry that rejects duplicate shortcuts, platform-aware single and two-step
-> key bindings, a fuzzy-searchable command palette at `⌘K` / `Ctrl K`, and a shortcut reference
-> generated from the same registry). Every declared route is reachable; screens not yet built say so
-> instead of showing mock controls. Each subsequent feature is built in a separate, explicitly
-> authorized task tracked in [`tasks.md`](./tasks.md).
+> parity adapter, typed storage errors), the application data lifecycle (storage selection with a
+> labelled ephemeral fallback, versioned first-run seeding, data/preferences/UI stores, pure selectors,
+> a hydrating bootstrap, and an error boundary), the application shell (route table, collapsible rail,
+> drawer navigation, breadcrumbs, skip link, route focus/title/scroll behaviour, recovery screens, and a
+> working settings screen for theme, density, and autosave), the command system (declarative registry
+> that rejects duplicate shortcuts, platform-aware single and two-step bindings, a fuzzy-searchable
+> palette at `⌘K` / `Ctrl K`, and a generated shortcut reference), the dashboard, and the **library**:
+> URL-synced search across titles, descriptions, tags, and JSON, tag/folder/collection/status/validation
+> /date filters, three sorts, pinned section, grid and list views, and per-card selection. Every
+> declared route is reachable; screens not yet built say so instead of showing mock controls. Each
+> subsequent feature is built in a separate, explicitly authorized task tracked in
+> [`tasks.md`](./tasks.md).
 
 ---
 
@@ -116,6 +118,31 @@ selector (`src/store/dashboard.ts`) — nothing is hard-coded and nothing is est
 - **Honesty rules.** "Invalid" means `parseDocument()` refused the stored document, and the copy says
   "will not parse" — valid JSON is never presented as prompt quality. Archived prompts stay out of
   recents, pinned, favorites, attention, and the unreadable count.
+
+## Library
+
+`/library` is the working index of the studio. Everything it shows comes from stored prompts, and the
+address bar is the only filter state — reload, back/forward, and in-app links all reproduce the view.
+
+- **Search.** Case-insensitive across title, description, tags, and the stored JSON document. Terms are
+  ANDed (`json schema` needs both), fields are ORed, and matches are highlighted in the title,
+  description, and the JSON excerpt that explains why a prompt matched. Typing is debounced (250 ms)
+  and replaces the current history entry; pressing `/` from anywhere in the library focuses the field.
+- **Filters.** Tag multi-select (tags combine with AND), folder subtree, collection, status, document
+  health ("parses" / "will not parse"), archived toggle, favorites, prompts with snapshots, and an
+  edited-within window. Active filters appear as removable chips with a single "Clear all".
+- **Sort and views.** Updated, created, or title; grid of artifact cards or a dense list with the same
+  facts. The choice is remembered (`promptforge.library.view`) and a `?view=` link can override it.
+- **Pinned.** Pinned prompts render in their own section above the results and are never duplicated in
+  the main list; counts count each prompt once.
+- **Selection.** Every card and row has a checkbox and the bar reports the count; bulk actions are
+  TASK-013, and the bar says so rather than offering buttons that do nothing.
+- **Honesty rules.** "Will not parse" is `parseDocument()` refusing the stored document — never a claim
+  about prompt quality. Archived prompts stay hidden unless the toggle is on, and the archive toggle
+  changes the rail's counts with it. An empty library and an empty _result set_ are different states
+  with different explanations and different ways forward.
+- **URL contract.** `?q=&folder=&tag=&collection=&status=&validation=&archived=&favorites=&snapshots=&incollection=&edited=&sort=&view=`,
+  plus the dashboard's `?filter=` shorthand as a base layer that explicit parameters override.
 
 ## Design system
 

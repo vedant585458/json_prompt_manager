@@ -39,6 +39,7 @@ import { cn } from '@/lib/cn';
 import { folderSubtreeIds } from '@/lib/folderTree';
 import { readLibraryView, writeLibraryView, type LibraryView } from '@/lib/viewPreference';
 import { searchPrompts, type PromptMatch } from '@/domain/search';
+import { findSchemaProblems } from '@/domain/validation';
 import { getBrowserStorage } from '@/styles/theme';
 import { describeDataError } from '@/store/dataStore';
 import { useDataStoreApi } from '@/store/dataStoreContext';
@@ -155,6 +156,17 @@ export function LibraryRoute() {
     () => new Set(findDocumentProblems(prompts).map((problem) => problem.promptId)),
     [prompts],
   );
+
+  // A stored document can parse and still fail the schema its prompt points at;
+  // the badge is per prompt and carries how many schema errors it has (TASK-016).
+  const schemaIssueCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    if (schemas.length === 0) return counts;
+    for (const problem of findSchemaProblems(prompts, schemas)) {
+      counts.set(problem.promptId, problem.issues.length);
+    }
+    return counts;
+  }, [prompts, schemas]);
   const snapshotPromptIds = useMemo(
     () => [...new Set(revisions.map((revision) => revision.promptId))],
     [revisions],
@@ -790,6 +802,7 @@ export function LibraryRoute() {
       <PromptGrid
         prompts={others}
         parsableIds={parsableIds}
+        schemaIssueCounts={schemaIssueCounts}
         matches={matches}
         query={state.q}
         now={now}
@@ -803,6 +816,7 @@ export function LibraryRoute() {
       <PromptList
         prompts={others}
         parsableIds={parsableIds}
+        schemaIssueCounts={schemaIssueCounts}
         matches={matches}
         query={state.q}
         now={now}
@@ -920,6 +934,7 @@ export function LibraryRoute() {
                     <PromptGrid
                       prompts={pinned}
                       parsableIds={parsableIds}
+                      schemaIssueCounts={schemaIssueCounts}
                       matches={matches}
                       query={state.q}
                       now={now}

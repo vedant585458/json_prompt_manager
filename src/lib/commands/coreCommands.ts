@@ -9,6 +9,7 @@
  */
 
 import { ALL_NAV } from '@/components/layout/navigation';
+import { hasPromptValidation } from '@/lib/commands/promptActions';
 import { commandRegistry, type CommandRegistry } from '@/lib/commands/registry';
 import type { CommandDefinition } from '@/lib/commands/types';
 
@@ -128,6 +129,17 @@ export function createCoreCommands(): readonly CommandDefinition[] {
       keywords: searchTerms('favorite star bookmark prompt workspace'),
       when: (context) => /^\/prompts\/[^/]+$/.test(context.pathname),
       run: (context) => context.togglePromptFavorite(),
+    },
+    {
+      id: 'validation.validate-prompt',
+      title: 'Validate the open prompt',
+      group: 'Workspace',
+      description: 'Opens the validation studio for the prompt in the workspace.',
+      keywords: searchTerms('validate validation schema check syntax studio prompt'),
+      // Available only while a workspace has registered the action, so the
+      // palette never offers a command that would do nothing.
+      when: (context) => /^\/prompts\/[^/]+$/.test(context.pathname) && hasPromptValidation(),
+      run: (context) => context.validatePrompt(),
     },
     {
       id: 'library.favorites',

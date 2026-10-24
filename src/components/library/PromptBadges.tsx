@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ShieldAlert } from 'lucide-react';
 
 import { Badge, type BadgeTone } from '@/components/ui';
 import type { PromptStatus } from '@/domain/types';
@@ -29,6 +29,23 @@ export function ParsabilityBadge({ parsable }: { readonly parsable: boolean }) {
         <AlertTriangle aria-hidden="true" size={10} strokeWidth={2} />
       )}
       {parsable ? 'Parses' : 'Will not parse'}
+    </Badge>
+  );
+}
+
+/**
+ * Schema mismatch (TASK-016).
+ *
+ * Shown only when a prompt has a schema attached *and* its stored document does
+ * not meet it. The count is stated in words so it survives a greyscale screen.
+ */
+export function SchemaBadge({ issueCount }: { readonly issueCount: number }) {
+  if (issueCount <= 0) return null;
+
+  return (
+    <Badge tone="danger" className="gap-1">
+      <ShieldAlert aria-hidden="true" size={10} strokeWidth={2} />
+      {issueCount === 1 ? 'Schema mismatch' : `Schema mismatch ×${issueCount}`}
     </Badge>
   );
 }

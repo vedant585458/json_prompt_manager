@@ -8,8 +8,10 @@
  */
 
 type FavoriteToggle = () => void;
+type ValidationOpen = () => void;
 
 let favoriteToggle: FavoriteToggle | null = null;
+let validationOpen: ValidationOpen | null = null;
 
 /** Registers the open workspace's favorite toggle. Returns its cleanup. */
 export function registerPromptFavoriteToggle(handler: FavoriteToggle | null): () => void {
@@ -29,5 +31,26 @@ export function hasPromptFavoriteToggle(): boolean {
 export function togglePromptFavorite(): boolean {
   if (!favoriteToggle) return false;
   favoriteToggle();
+  return true;
+}
+
+/** Registers the open workspace's "validate this prompt" action (TASK-016). */
+export function registerPromptValidation(handler: ValidationOpen | null): () => void {
+  validationOpen = handler;
+
+  return () => {
+    if (validationOpen === handler) validationOpen = null;
+  };
+}
+
+/** True when a prompt workspace has registered a validation action. */
+export function hasPromptValidation(): boolean {
+  return validationOpen !== null;
+}
+
+/** Opens validation for the mounted prompt; false when none is mounted. */
+export function openPromptValidation(): boolean {
+  if (!validationOpen) return false;
+  validationOpen();
   return true;
 }

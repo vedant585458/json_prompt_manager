@@ -1,4 +1,4 @@
-import { AlertTriangle, Clock } from 'lucide-react';
+import { AlertTriangle, Clock, ShieldAlert } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import { DashboardSection, SectionEmpty } from '@/components/dashboard/DashboardSection';
@@ -10,6 +10,11 @@ const KIND_META = {
     icon: AlertTriangle,
     label: 'Will not parse',
     hint: 'The stored content does not read back as a prompt document.',
+  },
+  'schema-mismatch': {
+    icon: ShieldAlert,
+    label: 'Fails its schema',
+    hint: 'The document parses but does not meet the schema attached to it.',
   },
   stale: {
     icon: Clock,
@@ -35,13 +40,13 @@ export function AttentionList({ items, now }: AttentionListProps) {
     <DashboardSection
       id="dashboard-attention"
       title="Needs attention"
-      description="Broken documents first, then prompts that have gone quiet."
+      description="Documents that will not parse, then schema mismatches, then prompts that have gone quiet."
       action={{ label: 'Validation', to: '/validation' }}
     >
       {items.length === 0 ? (
         <SectionEmpty
           title="Nothing needs attention"
-          description={`Every stored document parses, and nothing has been idle for more than ${STALE_AFTER_DAYS} days.`}
+          description={`Every stored document parses and meets its attached schema, and nothing has been idle for more than ${STALE_AFTER_DAYS} days.`}
         />
       ) : (
         <ul className="divide-y divide-line">

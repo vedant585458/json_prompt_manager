@@ -2111,3 +2111,176 @@ component's states.
   export list were extended.
 - The recovery mirror delay is 400 ms (slightly longer than TASK-014's 300 ms) so it never competes
   with the shorter autosave delays (minimum 300 ms) for the same keystroke.
+
+## ADR-83 — JSON Schema is interpreted by a documented subset, never compiled to code
+
+**Context.** The plan named Ajv for TASK-016. Ajv compiles a schema into JavaScript and instantiates it
+with `new Function`. A schema here is user data, typed or pasted into a dialog, so handing it to a code
+generator is exactly the eval-shaped path the project forbids; a strict CSP without `unsafe-eval` would
+also refuse to run the compiled validator at all.
+
+**Decision.** `src/domain/jsonSchema.ts` is an **interpreter** for a documented subset of JSON Schema
+(draft 2020-12 surface): `type`, `enum`, `const`, `multipleOf`, `minimum`/`maximum` and their exclusive
+forms, `minLength`/`maxLength`/`pattern`/`format`, `items`/`prefixItems`/`minItems`/`maxItems`/
+`uniqueItems`, `properties`/`patternProperties`/`additionalProperties`/`required`/
+`minProperties`/`maxProperties`, `allOf`/`anyOf`/`oneOf`/`not`, `$defs`/`definitions`/`$ref`, and the
+annotation keywords (`$schema`, `title`, `description`, `default`, …). Formats checked are `email`,
+`uri`, `date`, `date-time`, `time`, `uuid`, `ipv4`, and `hostname`; any other format name is a **note on
+the schema**, not a pass on the document.
+
+**Consequences.** No dependency was added, no `eval`, no `new Function`, no network, and the validator
+runs identically under a CSP that forbids dynamic code. The cost is a smaller dialect: a user who wants
+`if`/`then`, `propertyNames`, `unevaluatedProperties`, `contains`, or `contentEncoding` is told the
+keyword is unsupported instead of receiving an unearned "valid". `docs/VALIDATION.md` is the support
+matrix, and it is the file to read before writing a schema here.
+
+## ADR-84 — Unknown and unimplemented keywords stop the check instead of passing it
+
+**Context.** A validator that ignores what it does not understand turns a typo (`requird`) or an
+unimplemented keyword (`if`) into a confident pass. That is worse than no validation, because the user
+believes something was checked.
+
+**Decision.** Compilation walks every keyword and fails on anything outside the supported set, naming
+the keyword and pointing at it (`$/requird`). Valid keywords this build does not implement are a
+distinct message: "this validator does not implement `if`; the document was not checked against it,
+because a partial answer could look like a pass". Malformed values for supported keywords (`type: []`,
+`multipleOf: 0`, `required: [1]`, a 600-character `pattern`, a schema past the depth limit, a `$ref`
+that is not a local string, a `$ref` that resolves to nothing) are compile problems too. A compile
+failure produces `schemaStatus: 'rejected'`: the report says the **schema** is unusable and checks
+nothing about the document, so a bad schema can never look like a bad prompt.
+
+**Consequences.** Validating a prompt against a schema with one misspelled keyword produces a schema
+error and zero schema findings on the document. The editor's schema dialog runs the same compile before
+saving, so an unsupported schema is refused at authoring time rather than discovered later.
+
+## ADR-85 — "Valid" means syntax and structure, and the scope sentence is not dismissible
+
+**Context.** The task requires an explicit statement that valid JSON is not prompt quality. A one-time
+toast or a tooltip would be easy to miss, and a percentage score would imply a judgement the engine
+cannot make.
+
+**Decision.** `ValidationScopeNote` is rendered on every validation surface — the studio header, the
+editor's Validation tab, and the dashboard/library wording — as plain, non-dismissible text: validation
+checks syntax and, when a schema is attached, structure; it is not a judgement of prompt quality,
+clarity, or whether a model will follow it. No surface displays a score, grade, or percentage. The
+summary sentence produced by `describeValidation` only ever states what was checked (`Valid JSON — 1
+schema error, 4 document warnings.`), never that a prompt is good. `docs/VALIDATION.md` repeats the same
+limit in writing.
+
+**Consequences.** There is no "quality" number to trend, and TASK-024's heuristics will have to introduce
+their own words rather than borrowing these. Copy review has one rule: no synonym for "good".
+
+## ADR-86 — Document-shape findings are warnings; schema non-conformance is an error
+
+**Context.** Two different authorities produce findings. The PromptForge document rules describe the shape
+this app stores and expects, and the editor already refuses to save text that breaks them. An attached
+JSON Schema is a rule the user opted into, and failing it means the document does not meet its own
+contract.
+
+**Decision.** `ValidationIssue.kind` is `syntax`, `schema`, or `document`. Syntax findings and schema
+findings (both compile problems and conformance failures) are `severity: 'error'`. Document-shape
+findings are always `severity: 'warning'`, never block a save, and are presented as a separate group with
+their own count and filter. `ValidationStatus` is one of `valid`, `warning`, `invalid`, `skipped`;
+`valid` requires syntax to pass, no schema errors, no document warnings, and a schema check that actually
+ran (`schemaStatus: 'checked'` or `'none'`).
+
+**Consequences.** A stored document that parses but drifts from the canonical shape shows warnings rather
+than an error, so the library and dashboard still count it as parsable. Validation never mutates or saves
+anything: `validateJsonText` takes text and an optional schema and returns a report; the draft being
+checked stays exactly where it was.
+
+## ADR-87 — References are local to the schema and nothing is fetched
+
+**Context.** JSON Schema allows `$ref` to a URL. Resolving one would mean a network request from a
+local-first app, with the user's schema names and any remote fragments leaving the device.
+
+**Decision.** Only local references (`#/…`) are accepted. Anything that looks external — `http://`,
+`https://`, a bare file path — is a compile error that says why ("a remote reference would need a network
+request"). Local pointer resolution covers `$defs` and the older `definitions` map. Reference chains are
+followed to a depth of 32; past that the validator reports that the reference chain is too deep instead
+of looping.
+
+**Consequences.** Schemas that split definitions across files are not supported here and say so. Nothing
+in the validation path performs I/O of any kind, which keeps the privacy claim in the README true without
+an exception.
+
+## ADR-88 — Every check is bounded, and a skipped check says it was skipped
+
+**Context.** A pasted schema or a pathological document can be arbitrarily large. A validator that walks
+one forever freezes the UI thread; one that silently gives up is dishonest.
+
+**Decision.** Text longer than 2 000 000 characters is **skipped**: `status: 'skipped'`, a
+`skippedReason` in words, and zero findings — not an empty pass. Schemas longer than 100 000 characters
+are refused, and schema nesting beyond 64 levels, patterns longer than 512 characters, and `$ref` chains
+deeper than 32 are compile errors. Validation stops after 100 errors and sets `truncated: true`, which the
+summary and the issue list both print. Compiled schemas are memoised in an LRU of 32 entries keyed by
+their serialised text.
+
+**Consequences.** The studio and the editor respond in bounded time for any input, and every bound has a
+sentence attached to it. The cost is that a very large document is not validated at all; the UI says so
+instead of showing a green result.
+
+## Verification log — TASK-016
+
+**Scope verified:** JSON syntax with exact line/column, JSON Schema compilation and instance validation
+over the supported subset, document-shape warnings, the `/validation` studio (selection, filters, schema
+library CRUD, attachment, deletion with usage counts, missing-schema and unsupported-schema states),
+editor integration (live report, Validation tab, jump to a finding's path, `?line=` deep links), the
+palette command, library badge, and the dashboard mismatch count.
+
+### Tests added (114 cases)
+
+| File                                                  | Cases | Covers                                                                                                                                                                                                                                          |
+| ----------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/jsonSchema.test.ts`                       | 54    | keyword acceptance and rejection, `type`/`enum`/`const`/numeric/string/array/object rules, `patternProperties`, combinators, local `$ref` (including a loop and a dangling pointer), error cap, boolean schemas, depth and size guards, formats |
+| `src/domain/validation.test.ts`                       | 29    | syntax location, schema rejection vs conformance, document warnings, size skip, `checkDocument: false`, LRU bound, pointer/path round-trips, `findLineForPath`, summary sentences                                                               |
+| `src/store/schemaStore.test.ts`                       | 10    | create, update, missing-record refusal, attach/detach with a version bump, deletion detaching every prompt atomically, stale-write rollback, unused-schema deletion, attach to a missing prompt                                                 |
+| `src/routes/validation/ValidationRoute.test.tsx`      | 11    | scope statement, valid/schema/missing-schema/unsupported-schema states, filters, create-and-attach flow, keyword refusal, delete with counts, shape warnings, `?prompt=` selection                                                              |
+| `src/routes/editor/EditorRoute.test.tsx` (extended)   | +4    | live report in the inspector, scope note, jump to a schema path, `?line=` deep link                                                                                                                                                             |
+| `src/routes/library/LibraryRoute.test.tsx` (extended) | +1    | a parsable document with schema errors is badged separately from "Parses"                                                                                                                                                                       |
+| `src/store/dashboard.test.ts` (extended)              | +4    | mismatch count, absent-schema behaviour, attention entry and order, summary sentence                                                                                                                                                            |
+| `src/lib/commands/coreCommands.test.ts` (extended)    | +1    | `validation.validate-prompt` availability and dispatch, and that an unregistered workspace does not offer it                                                                                                                                    |
+
+### Gates
+
+| Gate                        | Result                                                                                                                                                                                                  |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npx tsc --noEmit`          | exit 0                                                                                                                                                                                                  |
+| `npx eslint .`              | exit 0, 0 warnings                                                                                                                                                                                      |
+| `npx vitest run`            | **72 files / 1024 tests passed, 0 failures**                                                                                                                                                            |
+| `npx vitest run --coverage` | thresholds pass — `src/domain` 96.28/92.11/99.2/96.84, `src/store` 96.07/89/97.08/97.43, `src/data` 96.51/87.03/100/97.22; `jsonSchema.ts` 92.16/90.83/98/93.33, `validation.ts` 94.96/81.55/96.42/97.7 |
+| `npx prettier --check .`    | clean                                                                                                                                                                                                   |
+| `npm run check:contrast`    | 64 pairings pass in both themes                                                                                                                                                                         |
+| `npm run build`             | exit 0 — CSS 54.43 kB (13.26 kB gzip), app JS 823.13 kB (245.20 kB gzip), lazy `JsonEditor` chunk 427.59 kB (138.55 kB gzip)                                                                            |
+
+### Known limitations and honesty notes
+
+- **No browser binary exists in this environment.** There was no manual pass at 390/1440 px, no
+  pointer-driven check, no real keyboard walkthrough, and no screenshot. Every UI claim above comes from
+  jsdom tests against the real routes and store, or from review — not from looking at the app.
+- **The schema dialect is a subset.** `if`/`then`/`else`, `contains`, `propertyNames`,
+  `unevaluatedProperties`/`Items`, `dependentRequired`/`Schemas`, `additionalItems`, and the `content*`
+  keywords are unimplemented and refused at compile time rather than ignored. The tuple form of `items`
+  is accepted but noted as the legacy shape.
+- **Formats are pattern checks, not a full RFC implementation.** `email`, `uri`, `date`, `date-time`,
+  `time`, `uuid`, `ipv4`, and `hostname` are conservative; any other format is a schema note and the
+  document is not tested against it.
+- **The schema library is local.** Schemas live in this browser's storage; there is no import, export, or
+  sharing yet (TASK-026). Deleting a schema detaches only prompts that are currently loaded in state.
+- **`?line=` deep links move the caret, not the selection.** A syntax finding points at the exact
+  line/column; a schema or document finding has no stored position, so "Find" locates the nearest line
+  for its path (or the first occurrence of the key) and says nothing when it cannot.
+- **A skipped document is not a valid document.** Above 2 000 000 characters the studio shows the skip
+  reason and no findings, rather than an empty pass.
+
+### Deliberate deviations recorded for TASK-016
+
+- Ajv was planned and is **not** used; the validator is an in-house interpreter (ADR-83). The schema
+  dependency set is unchanged.
+- Success criteria that name Ajv behaviour ("compile caching", "error normalization") are met by the
+  local equivalents: an LRU keyed by serialised schema text and one `ValidationIssue` shape.
+- The studio is read-only over the prompt: it validates the stored document and an attached schema, and
+  links to the editor rather than embedding a second CodeMirror instance. "Validate a draft without
+  saving first" is satisfied in the editor, where the live report runs against the unsaved text.
+- `src/domain/jsonSchema.ts` and `src/domain/validation.ts` are new domain modules, so the purity guard's
+  module list and the barrel export list were extended.

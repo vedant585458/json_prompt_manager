@@ -68,6 +68,11 @@ export interface CommandContext {
    * workspace is mounted (TASK-013).
    */
   togglePromptFavorite: () => void;
+  /**
+   * Opens validation for the prompt in the workspace. No-op when no workspace is
+   * mounted (TASK-016).
+   */
+  validatePrompt: () => void;
 }
 
 export interface CommandDefinition {

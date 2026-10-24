@@ -4,7 +4,7 @@
 **Created:** 2026-10-24
 **Repository:** `vedant585458/json_prompt_manager`
 **Branch:** `arena/3b0d1d76-json-prompt-manager`
-**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-015 is the latest completed task.
+**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-016 is the latest completed task.
 **Authoritative status source:** This file. One status per task, maintained here only.
 
 ---
@@ -179,7 +179,7 @@ Requirement IDs are stable and referenced by tasks. **FR** = functional, **NFR**
 | Component library | **Custom primitives** on Radix UI behavior where a11y is non-trivial (Dialog, DropdownMenu, Tooltip, Tabs) | Avoids a heavy visual kit; keeps the visual identity bespoke while inheriting proven focus/keyboard behavior |
 | Icons | **lucide-react** | Consistent, tree-shakeable, accessible stroke icons |
 | Code editor | **CodeMirror 6** via `@uiw/react-codemirror` + `@codemirror/lang-json` | Mature, lightweight, fold/gutter/search support; avoids building an editor |
-| Schema validation | **Ajv v8** + `ajv-formats` | Mature JSON Schema implementation; structured error output |
+| Schema validation | **In-house JSON Schema interpreter** (subset; supersedes the planned Ajv) | Ajv compiles schemas with `new Function`, which the project forbids for user-supplied data; see ADR-83 |
 | Persistence | **IndexedDB** via the tiny `idb` wrapper, behind repository interfaces | Handles realistic prompt/revision volumes; async; transactional |
 | Client state | **Zustand** | Minimal API, selector-based subscriptions for editor performance |
 | Testing | **Vitest** + **@testing-library/react** + **@testing-library/user-event** + **fake-indexeddb** | Fast unit/integration tests aligned with Vite |
@@ -597,7 +597,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-013 — Tags, favorites, pins, archive, and bulk actions — Medium — deps: 012
 - [x] TASK-014 — JSON editor workspace (raw + tree views) — High — deps: 012
 - [x] TASK-015 — Save pipeline, autosave, and recovery — High — deps: 014
-- [ ] TASK-016 — Validation engine and validation studio — High — deps: 015
+- [x] TASK-016 — Validation engine and validation studio — High — deps: 015
 - [ ] TASK-017 — Guided prompt composer with JSON synchronization — High — deps: 015
 - [ ] TASK-018 — Template catalog and custom templates — Medium — deps: 012, 017
 - [ ] TASK-019 — Version history and safe restoration — High — deps: 015
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 15 of 31 tasks complete. TASK-001 through TASK-015 were completed on 2026-10-24.
+**Progress:** 16 of 31 tasks complete. TASK-001 through TASK-016 were completed on 2026-10-24.
 
 ---
 
@@ -1203,7 +1203,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-016 — Validation engine and validation studio
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-015
 - **Objective:** Provide reliable syntax + optional JSON Schema validation with reusable schemas, distinguishable error classes, and an entirely honest scope statement.
@@ -1223,6 +1223,20 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Unit tests with fixture documents/schemas (valid, invalid, malformed schema, large input timeout); integration test for schema CRUD + attachment + editor validation panel; manual check of line jumping and error copying; typecheck/lint/tests/build.
 - **Deliverables:** `src/domain/validation.ts`, `src/data/repositories/schemaRepository.ts` (if not already), `src/routes/validation/*`, `src/components/validation/*`, `src/features/schemas/*`, tests, docs update (validation limits).
 - **Out of scope:** Quality heuristics (TASK-024), import-time validation UI (TASK-026), provider execution.
+
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Engine (`src/domain/jsonSchema.ts`):** an in-house JSON Schema **interpreter**, not Ajv. Ajv compiles a schema into JavaScript with `new Function`, which is the eval-shaped path this project forbids for user-authored data and which a strict CSP without `unsafe-eval` would block (ADR-83). The supported subset is explicit: `type`/`enum`/`const`, the numeric bounds and `multipleOf`, `minLength`/`maxLength`/`pattern`/`format`, `items`/`prefixItems` and array bounds, `properties`/`patternProperties`/`additionalProperties`/`required`/property counts, `allOf`/`anyOf`/`oneOf`/`not`, local `$ref` with `$defs`/`definitions`, annotations, and boolean schemas. Formats actually checked are `email`, `uri`, `date`, `date-time`, `time`, `uuid`, `ipv4`, and `hostname`; any other format is a note on the schema, not a pass on the document. Every keyword outside the subset — including a misspelling such as `requird` — is a **compile error** naming the pointer, so an unsupported feature can never yield an unearned "valid" (ADR-84). Malformed keyword values, non-local `$ref`s, dangling references, patterns over 512 characters, schemas over 100 000 characters, and nesting past 64 levels are compile errors too.
+  - **Report (`src/domain/validation.ts`):** one `ValidationReport` with `status` (`valid | warning | invalid | skipped`), `valid`, `syntaxOk`, `schemaStatus` (`none | checked | rejected | unchecked`), `conforms`, `counts`, `issues`, `schemaWarnings`, `truncated`, and `skippedReason`. Findings carry `kind` (`syntax | schema | document`), `severity`, `path`, `pointer`, `message`, `keyword`, and line/column for syntax. A rejected schema reports only schema problems and performs no conformance checks, so a bad schema is never mistaken for a bad prompt. Documents over 2 000 000 characters are **skipped** with a reason rather than silently passing, error collection stops at 100 with `truncated: true`, and compiled schemas are memoised in an LRU of 32 (ADR-88). Helpers: `findSchemaProblems`, `countSchemaUsage`, `describeValidation`, `findLineForPath`, `pathToPointer`, `pointerToPath`.
+  - **Schema library (`src/store/dataStore.ts`):** `addSchema`, `updateSchema`, `deleteSchema`, and `setPromptSchema`. Deletion detaches every attached prompt in one `updateMany` **before** the schema is removed, and a stale detach aborts the whole deletion, so no prompt is left pointing at a missing record. Attachment is version-guarded and moves the prompt's version forward as a metadata-only change.
+  - **Studio (`src/routes/validation/*`, `src/components/validation/*`, `src/features/schemas/*`):** `/validation?prompt=<id>` selects a prompt, shows its stored document's report with per-kind counts and an `all | errors | warnings` filter, and lists the schema library with usage counts. `IssueList` states each finding's kind and severity in words, offers a copy-pointer action, and a `Find` action that jumps into the editor. `ValidationSummary` pairs a `StatusPill` with `describeValidation`, and `ValidationScopeNote` renders the non-dismissible statement that validity is syntax and structure, never prompt quality (ADR-85). The schema dialog validates with `scanJson` **and** `compileJsonSchema` before saving, refusing a schema with a misspelled or unsupported keyword. The studio is explicitly read-only over the prompt, with a link back to the editor.
+  - **Editor integration:** `EditorInspector` gained a Validation tab over the **live draft** (so a draft is checked without being saved), showing the status, counts, the scope note, the first findings, a `Find` action per finding that moves the caret to the finding's path, and an *Open the studio* link. `EditorRoute` computes the report (with a recheck token), registers the palette action, and honours `?line=` deep links from the studio. Document-shape findings are warnings and never block a save; schema non-conformance is surfaced for attention but is not a storage precondition (ADR-86).
+  - **Library and dashboard:** `SchemaBadge` adds a `Schema mismatch` badge beside (not instead of) `Parses`; `PromptCard`/`PromptRow`/`PromptGrid`/`PromptList` pass the issue count through, and `LibraryRoute` computes it with `findSchemaProblems`. The dashboard gained a `schemaMismatches` count, a `schema-mismatch` attention kind ordered after parse failures, a seventh stat tile, and a summary sentence.
+  - **Commands:** `validation.validate-prompt` ("Validate the open prompt", group *Workspace*) is offered only while an editor has registered the action and only on a prompt route, so the palette never lists a command that would do nothing.
+  - **Tests added (114 new cases; whole suite 1021 across 72 files):** `src/domain/jsonSchema.test.ts` 54, `src/domain/validation.test.ts` 29, `src/store/schemaStore.test.ts` 10, `src/routes/validation/ValidationRoute.test.tsx` 11, `src/routes/editor/EditorRoute.test.tsx` +4, `src/routes/library/LibraryRoute.test.tsx` +1, `src/store/dashboard.test.ts` +4, `src/lib/commands/coreCommands.test.ts` +1.
+  - **Validation executed:** `npx tsc --noEmit` exit 0; `npx eslint .` exit 0 with 0 warnings; `npx vitest run` — **72 files / 1024 tests passed, 0 failures**; `npx vitest run --coverage` — thresholds pass (`src/domain` 96.28/92.11/99.2/96.84, `src/store` 96.07/89/97.08/97.43, `src/data` 96.51/87.03/100/97.22; `jsonSchema.ts` 92.16/90.83/98/93.33, `validation.ts` 94.96/81.55/96.42/97.7); `npx prettier --check .` clean; `npm run check:contrast` — 64 pairings pass in both themes; `npm run build` exit 0 — CSS 54.43 kB (13.26 kB gzip), app JS 823.13 kB (245.20 kB gzip), lazy `JsonEditor` chunk unchanged at 427.59 kB (138.55 kB gzip), same accepted >500 kB advisory.
+  - **Not performed (stated honestly):** the task's "manual check of line jumping and error copying" was **not** performed — this environment has no browser binary, so there was no manual or visual pass, no real keyboard walkthrough, and no screenshot. Line jumping and copy actions are covered by scripted tests against the real routes (and by CodeMirror's own selection state in jsdom), not by looking at the app.
+  - **Deviations recorded:** Ajv is **not** used, and the schema dialect is a documented subset (ADR-83, ADR-84) — the plan's Ajv-specific wording ("compile caching", "error normalization") is met by a local LRU and one `ValidationIssue` shape; references are local-only so validation performs no I/O (ADR-87); `src/domain/jsonSchema.ts` and `src/domain/validation.ts` are new domain modules, so the purity guard's module list and the barrel export list were extended; the studio validates the stored document and links to the editor rather than embedding a second CodeMirror instance, which is where "validate a draft without saving first" is honoured.
+  - **Docs:** `docs/DECISIONS.md` gained ADR-83…ADR-88 and a TASK-016 verification log; `docs/VALIDATION.md` is new (supported keywords, formats, limits, report shape, honesty rules); `docs/ARCHITECTURE.md` gained a "Validation (TASK-016)" section and its technology table now names the interpreter; `README.md` and `tasks.md` updated.
 
 ---
 
@@ -1639,6 +1653,13 @@ Each task follows the required template. **No task may begin without explicit us
 4. v1 has no AI provider integration by explicit policy; the laboratory is local rendering only.
 5. E2E testing with Playwright is conditional on environment support; integration tests are the guaranteed layer.
 6. `/design` gallery is retained as an internal development route (documented, not part of the primary navigation).
+
+**Decisions revised during execution:**
+- Ajv (planned in §5 for TASK-016) was **not** adopted. It compiles a schema into JavaScript with
+  `new Function`, which this project forbids for user-authored data and which a CSP without
+  `unsafe-eval` would block. TASK-016 ships an in-house interpreter for a documented subset, and refuses
+  every keyword it does not implement instead of ignoring it (ADR-83, ADR-84; support matrix in
+  [`docs/VALIDATION.md`](./docs/VALIDATION.md)).
 
 **Decisions that will be confirmed or revised during execution (and recorded in `docs/DECISIONS.md` if changed):**
 - Whether to window the library list at 1,000+ prompts. TASK-011 profiled 500 prompts (search ~9 ms cold /

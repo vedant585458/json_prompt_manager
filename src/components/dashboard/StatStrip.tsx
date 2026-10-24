@@ -1,4 +1,4 @@
-import { Archive, Bookmark, Boxes, FileQuestion, History, Layers } from 'lucide-react';
+import { Archive, Bookmark, Boxes, FileQuestion, History, Layers, ShieldAlert } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -53,6 +53,14 @@ const STATS: readonly StatDefinition[] = [
     to: libraryFilterHref('snapshots'),
   },
   {
+    key: 'schemaMismatches',
+    label: 'Schema mismatch',
+    hint: 'parse, but fail their schema',
+    icon: ShieldAlert,
+    to: '/validation',
+    alertWhenPositive: true,
+  },
+  {
     key: 'invalidDocuments',
     label: 'Will not parse',
     hint: 'open validation',
@@ -77,7 +85,7 @@ export interface StatStripProps {
  */
 export function StatStrip({ counts, className }: StatStripProps) {
   return (
-    <ul className={cn('grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6', className)}>
+    <ul className={cn('grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-7', className)}>
       {STATS.map((stat) => {
         const value = counts[stat.key];
         const alert = stat.alertWhenPositive === true && value > 0;

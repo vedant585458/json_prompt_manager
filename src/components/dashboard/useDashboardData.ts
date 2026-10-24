@@ -18,6 +18,7 @@ export function useDashboardData(): DashboardData {
   const templates = store((state) => state.templates);
   const revisions = store((state) => state.revisions);
   const activity = store((state) => state.activity);
+  const schemas = store((state) => state.schemas);
 
   return useMemo(
     () =>
@@ -27,8 +28,9 @@ export function useDashboardData(): DashboardData {
         templates,
         revisions,
         activity,
+        schemas,
         now: new Date(),
       }),
-    [prompts, collections, templates, revisions, activity],
+    [prompts, collections, templates, revisions, activity, schemas],
   );
 }

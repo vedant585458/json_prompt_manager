@@ -9,11 +9,13 @@
  */
 
 import { parseDocument } from '@/domain/serialization';
+import { findSchemaProblems, type PromptSchemaProblem } from '@/domain/validation';
 import type {
   ActivityEvent,
   Collection,
   Prompt,
   PromptRevision,
+  PromptSchema,
   PromptTemplate,
 } from '@/domain/types';
 import { selectCounts } from '@/store/selectors';
@@ -40,7 +42,7 @@ export interface DocumentProblem {
   readonly updatedAt: string;
 }
 
-export type AttentionKind = 'invalid-document' | 'stale';
+export type AttentionKind = 'invalid-document' | 'schema-mismatch' | 'stale';
 
 export interface AttentionItem {
   readonly id: string;
@@ -60,6 +62,8 @@ export interface DashboardCounts {
   readonly collections: number;
   readonly snapshots: number;
   readonly invalidDocuments: number;
+  /** Prompts whose stored document fails the schema they point at (TASK-016). */
+  readonly schemaMismatches: number;
   readonly templates: number;
 }
 
@@ -81,6 +85,8 @@ export interface DashboardInput {
   readonly templates: readonly PromptTemplate[];
   readonly revisions: readonly PromptRevision[];
   readonly activity: readonly ActivityEvent[];
+  /** Stored schemas; when omitted, no schema check is attempted (TASK-016). */
+  readonly schemas?: readonly PromptSchema[];
   readonly now?: Date;
 }
 
@@ -131,6 +137,7 @@ export function selectAttention(
   prompts: readonly Prompt[],
   problems: readonly DocumentProblem[],
   now: Date,
+  schemaProblems: readonly PromptSchemaProblem[] = [],
   limit: number = DASHBOARD_LIMITS.attention,
 ): AttentionItem[] {
   const invalid: AttentionItem[] = problems.map((problem) => ({
@@ -154,7 +161,20 @@ export function selectAttention(
       updatedAt: prompt.updatedAt,
     }));
 
-  return [...invalid, ...stale].slice(0, Math.max(0, limit));
+  // A document that parses but fails its attached schema is a different problem
+  // from one that will not parse, so it gets its own kind and its own wording.
+  const mismatched: AttentionItem[] = schemaProblems.map((problem) => ({
+    id: `schema:${problem.promptId}`,
+    kind: 'schema-mismatch',
+    promptId: problem.promptId,
+    title: problem.title,
+    detail: `${problem.schemaName}: ${problem.issues.length} ${
+      problem.issues.length === 1 ? 'schema error' : 'schema errors'
+    }, first at ${problem.issues[0]?.path ?? '$'}.`,
+    updatedAt: prompts.find((prompt) => prompt.id === problem.promptId)?.updatedAt ?? '',
+  }));
+
+  return [...invalid, ...mismatched, ...stale].slice(0, Math.max(0, limit));
 }
 
 /** Every dashboard value, derived once from stored records. */
@@ -166,6 +186,7 @@ export function selectDashboardData(input: DashboardInput): DashboardData {
   // fails to parse while archived does not inflate the dashboard's attention
   // list or its "invalid documents" count.
   const problems = findDocumentProblems(live);
+  const schemaProblems = input.schemas ? findSchemaProblems(live, input.schemas) : [];
   const recent = [...live].sort(byUpdatedDesc).slice(0, DASHBOARD_LIMITS.recent);
   const pinned = live
     .filter((prompt) => prompt.pinned)
@@ -194,13 +215,14 @@ export function selectDashboardData(input: DashboardInput): DashboardData {
       collections: input.collections.length,
       snapshots: input.revisions.length,
       invalidDocuments: problems.length,
+      schemaMismatches: schemaProblems.length,
       templates: input.templates.length,
     },
     recent,
     pinned,
     favorites,
     templates,
-    attention: selectAttention(input.prompts, problems, now),
+    attention: selectAttention(input.prompts, problems, now, schemaProblems),
     activity,
     isEmpty: input.prompts.length === 0,
   };
@@ -228,10 +250,15 @@ export function describeDashboardSummary(counts: DashboardCounts): string {
       ? `${plural(counts.total, 'prompt')} and no collections yet.`
       : `${plural(counts.total, 'prompt')} across ${plural(counts.collections, 'collection')}.`;
 
-  const documents =
+  const parsed =
     counts.invalidDocuments === 0
       ? 'Every stored document parses.'
       : `${plural(counts.invalidDocuments, 'document')} will not parse and ${counts.invalidDocuments === 1 ? 'needs' : 'need'} a fix.`;
 
-  return `${library} ${documents}`;
+  const schema =
+    counts.schemaMismatches === 0
+      ? ''
+      : ` ${plural(counts.schemaMismatches, 'document')} ${counts.schemaMismatches === 1 ? 'fails' : 'fail'} an attached schema.`;
+
+  return `${library} ${parsed}${schema}`;
 }

@@ -11,6 +11,7 @@ import {
   createDefaultSettings,
   createFolder,
   createPrompt,
+  createPromptSchema,
   createRevision,
   createTemplate,
   createTestCase,
@@ -1365,5 +1366,40 @@ describe('library tag management (TASK-013)', () => {
       tags: ['finance'],
     });
     expect(await repositories.prompts.list()).toHaveLength(3);
+  });
+});
+
+describe('schema mismatches in the library (TASK-016)', () => {
+  it('badges a prompt whose document fails the schema it points at', async () => {
+    const schema = createPromptSchema(
+      {
+        name: 'Team shape',
+        schemaContent: {
+          type: 'object',
+          required: ['objective'],
+          properties: { objective: { type: 'string', minLength: 20 } },
+        },
+      },
+      { now: () => new Date(BASE_TIME), newId: () => 'schema-1' },
+    );
+
+    // A short objective: the document parses, but fails the attached schema.
+    const prompt = {
+      ...makePrompt({ id: 'alpha', title: 'Invoice parser', objective: 'Too short.' }),
+      schemaId: schema.id,
+    };
+
+    const repositories = createInMemoryRepositories({
+      prompts: [prompt],
+      schemas: [schema],
+      settings: { ...createDefaultSettings(), onboardedAt: COMPLETED_ONBOARDING },
+    });
+
+    renderAppWithData({ repositories, path: '/library' });
+
+    expect(await screen.findByText('Schema mismatch')).toBeVisible();
+    // The document parses — the schema is what it fails, and the two badges say
+    // so separately rather than collapsing into one verdict.
+    expect(screen.getByText('Parses', { selector: 'span' })).toBeVisible();
   });
 });

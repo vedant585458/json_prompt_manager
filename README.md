@@ -72,7 +72,7 @@ All of the above must pass before a task can be marked complete in `tasks.md`.
 | Commands    | Custom registry + palette (`src/lib/commands`), Radix dialog, no extra deps |
 | Persistence | IndexedDB through repository interfaces (`idb`), in-memory parity adapter   |
 | Editor      | CodeMirror 6 (`@uiw/react-codemirror`, `@codemirror/lang-json`), lazy chunk |
-| Validation  | Ajv (JSON Schema) — planned TASK-016                                        |
+| Validation  | In-house JSON Schema interpreter, no code generation (TASK-016)             |
 | Testing     | Vitest, Testing Library, `jest-dom`, `fake-indexeddb`, jsdom                |
 | Quality     | ESLint (flat config), Prettier                                              |
 
@@ -105,7 +105,7 @@ src/
   lib/            small framework-agnostic utilities
   styles/         tokens and global styles
   test/           test setup and shared fixtures
-docs/             architecture, data model, persistence, testing, limits
+docs/             architecture, data model, persistence, validation, testing, limits
 ```
 
 See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for layer rules, the design-system contract,
@@ -235,9 +235,30 @@ inspector.
   cleared only once storage confirms a write. After a reload the editor offers the draft with a line
   hint. A write announced by another tab raises a notice; it never replaces what you are typing. When
   storage cannot open, the editor says saving is off and keeps the recovery draft anyway.
-- **Not here yet.** Schema validation arrives in TASK-016, revision history in TASK-019, and variables
-  in TASK-021; no control pretends otherwise. CodeMirror is a lazy chunk, so the rest of the app does
-  not pay for it.
+- **Validation.** The inspector has a Validation tab over the _live draft_: syntax, the PromptForge
+  document shape, and — when a schema is attached — JSON Schema conformance, each finding with its path
+  and a Find action that moves the caret. A draft is checked without being saved; document warnings
+  never block a save. The scope note says plainly that validity is syntax and structure, not prompt
+  quality.
+- **Not here yet.** Revision history arrives in TASK-019 and variables in TASK-021; no control pretends
+  otherwise. CodeMirror is a lazy chunk, so the rest of the app does not pay for it.
+
+## Validation studio
+
+`/validation` (also `G V`, or the editor's _Open the studio_ link) is where schemas are managed and
+prompts are checked side by side.
+
+- **Schemas are reusable and local.** Create, rename, edit, and delete a schema in the studio; attach one
+  to a prompt from the same screen. Usage counts appear before a deletion, and deleting detaches the
+  prompts that use the schema in one write, so nothing is left pointing at a missing record.
+- **Per-kind results.** Findings are grouped as syntax errors, schema errors, and document-shape
+  warnings, each with a count and a filter. Every row gives its path (`$.variables[0].name`), a
+  copy-pointer action, and — where the studio can reach the editor — a jump link.
+- **One honest verdict.** A schema that cannot be evaluated is reported as a schema problem, not as an
+  invalid prompt. A document too large to check says it was skipped. Unsupported keywords are refused
+  when the schema is saved, rather than silently ignored.
+- **The limits are published.** [`docs/VALIDATION.md`](./docs/VALIDATION.md) lists the supported keyword
+  subset, the formats actually checked, and the size/error caps.
 
 ## Design system
 

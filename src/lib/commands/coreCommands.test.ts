@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { PALETTE_SHORTCUT, createCoreCommands } from '@/lib/commands/coreCommands';
+import { registerPromptValidation } from '@/lib/commands/promptActions';
 import { createCommandRegistry, isCommandAvailable } from '@/lib/commands/registry';
 import { createTestContext } from '@/test/commandContext';
 
@@ -102,6 +103,29 @@ describe('TASK-013 commands', () => {
 
     expect(navigate).toHaveBeenNthCalledWith(1, '/library?favorites=1');
     expect(navigate).toHaveBeenNthCalledWith(2, '/library?archived=1');
+  });
+
+  it('offers validation only while a workspace has registered it', () => {
+    const command = byId.get('validation.validate-prompt');
+    if (!command) throw new Error('Missing validation.validate-prompt');
+
+    const cleanup = registerPromptValidation(() => undefined);
+    try {
+      expect(isCommandAvailable(command, createTestContext({ pathname: '/prompts/abc' }))).toBe(
+        true,
+      );
+      expect(isCommandAvailable(command, createTestContext({ pathname: '/library' }))).toBe(false);
+
+      const validatePrompt = vi.fn();
+      run('validation.validate-prompt', { pathname: '/prompts/abc', validatePrompt });
+      expect(validatePrompt).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+
+    expect(isCommandAvailable(command, createTestContext({ pathname: '/prompts/abc' }))).toBe(
+      false,
+    );
   });
 
   it('only offers the favorite toggle while a prompt is open', () => {

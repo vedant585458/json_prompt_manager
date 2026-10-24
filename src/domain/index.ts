@@ -15,3 +15,5 @@ export * from '@/domain/search';
 export * from '@/domain/jsonText';
 export * from '@/domain/jsonTree';
 export * from '@/domain/textDiff';
+export * from '@/domain/jsonSchema';
+export * from '@/domain/validation';

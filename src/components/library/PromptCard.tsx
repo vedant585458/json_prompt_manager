@@ -2,7 +2,7 @@ import { Pin, Star } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import { HighlightedText } from '@/components/library/HighlightedText';
-import { ParsabilityBadge, StatusBadge } from '@/components/library/PromptBadges';
+import { ParsabilityBadge, SchemaBadge, StatusBadge } from '@/components/library/PromptBadges';
 import {
   PromptActionsMenu,
   type PromptActionHandlers,
@@ -16,6 +16,8 @@ import type { Prompt } from '@/domain/types';
 export interface PromptCardProps {
   readonly prompt: Prompt;
   readonly parsable: boolean;
+  /** Schema errors for the stored document; `0` hides the badge (TASK-016). */
+  readonly schemaIssueCount?: number;
   readonly query: string;
   readonly match?: PromptMatch | undefined;
   readonly now: Date;
@@ -36,6 +38,7 @@ const MAX_VISIBLE_TAGS = 4;
 export function PromptCard({
   prompt,
   parsable,
+  schemaIssueCount = 0,
   query,
   match,
   now,
@@ -65,6 +68,7 @@ export function PromptCard({
         <span className="flex flex-wrap items-center gap-1.5">
           <StatusBadge status={prompt.status} />
           <ParsabilityBadge parsable={parsable} />
+          <SchemaBadge issueCount={schemaIssueCount} />
           {prompt.pinned ? (
             <span className="inline-flex items-center text-accent">
               <Pin aria-hidden="true" size={12} strokeWidth={2} />

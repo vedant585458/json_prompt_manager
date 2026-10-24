@@ -9,6 +9,8 @@ import type { Prompt } from '@/domain/types';
 export interface PromptGridProps {
   readonly prompts: readonly Prompt[];
   readonly parsableIds: ReadonlySet<string>;
+  /** Schema error counts by prompt id (TASK-016). */
+  readonly schemaIssueCounts?: ReadonlyMap<string, number>;
   readonly matches: ReadonlyMap<string, PromptMatch>;
   readonly query: string;
   readonly now: Date;
@@ -25,6 +27,7 @@ export interface PromptGridProps {
 export function PromptGrid({
   prompts,
   parsableIds,
+  schemaIssueCounts,
   matches,
   query,
   now,
@@ -43,6 +46,7 @@ export function PromptGrid({
           key={prompt.id}
           prompt={prompt}
           parsable={parsableIds.has(prompt.id)}
+          schemaIssueCount={schemaIssueCounts?.get(prompt.id) ?? 0}
           query={query}
           match={matches.get(prompt.id)}
           now={now}

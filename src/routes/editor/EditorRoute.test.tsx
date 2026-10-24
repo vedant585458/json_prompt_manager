@@ -10,6 +10,7 @@ import {
   createDefaultSettings,
   createFolder,
   createPrompt,
+  createPromptSchema,
 } from '@/domain/factories';
 import { createBlankDocument } from '@/domain/promptDocument';
 import { formatDocument } from '@/domain/serialization';
@@ -506,5 +507,74 @@ describe('save pipeline (TASK-015)', () => {
     expect(
       screen.getByRole('textbox', { name: 'JSON document for Invoice parser' }).textContent,
     ).toContain('A different objective.');
+  });
+});
+
+describe('validation in the workspace (TASK-016)', () => {
+  const schema = createPromptSchema(
+    {
+      name: 'Team shape',
+      schemaContent: {
+        type: 'object',
+        required: ['objective'],
+        properties: { objective: { type: 'string', minLength: 12 } },
+      },
+    },
+    { now: () => new Date(BASE_TIME), newId: () => 'schema-1' },
+  );
+
+  function renderWithSchema(promptOverrides: Partial<Prompt> = {}, path = '/prompts/alpha') {
+    const prompt = makePrompt({ id: 'alpha', title: 'Invoice parser', ...promptOverrides });
+    const repositories = createInMemoryRepositories({
+      prompts: [prompt],
+      schemas: [schema],
+      settings: { ...createDefaultSettings(), onboardedAt: COMPLETED_ONBOARDING },
+    });
+
+    return renderAppWithData({ repositories, path });
+  }
+
+  it('reports the draft in the inspector without leaving the workspace', async () => {
+    const user = userEvent.setup();
+    renderWithSchema({ schemaId: schema.id });
+
+    await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
+    await user.click(screen.getByRole('tab', { name: 'Validation' }));
+
+    expect(await screen.findByText('Does not meet the schema')).toBeVisible();
+    expect(screen.getByText(/Must be at least 12 characters/)).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open the studio' })).toHaveAttribute(
+      'href',
+      '/validation?prompt=alpha',
+    );
+  });
+
+  it('says what validation does not claim', async () => {
+    const user = userEvent.setup();
+    renderWithSchema();
+
+    await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
+    await user.click(screen.getByRole('tab', { name: 'Validation' }));
+
+    expect(await screen.findByText(/not a judgement of prompt quality/i)).toBeVisible();
+  });
+
+  it('moves the caret to a schema finding’s path', async () => {
+    const user = userEvent.setup();
+    renderWithSchema({ schemaId: schema.id });
+
+    await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
+    await user.click(screen.getByRole('tab', { name: 'Validation' }));
+    await user.click(await screen.findByRole('button', { name: 'Find $.objective in the editor' }));
+
+    // `objective` is the fifth line of the canonical document; the caret follows it.
+    await waitFor(() => expect(screen.getByLabelText(/^Caret at line 5/)).toBeVisible());
+  });
+
+  it('honours a line link from the validation studio', async () => {
+    renderWithSchema({}, '/prompts/alpha?line=3');
+
+    await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
+    await waitFor(() => expect(screen.getByLabelText(/^Caret at line 3/)).toBeVisible());
   });
 });

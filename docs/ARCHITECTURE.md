@@ -62,7 +62,7 @@ All of the above must pass before a task can be marked complete in `tasks.md`.
 | Routing     | react-router-dom                                                                          |
 | Persistence | IndexedDB through repository interfaces (`idb`), in-memory parity adapter                 |
 | Editor      | CodeMirror 6 via `@uiw/react-codemirror` + `@codemirror/lang-json` (lazy chunk, TASK-014) |
-| Validation  | Ajv (JSON Schema) — planned TASK-016                                                      |
+| Validation  | In-house JSON Schema interpreter for a documented subset — no `eval` (TASK-016)           |
 | Testing     | Vitest, Testing Library, `jest-dom`, `fake-indexeddb`, jsdom                              |
 | Quality     | ESLint (flat config), Prettier                                                            |
 
@@ -409,6 +409,45 @@ editor owns its document text; persistence lives in the save pipeline (see the n
   with two spaces as the canonical base, so changing the preference never rewrites the draft's baseline.
 - **Validity is never color-only.** The status badge pairs a color with an icon and a word, and the
   `Checking…` state exists so a pending parse is not displayed as success.
+
+## Validation (TASK-016)
+
+Validation is one pure pipeline plus three surfaces that render its result. Nothing in it writes.
+
+| Piece                                       | Responsibility                                                                                                                                                                  |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/jsonSchema.ts`                  | `compileJsonSchema` (refuses unknown keywords, malformed values, remote `$ref`, and anything past the depth/size limits) and `validateInstance` (the supported keyword subset)  |
+| `src/domain/validation.ts`                  | `validateJsonText` / `validateJsonValue` → one `ValidationReport`; `findSchemaProblems` for library-wide checks; `findLineForPath`, `pathToPointer`, `pointerToPath`; LRU cache |
+| `src/store/dataStore.ts`                    | `addSchema`, `updateSchema`, `deleteSchema` (detaches first, atomically), `setPromptSchema` (version-guarded)                                                                   |
+| `src/components/validation/`                | `IssueList` (+ `IssueCounts`), `ValidationSummary` (+ `ValidationScopeNote`), `SchemaEditorDialog`                                                                              |
+| `src/features/schemas/useSchemaLibrary.ts`  | Selection, draft, save/delete flows, and the schema dialog's state                                                                                                              |
+| `src/routes/validation/ValidationRoute.tsx` | The `/validation` studio: prompt selection (`?prompt=`), filters, issue list, schema library with usage counts                                                                  |
+| `src/components/editor/EditorInspector.tsx` | A `Validation` tab over the live draft report, with Find actions and a link to the studio                                                                                       |
+
+**Rules the pipeline follows.**
+
+- **One report, three kinds.** Findings are `syntax` (errors with line/column), `schema` (errors, either
+  a rejected schema or non-conformance), or `document` (shape warnings). The report carries counts,
+  `schemaStatus`, `conforms`, `truncated`, and an optional `skippedReason`; the UI never re-derives
+  severity or invents a verdict.
+- **The schema, not the document, is blamed for a bad schema.** A compile failure sets
+  `schemaStatus: 'rejected'`, reports the schema's own problems, and performs no conformance checks.
+- **Validation never mutates.** Text and an optional schema in, a report out. The only stateful element
+  is a 32-entry compile cache; nothing is saved, and the studio is read-only over the prompt.
+- **"Valid" has a precise meaning.** Syntax passes, no schema errors, no document warnings, and the check
+  actually ran. A skipped check renders as skipped, never as an empty pass (ADR-88).
+- **The scope sentence is part of the data flow.** `ValidationScopeNote` is rendered by the studio, the
+  inspector tab, and the dashboard copy, so a new surface cannot accidentally omit it (ADR-85).
+- **Severity is never color-only.** Every row states its kind and severity in words with an icon, and the
+  counts are printed; the pills use `StatusPill`, whose tone always pairs with text.
+- **Document warnings never block a save.** The save pipeline refuses invalid JSON or an invalid prompt
+  document and names the reason; schema non-conformance is surfaced for attention but is not a
+  precondition of storage.
+
+Schema authoring is local: `SchemaEditorDialog` scans the text for JSON syntax with `scanJson`, compiles
+it with `compileJsonSchema`, and refuses to save until both agree. Deleting a schema counts the prompts
+that currently use it, detaches them in one `updateMany`, then deletes — a prompt never points at a
+schema that is gone. The dialect and its limits are documented in [`VALIDATION.md`](./VALIDATION.md).
 
 ## Commands and keyboard
 

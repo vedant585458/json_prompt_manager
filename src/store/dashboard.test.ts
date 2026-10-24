@@ -4,11 +4,18 @@ import {
   createActivityEvent,
   createCollection,
   createPrompt,
+  createPromptSchema,
   createRevision,
   createTemplate,
 } from '@/domain/factories';
 import { createBlankDocument } from '@/domain/promptDocument';
-import type { ActivityEvent, Prompt, PromptDocument, PromptTemplate } from '@/domain/types';
+import type {
+  ActivityEvent,
+  Prompt,
+  PromptDocument,
+  PromptSchema,
+  PromptTemplate,
+} from '@/domain/types';
 import {
   DASHBOARD_LIMITS,
   STALE_AFTER_DAYS,
@@ -94,6 +101,7 @@ describe('dashboard counts', () => {
       collections: 1,
       snapshots: 2,
       invalidDocuments: 0,
+      schemaMismatches: 0,
       templates: 3,
     });
     expect(data.isEmpty).toBe(false);
@@ -117,6 +125,7 @@ describe('dashboard counts', () => {
       collections: 0,
       snapshots: 0,
       invalidDocuments: 0,
+      schemaMismatches: 0,
       templates: 0,
     });
     expect(data.recent).toEqual([]);
@@ -341,6 +350,7 @@ describe('dashboard summary', () => {
     collections: 0,
     snapshots: 0,
     invalidDocuments: 0,
+    schemaMismatches: 0,
     templates: 0,
   };
 
@@ -364,5 +374,87 @@ describe('dashboard summary', () => {
     const summary = describeDashboardSummary({ ...base, total: 2 });
     expect(summary).toBe('2 prompts and no collections yet. Every stored document parses.');
     expect(summary).not.toMatch(/quality|good|valid prompt/i);
+  });
+});
+
+describe('schema mismatches on the dashboard (TASK-016)', () => {
+  const schema: PromptSchema = createPromptSchema(
+    {
+      name: 'Needs an objective',
+      schemaContent: {
+        type: 'object',
+        required: ['objective'],
+        properties: { objective: { type: 'string', minLength: 10 } },
+      },
+    },
+    { ...deps, newId: () => 'schema-1' },
+  );
+
+  function attached(id: string, title: string, objective: string): Prompt {
+    const prompt = makePrompt({ title, content: createBlankDocument({ name: title, objective }) });
+    return { ...prompt, id, schemaId: schema.id };
+  }
+
+  it('counts prompts whose document fails an attached schema', () => {
+    const data = selectDashboardData({
+      prompts: [attached('a', 'Short one', 'nope'), attached('b', 'Long one', 'A full objective.')],
+      collections: [],
+      templates: [],
+      revisions: [],
+      activity: [],
+      schemas: [schema],
+      now: NOW,
+    });
+
+    expect(data.counts.schemaMismatches).toBe(1);
+    expect(data.counts.invalidDocuments).toBe(0);
+  });
+
+  it('does not count schemas when none are supplied, and never guesses', () => {
+    const data = selectDashboardData({
+      prompts: [attached('a', 'Short one', 'nope')],
+      collections: [],
+      templates: [],
+      revisions: [],
+      activity: [],
+      now: NOW,
+    });
+
+    expect(data.counts.schemaMismatches).toBe(0);
+  });
+
+  it('puts a schema mismatch in the attention list, after parse failures', () => {
+    const data = selectDashboardData({
+      prompts: [attached('a', 'Short one', 'nope')],
+      collections: [],
+      templates: [],
+      revisions: [],
+      activity: [],
+      schemas: [schema],
+      now: NOW,
+    });
+
+    expect(data.attention[0]).toMatchObject({ kind: 'schema-mismatch', title: 'Short one' });
+    expect(data.attention[0]?.detail).toMatch(
+      /Needs an objective: 1 schema error, first at \$\.objective/,
+    );
+  });
+
+  it('mentions schema failures in the header summary', () => {
+    expect(
+      describeDashboardSummary({
+        total: 1,
+        active: 1,
+        favorites: 0,
+        archived: 0,
+        collections: 0,
+        snapshots: 0,
+        invalidDocuments: 0,
+        schemaMismatches: 1,
+        templates: 0,
+      }),
+    ).toBe(
+      '1 prompt and no collections yet. Every stored document parses. 1 document fails an attached schema.',
+    );
   });
 });

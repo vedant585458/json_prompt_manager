@@ -1,6 +1,6 @@
 import { FileJson } from 'lucide-react';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useBlocker, useParams } from 'react-router-dom';
+import { Link, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { EditorInspector } from '@/components/editor/EditorInspector';
 import { SaveConflictDialog } from '@/components/editor/SaveConflictDialog';
@@ -27,8 +27,12 @@ import {
 import type { JsonEditorHandle } from '@/components/editor/JsonEditor';
 import type { JsonSyntaxError } from '@/domain/jsonText';
 import { formatJsonText, minifyJsonText } from '@/domain/jsonText';
+import { validateJsonText } from '@/domain/validation';
 import { useSavePipeline } from '@/features/save/useSavePipeline';
+import { findLineForPath, type ValidationIssue } from '@/domain/validation';
+import { offsetAtLineColumn } from '@/domain/jsonText';
 import { registerPromptFavoriteToggle } from '@/lib/commands/promptActions';
+import { registerPromptValidation } from '@/lib/commands/promptActions';
 import { cn } from '@/lib/cn';
 import { describeDataError } from '@/store/dataStore';
 import { useDataStoreApi } from '@/store/dataStoreContext';
@@ -73,6 +77,7 @@ export function EditorRoute() {
   const { promptId } = useParams<{ promptId: string }>();
   const store = useDataStoreApi();
   const prompts = store((state) => state.prompts);
+  const schemas = store((state) => state.schemas);
   const folders = store((state) => state.folders);
   const collections = store((state) => state.collections);
   const status = store((state) => state.status);
@@ -86,6 +91,7 @@ export function EditorRoute() {
   const autosaveEnabled = usePreferencesStore((state) => state.autosaveEnabled);
 
   const toast = useToast();
+  const navigate = useNavigate();
   const now = useMemo(() => new Date(), []);
   const prompt = promptId ? (prompts.find((candidate) => candidate.id === promptId) ?? null) : null;
 
@@ -183,6 +189,82 @@ export function EditorRoute() {
     // The editor may still be mounting after the tab switch; one frame is enough.
     requestAnimationFrame(() => editorRef.current?.jumpToOffset(offset));
   }, []);
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [recheckToken, setRecheckToken] = useState(0);
+
+  const attachedSchema = prompt?.schemaId
+    ? (schemas.find((schema) => schema.id === prompt.schemaId) ?? null)
+    : null;
+
+  // A live report over the draft: an edit is described as it is typed, and the
+  // attached schema is part of the input because the studio can change it.
+  const report = useMemo(() => {
+    // `recheckToken` is a manual "run it again" for a report the user distrusts;
+    // reading it inside the factory keeps the dependency honest.
+    void recheckToken;
+    return validateJsonText(
+      save.text,
+      attachedSchema ? { schema: attachedSchema.schemaContent } : {},
+    );
+  }, [attachedSchema, recheckToken, save.text]);
+
+  /** Moves the caret to the line holding a validation path, or says it cannot. */
+  const focusIssuePath = useCallback(
+    (issue: ValidationIssue) => {
+      const line = findLineForPath(save.text, issue.path);
+      if (line === null) {
+        toast.info({
+          title: 'That path is not on a line',
+          description: `The editor could not locate ${issue.path}; the path can still be copied.`,
+        });
+        return;
+      }
+
+      // The scanner maps a 1-based line to an offset; column 1 is the line start.
+      const located = offsetAtLineColumn(save.text, line, 1);
+      focusOffset(located);
+    },
+    [focusOffset, save.text, toast],
+  );
+
+  // The validation studio links here with `?line=` after a syntax finding.
+  const requestedLine = Number(searchParams.get('line') ?? '');
+  const reportRef = useRef(report);
+  reportRef.current = report;
+
+  useEffect(() => {
+    if (!prompt || !Number.isInteger(requestedLine) || requestedLine < 1) return;
+    if (save.parse.checking) return;
+
+    const located = offsetAtLineColumn(save.text, requestedLine, 1);
+    focusOffset(located);
+
+    const next = new URLSearchParams(searchParams);
+    next.delete('line');
+    setSearchParams(next, { replace: true });
+  }, [
+    focusOffset,
+    prompt,
+    requestedLine,
+    save.parse.checking,
+    save.text,
+    searchParams,
+    setSearchParams,
+  ]);
+
+  // Command palette: "Validate this prompt" opens the studio for this prompt.
+  useEffect(
+    () =>
+      registerPromptValidation(
+        prompt
+          ? () => {
+              navigate(`/validation?prompt=${prompt.id}`);
+            }
+          : null,
+      ),
+    [navigate, prompt],
+  );
 
   const applyRewrite = useCallback(
     (kind: 'format' | 'minify') => {
@@ -408,6 +490,11 @@ export function EditorRoute() {
           stats={save.stats}
           value={save.parse.value}
           error={syntaxError}
+          report={report}
+          schemaName={attachedSchema?.name ?? null}
+          promptId={prompt.id}
+          onRevalidate={() => setRecheckToken((token) => token + 1)}
+          onFocusPath={focusIssuePath}
         />
       </div>
 

@@ -28,6 +28,7 @@ import {
   createCollection,
   createFolder,
   createPrompt as createPromptEntity,
+  createPromptSchema,
   createRevision,
   systemDependencies,
   type CreatePromptInput,
@@ -54,6 +55,7 @@ import type {
   Collection,
   DomainIssue,
   Folder,
+  JsonObject,
   Prompt,
   PromptDocument,
   PromptRevision,
@@ -74,6 +76,26 @@ export type DataStatus = 'idle' | 'loading' | 'ready' | 'error';
 export interface WriteGuard {
   /** Version the edit was based on; a newer stored version is a conflict. */
   readonly expectedVersion?: number;
+}
+
+/** A new schema record. Identity and timestamps are derived by the store. */
+export interface SchemaInput {
+  readonly name: string;
+  readonly description?: string;
+  readonly schemaContent: JsonObject;
+}
+
+/** Fields a caller may change on a stored schema. */
+export interface SchemaEdit {
+  readonly name?: string;
+  readonly description?: string;
+  readonly schemaContent?: JsonObject;
+}
+
+/** What deleting a schema did to the prompts that used it. */
+export interface SchemaDeletion {
+  readonly schema: PromptSchema;
+  readonly detachedPrompts: number;
 }
 
 export interface PromptEdit {
@@ -217,6 +239,21 @@ export interface DataState {
   /** Deletes a collection; prompts keep their place and lose the membership. */
   deleteCollection: (id: string) => Promise<CollectionDeletion>;
 
+  /** Creates a reusable JSON Schema (TASK-016). */
+  addSchema: (input: SchemaInput) => Promise<PromptSchema>;
+  updateSchema: (id: string, changes: SchemaEdit) => Promise<PromptSchema>;
+  /**
+   * Deletes a schema and detaches it from every prompt that used it.
+   *
+   * Detaching is a write to those prompts, so it happens through `updateMany`:
+   * either all of them lose the reference or none does, and the stored version
+   * of each prompt moves forward (which the editor treats as a metadata-only
+   * change).
+   */
+  deleteSchema: (id: string) => Promise<SchemaDeletion>;
+  /** Attaches a schema to one prompt, or detaches it with `null`. */
+  setPromptSchema: (promptId: string, schemaId: string | null) => Promise<Prompt>;
+
   saveSettings: (settings: Settings) => Promise<Settings>;
 
   clearError: () => void;
@@ -249,6 +286,12 @@ function sortByName<T extends { id: string; name: string }>(items: readonly T[])
 
 function upsertPrompt(prompts: readonly Prompt[], prompt: Prompt): Prompt[] {
   return sortPrompts([prompt, ...prompts.filter((candidate) => candidate.id !== prompt.id)]);
+}
+
+/** Replaces a record by id, or appends it; schemas keep their stored order. */
+function upsertById<T extends { readonly id: string }>(items: readonly T[], next: T): T[] {
+  const found = items.some((item) => item.id === next.id);
+  return found ? items.map((item) => (item.id === next.id ? next : item)) : [...items, next];
 }
 
 /** User-safe message for any failure the store caught. */
@@ -1128,6 +1171,86 @@ export function createDataStore(options: DataStoreOptions = {}) {
             await get().hydrate();
             throw error;
           }
+        }),
+
+      addSchema: async (input) =>
+        run(async (repos) => {
+          const schema = createPromptSchema(
+            {
+              name: input.name,
+              description: input.description,
+              schemaContent: input.schemaContent,
+            },
+            dependencies,
+          );
+          const saved = await repos.schemas.create(schema);
+          set((state) => ({ schemas: upsertById(state.schemas, saved) }));
+          return saved;
+        }),
+
+      updateSchema: async (id, changes) =>
+        run(async (repos) => {
+          const current = await repos.schemas.get(id);
+          if (!current) throw new RecordNotFoundError(`Schema ${id} no longer exists.`);
+
+          const next: PromptSchema = {
+            ...current,
+            name: changes.name === undefined ? current.name : normalizeTitle(changes.name),
+            description:
+              changes.description === undefined ? current.description : changes.description,
+            schemaContent: changes.schemaContent ?? current.schemaContent,
+            updatedAt: dependencies.now().toISOString(),
+          };
+
+          const saved = await repos.schemas.update(next);
+          set((state) => ({ schemas: upsertById(state.schemas, saved) }));
+          return saved;
+        }),
+
+      deleteSchema: async (id) =>
+        run(async (repos) => {
+          const schema = await repos.schemas.get(id);
+          if (!schema) throw new RecordNotFoundError(`Schema ${id} no longer exists.`);
+
+          const updatedAt = dependencies.now().toISOString();
+          const attached = get().prompts.filter((prompt) => prompt.schemaId === id);
+
+          // Detach first: a prompt must never point at a schema that is gone.
+          const detached =
+            attached.length === 0
+              ? []
+              : await repos.prompts.updateMany(
+                  attached.map((prompt) => ({
+                    prompt: { ...prompt, schemaId: null, updatedAt, version: prompt.version + 1 },
+                    expectedVersion: prompt.version,
+                  })),
+                );
+
+          await repos.schemas.delete(id);
+
+          set((state) => ({
+            schemas: state.schemas.filter((candidate) => candidate.id !== id),
+            prompts: detached.reduce((list, prompt) => upsertPrompt(list, prompt), state.prompts),
+          }));
+
+          return { schema, detachedPrompts: detached.length };
+        }),
+
+      setPromptSchema: async (promptId, schemaId) =>
+        run(async (repos) => {
+          if (schemaId !== null) {
+            const schema = await repos.schemas.get(schemaId);
+            if (!schema) throw new RecordNotFoundError(`Schema ${schemaId} no longer exists.`);
+          }
+
+          const current = await repos.prompts.get(promptId);
+          if (!current) throw new RecordNotFoundError(`Prompt ${promptId} no longer exists.`);
+
+          const next = applyEdit(current, { schemaId }, dependencies.now().toISOString());
+          const saved = await repos.prompts.update(next, { expectedVersion: current.version });
+
+          set((state) => ({ prompts: upsertPrompt(state.prompts, saved) }));
+          return saved;
         }),
 
       saveSettings: async (settings) =>

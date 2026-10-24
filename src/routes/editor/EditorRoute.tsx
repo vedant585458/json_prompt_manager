@@ -564,12 +564,26 @@ export function EditorRoute() {
                       This preview follows the draft, not the saved prompt. Nothing here is written
                       to it.
                     </p>
-                    <Link
-                      to={`/prompts/${prompt.id}/playground`}
-                      className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }))}
-                    >
-                      Open the playground
-                    </Link>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Link
+                        to={`/prompts/${prompt.id}/lab?new=1&from=playground`}
+                        className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }))}
+                      >
+                        Save as a test case
+                      </Link>
+                      <Link
+                        to={`/prompts/${prompt.id}/lab`}
+                        className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }))}
+                      >
+                        Laboratory
+                      </Link>
+                      <Link
+                        to={`/prompts/${prompt.id}/playground`}
+                        className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }))}
+                      >
+                        Open the playground
+                      </Link>
+                    </div>
                   </div>
                   <PlaygroundPanel promptId={prompt.id} document={draftDocument} />
                 </div>

@@ -11,7 +11,7 @@ Status values: **Accepted** (in force), **Planned** (agreed, not yet built), **S
 | ADR-01 | Client-only, local-first v1 with no backend                               | Accepted   | —            |
 | ADR-02 | Repository boundary between UI and persistence                            | Accepted   | TASK-006     |
 | ADR-03 | Toolchain: Vite + React 19 + strict TypeScript                            | Accepted   | TASK-001     |
-| ADR-04 | Variables resolved by a non-evaluating renderer                           | Planned    | TASK-021     |
+| ADR-04 | Variables resolved by a non-evaluating renderer                           | Accepted   | TASK-021     |
 | ADR-05 | In-house structural JSON diff                                             | Planned    | TASK-020     |
 | ADR-06 | Purpose-built deterministic blueprint graph                               | Planned    | TASK-023     |
 | ADR-07 | Autosave never spams revisions; restore creates a safety revision         | Planned    | TASK-015/019 |
@@ -2869,6 +2869,48 @@ string and 200,000 characters of output, past which the render is refused with a
 the tab. A future expression language would be a new, deliberately sandboxed decision (ADR-105's neighbours),
 not a quiet relaxation of this one.
 
+## ADR-107 — Test cases store values, not rendered text, and a run is a pure local render
+
+**Context.** TASK-022 turns "fill in the playground and look" into a repeatable experiment. Two shortcuts were
+available and both were rejected. The first is to store the rendered text with the case: it is what the user is
+looking at, and comparing it later would need no re-render. The second is to call a model so the comparison has
+an "answer" to judge. The first goes stale the moment the document is edited and would show a screen that
+claims to be the case's output while the prompt has moved on. The second contradicts the product's stated
+boundary (ADR-01: client-only; no provider is connected) and would make every result depend on something that
+cannot be reproduced.
+
+**Decision.** A saved test case is `{ name, inputValues, expectedStructure }`: typed values keyed by declared
+variable name, plus an optional schema identifier used as an expected _structure_ for the rendered text. It
+stores no rendered output and has no "expected prompt" field. A run is `runTestCase(document, promptSchema,
+testCase, expectedSchema)` in `src/domain/lab.ts` — a synchronous, pure function of (document version, values,
+schemas) that returns the rendered text or a blocked result. Pre-run checks are ordered and all-or-nothing:
+
+1. the document's own shape rules (`validatePromptDocument(documentToJson(document))`);
+2. the attached prompt schema, if any (`validateJsonValue(…, { checkDocument: false })`);
+3. the case's values (`resolveCaseInputs`), where a required value with no answer is an error and an optional
+   unanswered value is a warning that leaves its placeholder visible.
+
+Any error in steps 1–3 returns `status: 'blocked'` with empty text and zero characters: the screen never shows
+partial text next to a known problem. Problems carry a `category` (`document | inputs | render`) so "my case is
+incomplete" is never presented as "my prompt is broken". Case names are unique per prompt, case-insensitively,
+with at most 50 cases per prompt and 120-character names (`LAB_LIMITS`), because the laboratory selects and
+compares cases _by name_ in its result cards.
+
+**Comparison.** `src/domain/renderDiff.ts` aligns two rendered texts line by line (LCS over `Int32Array`,
+removals before additions) and reports `identical`, exact added/removed counts, and a `truncated` flag. It is a
+_text_ differ, not the structural document differ of ADR-102/ADR-103: two documents that differ structurally can
+render the same text, and the laboratory must say "identical" when they do. Past `maxLines`/`maxCells` the
+alignment table is abandoned for a prefix/suffix overview capped at 200 rows per side, while the counts stay
+exact; the copy action caps at 200,000 characters and says so.
+
+**Consequences.** A case can be _stale_ — it may hold values for variables the document no longer declares, or
+miss values for newly required ones. Runs report the first as a warning ("stored on this case but the document no
+longer declares it") and the second as a blocking input problem, rather than silently pruning the stored data.
+Structural expectation is checked against the rendered text and can end in `not-json`: most prompts render prose,
+so "the output is not JSON" is reported as a skipped check with a reason, never as a schema failure. Nothing in
+the laboratory says "tokens", "score", or "model output" — the character count is literal and the banner stating
+that no provider is connected is permanent, not a dismissible tip.
+
 ## Verification log — TASK-021
 
 **Scope verified:** the scanner's token boundaries and problem kinds (unclosed, empty name, invalid name,
@@ -2927,3 +2969,65 @@ palette command.
   attempting to stream.
 - **Inputs are per tab.** A reload keeps them; a second tab starts empty; closing the tab loses them without
   warning (ADR-105).
+
+## Verification log — TASK-022
+
+**Scope verified:** case CRUD against the repositories (create, rename, edit values, duplicate, delete, name
+uniqueness, caps, missing prompt, missing case); case input resolution for all four types with defaults, blank
+answers, stale values and type mismatches; expected-structure checking across its six outcomes; the run
+orchestrator's ordering and blocking, including the document-shape check, prompt-schema conformance, the
+render-try/catch guard, one finding per variable, and the unresolved list; line-level comparison of rendered text
+including empty sides, trailing newlines, unicode, and both truncation paths; the laboratory screen's persistent
+honesty banner, empty state, unreadable-document state, save→run→compare flow, blocked categories, snapshot
+selection, structure results, delete confirmation, playground hand-off in both directions, and missing prompt;
+the two palette commands; and the absence of any network call during a run.
+
+### Tests added (67 cases)
+
+| File                                              | Cases | Covers                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/lab.test.ts`                          | 21    | `resolveCaseInputs` (defaults counted but not copied, required/optional/stale/type-mismatch), `formatCaseInputs`, `describeCoverage`, `checkStructure` (none, missing schema, unusable schema, prose, pass, fail), `runTestCase` (rendered, invalid document, missing required, optional placeholder, undeclared token, render cap, prose structure, prompt schema), `describeLabRun`, `summarizeLabRuns` |
+| `src/domain/renderDiff.test.ts`                   | 13    | identical texts and labels, replaced lines, insertion/deletion numbering, multi-hunk reading order, empty sides, trailing newline, unicode and CRLF exactness, `maxLines` and `maxCells` fallbacks, fallback row cap with exact counts, summaries, copy text and its cap                                                                                                                                  |
+| `src/features/testCases/playgroundBridge.test.ts` | 6     | typed carry-over from playground text, blank fields skipped, unparseable values reported, prompt scoping, unavailable storage, case→playground write and refusal                                                                                                                                                                                                                                          |
+| `src/routes/lab/LabRoute.test.tsx`                | 19    | banner and scope wording, empty state, unreadable document, save→reload persistence, blocked categories, rendered characters, comparison (difference and identical), fetch spy, load into playground, `?new=1&from=playground` seeding, rename clash, delete confirmation, snapshot run, prompt-schema block, structure result, missing prompt                                                            |
+| `src/store/dataStore.test.ts`                     | +7    | case CRUD: scoping, unique names per prompt, name validation, partial edits with `updatedAt`, deep-copied duplicate, delete without cascade                                                                                                                                                                                                                                                               |
+| `src/lib/commands/coreCommands.test.ts`           | +1    | `lab.open` and `lab.new-case` availability and destinations                                                                                                                                                                                                                                                                                                                                               |
+
+### Gates executed
+
+| Gate                        | Result                                                                                                                                                                                                                                                                          |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npx tsc --noEmit`          | exit 0                                                                                                                                                                                                                                                                          |
+| `npx eslint .`              | exit 0, 0 warnings                                                                                                                                                                                                                                                              |
+| `npx vitest run`            | **94 files / 1,456 tests passed, 0 failures**                                                                                                                                                                                                                                   |
+| `npx vitest run --coverage` | thresholds pass — all files 96.18/90.97/97.32/97.09; `src/domain` 96.38/92.61/98.69/96.96 (`lab.ts` 97.24/86.76/88.46/97.02, `renderDiff.ts` 93.57/95.31/100/93.87); `src/store` 96.14/89.4/97.59/97.67; `src/data` 96.51/87.03/100/97.22 (statements/branches/functions/lines) |
+| `npx prettier --check .`    | clean                                                                                                                                                                                                                                                                           |
+| `npm run check:contrast`    | 64 pairings pass in both themes                                                                                                                                                                                                                                                 |
+| `npm run build`             | exit 0 — CSS 59.23 kB (13.88 kB gzip), app JS 1,047.77 kB (300.48 kB gzip), lazy `JsonEditor` chunk 427.66 kB (138.58 kB gzip)                                                                                                                                                  |
+| network spy                 | `LabRoute.test.tsx` stubs `fetch` with a function that throws and asserts it is never called by a run; the same test asserts `sessionStorage` is untouched by a run                                                                                                             |
+
+### Known limitations and honesty notes
+
+- **No browser binary exists in this environment**, so the requested manual mobile check was not performed: there
+  is no 390 px walkthrough, no pointer or keyboard pass on a device, and no screenshot. Responsive claims rest
+  on the stacked `xl:grid-cols-*` layout, wrapping monospace output, native labelled controls, and jsdom tests
+  against the real route.
+- **The comparison is not TASK-020's diff.** `src/domain/diff.ts` compares _documents_ by pointer and answers a
+  structural question; `src/domain/textDiff.ts` is a line-count summary used by the save pipeline. Neither
+  produces a rendered-text diff, so `src/domain/renderDiff.ts` implements one (ADR-107). The TASK-022 scope
+  sentence "reuse TASK-020 text comparison" is therefore satisfied in spirit — same visual language, different
+  engine — and this is the deviation.
+- **Nothing was run against a model, and nothing can be.** The banner is a permanent `Alert`, not dismissible, and
+  the results panel repeats the boundary above the runs. No character count is ever called a token count, and the
+  route test asserts the words "token" and "model output" are absent from the results region.
+- **A structure check usually ends in "Rendered text is not JSON"**, because the rendered prompt includes section
+  headings. That is reported as a skipped check with its reason (and the line number), never as "the schema
+  failed".
+- **A case can be stale.** Values for variables the document no longer declares are kept and reported as warnings;
+  a missing newly required value blocks the run. Nothing is pruned automatically.
+- **Cases are not run automatically.** Opening the laboratory shows the last run of that mount only; the store is
+  the source of truth for cases, and results are deliberately not persisted.
+- **The 50-case cap and 120-character name cap are fixed** (`LAB_LIMITS`), not configurable in settings.
+- **`ActivityType` gained no lab member.** Saving, renaming, duplicating, and deleting a case record no activity
+  event; the activity log therefore does not mention case changes. Widening the union needs a dashboard decision
+  (TASK-025).

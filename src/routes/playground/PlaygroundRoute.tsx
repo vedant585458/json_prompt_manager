@@ -111,6 +111,18 @@ export function PlaygroundRoute() {
         </ol>
         <div className="flex flex-wrap items-center gap-1.5">
           <Link
+            to={`/prompts/${prompt.id}/lab?new=1&from=playground`}
+            className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }))}
+          >
+            Save as a test case
+          </Link>
+          <Link
+            to={`/prompts/${prompt.id}/lab`}
+            className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }))}
+          >
+            Laboratory
+          </Link>
+          <Link
             to={`/prompts/${prompt.id}/history`}
             className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }))}
           >

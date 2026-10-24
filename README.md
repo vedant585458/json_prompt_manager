@@ -94,6 +94,9 @@ src/
                        save status, conflict dialog, inspector
   features/editor/     draft text, parse debounce, in-app leave guard
   features/save/       save pipeline, recovery drafts, shared write queue and broadcaster
+  features/playground/ typed inputs, debounced rendering, this tab's remembered values
+  features/testCases/  case editor and list, run results, variant comparison, playground bridge
+  components/playground/  variable form and rendered preview, shared by the route and the editor
   lib/commands/   registry, shortcut parsing/matching, core commands, React bindings
   components/     ui primitives, layout, and domain components
   features/       feature modules (organization, save pipeline, revisions, diff, lab, ...)
@@ -246,7 +249,8 @@ inspector.
 - **Preview.** The third tab renders the _draft_ with its declared variables filled in, using the same
   panel as the standalone playground below; it pauses while the draft is not valid JSON rather than
   showing stale text. CodeMirror is a lazy chunk, so the rest of the app does not pay for it.
-- **Not here yet.** Saved test cases arrive in TASK-022; no control pretends otherwise.
+- **Test cases.** The header links to this prompt's laboratory, where saved input sets can be run and
+  compared; the preview's inputs can be saved as a case from there.
 
 ## Version history
 
@@ -310,7 +314,32 @@ expressions, helpers, or loops, and nothing is evaluated as code.
 - **Session-only inputs.** Values are kept in this tab's `sessionStorage`, per prompt: a reload keeps them,
   closing the tab drops them, and nothing is written to the prompt, its history, or anywhere else.
 - **Honest scope.** It previews text; it does not call a model, and it cannot tell you whether the prompt
-  is good. "Save as test case" is not shown, because saved test cases are TASK-022's work.
+  is good. "Save as a test case" hands the inputs to the laboratory, which stores them only when you save
+  the case.
+
+## Prompt laboratory with saved test cases
+
+`/prompts/:promptId/lab` renders this prompt with named sets of values and compares the results. It is
+the repeatable version of the playground: the values are stored with the prompt instead of living in a tab.
+
+- **Test cases.** Create, rename, duplicate, and delete named cases per prompt (confirmed, because a case
+  cannot be recovered), with an optional expected schema for the rendered text. Each row shows how many
+  declared variables the case answers and when it last changed. Names are unique per prompt, up to 50
+  cases and 120 characters each.
+- **Runs.** Pick the stored prompt or one of its snapshots, then run one case or every case. A run checks
+  the document's shape, the attached prompt schema, and the case's values _before_ rendering; a blocking
+  problem stops the run and the card says "Nothing was rendered" rather than showing partial text.
+- **Results.** Each card reports the status, the exact character count, variable coverage, unresolved
+  variable names, and problems grouped as Document, Inputs, or Rendering — so "my case is incomplete" is
+  never mistaken for "my prompt is broken". Rendered text can be read in place and copied.
+- **Comparison.** Two runs, aligned line by line, with additions and removals marked by a symbol as well
+  as a colour. Identical variants are reported as identical. Very long texts fall back to a start-and-end
+  overview, and the added/removed counts stay exact.
+- **Playground hand-off, both ways.** A case can be loaded into this tab's playground inputs, and the
+  playground's remembered inputs can seed a new case. Values that cannot be parsed into the declared type
+  are reported, not dropped.
+- **What it is not.** Local rendering only: no AI model provider is connected, nothing is sent anywhere,
+  nothing is scored, and no count is called a token count. The banner saying so is permanent.
 
 ## Guided composer
 

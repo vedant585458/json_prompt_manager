@@ -147,6 +147,7 @@ renders even if the shell itself throws.
 | `/prompts/:promptId`            | Prompt workspace      | **Implemented** (TASK-014/015; Preview tab in 021) |
 | `/prompts/:promptId/history`    | Version history       | **Implemented** (TASK-019)                         |
 | `/prompts/:promptId/playground` | Variable playground   | **Implemented** (TASK-021)                         |
+| `/prompts/:promptId/lab`        | Prompt laboratory     | **Implemented** (TASK-022)                         |
 | `/composer`                     | Composer              | Scaffold → TASK-017                                |
 | `/templates`                    | Templates             | Template catalog, preview, custom templates        |
 | `/validation`                   | Validation            | Scaffold → TASK-016                                |
@@ -629,12 +630,60 @@ There is no expression syntax, no helper, no loop, and no evaluation.
   Preview tab renders the draft (and says so, with the preview pausing while the draft is not valid
   JSON), so the two can never disagree about what "rendered" means.
 - **Nothing is sent anywhere.** Inputs live in this tab's `sessionStorage`, are never written to a
-  prompt or a revision, and the screen says both things plainly. The panel offers no "Save as test
-  case" button: that belongs to TASK-022 and a control that does nothing would be worse than none.
+  prompt or a revision, and the screen says both things plainly. "Save as a test case" hands this
+  tab's inputs to the laboratory (TASK-022), which stores them as a case only when the user saves;
+  the playground itself writes nothing to the library.
 - **Keyboard and contrast.** Every field is labelled and errors are wired through `Field`
   (`aria-describedby`, `aria-invalid`); the numbered placeholders are a list you can tab through; the
   output block is a focusable `region` with wrapping text so it stays readable at 390 px; and every
   status is a word plus an icon, never colour alone.
+
+## Prompt laboratory and saved test cases (TASK-022)
+
+`/prompts/:promptId/lab` answers a narrower question than "is this prompt good": for these values,
+what words does this document produce, and what changed between two of them? A test case is a named
+set of variable values stored with its prompt; a run renders it locally; a comparison aligns two
+rendered texts line by line.
+
+| Piece                                          | Responsibility                                                                                        |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `src/domain/lab.ts`                            | Case input resolution, structure checks, run orchestration and blocking, run summaries                |
+| `src/domain/renderDiff.ts`                     | Line-level alignment of two rendered texts, counts, truncation, and the copyable summary              |
+| `src/store/dataStore.ts`                       | `addTestCase` / `updateTestCase` / `duplicateTestCase` / `deleteTestCase`, with per-prompt name rules |
+| `src/features/testCases/CaseList.tsx`          | The saved cases: coverage, last update, run/edit/duplicate/delete, load into the playground           |
+| `src/features/testCases/CaseEditor.tsx`        | Create or edit a case: typed fields, expected structure, live coverage, no invalid values             |
+| `src/features/testCases/RunResults.tsx`        | Per-run card: status, character count, coverage, unresolved names, problems by category, text, copy   |
+| `src/features/testCases/VariantComparison.tsx` | Two selectors, the diff rows, an identical verdict, and a copyable comparison                         |
+| `src/features/testCases/playgroundBridge.ts`   | Case values → playground text and back, reporting anything that cannot be carried over                |
+| `src/routes/lab/LabRoute.tsx`                  | The screen: version selector, pre-run checks, cases, results, comparison, honesty banner              |
+
+**Rules the laboratory follows.**
+
+- **A run is a pure local render.** `runTestCase` is synchronous and takes the document version, the
+  case, and the schemas. It never calls `fetch`, never imports the data layer, and produces exactly
+  the text `renderPrompt` produces (ADR-107). A test stubs `fetch` with a throwing function and
+  asserts a full run never calls it.
+- **Pre-run checks are ordered and blocking.** Document shape (`validatePromptDocument`), then the
+  attached prompt schema (`validateJsonValue` with `checkDocument: false`), then the case's values.
+  Any error returns `status: 'blocked'` with no text and a zero character count — the results card
+  says "Nothing was rendered" instead of showing a partial prompt, and the pre-run card lists the same
+  checks before the button is pressed.
+- **Categories stay separate.** A problem is `document`, `inputs`, or `render`, and each group gets its
+  own heading, so an incomplete case is never mistaken for a broken document. A variable that is both
+  an input problem and a render problem appears once, as the input problem.
+- **Nothing is called a token, a score, or model output.** The count is characters, literally counted.
+  The banner that states no provider is connected is permanent, and the results panel repeats it above
+  the runs.
+- **Cases are stale-tolerant, not self-pruning.** Values for variables the document dropped are kept
+  and reported as warnings; a missing newly required value blocks the run. Nothing is silently deleted.
+- **Comparison is a text diff.** `renderDiff.ts` aligns lines with an LCS bounded by 2,000 lines and
+  400,000 cells; beyond that it shows a prefix/suffix overview and says so, while the added/removed
+  counts stay exact. Identical texts say "identical" in a sentence and in a badge, not by showing an
+  empty diff.
+- **The playground is one click away, in both directions.** A case can be copied into this tab's
+  playground inputs (which is exactly what the playground reads on mount), and the playground's
+  remembered inputs can seed a new case; anything that cannot be parsed into the declared type is
+  reported rather than dropped.
 
 ## Commands and keyboard
 

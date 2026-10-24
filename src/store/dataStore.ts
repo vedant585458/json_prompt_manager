@@ -31,6 +31,7 @@ import {
   createPromptSchema,
   createRevision,
   createTemplate as createTemplateEntity,
+  createTestCase,
   systemDependencies,
   type CreatePromptInput,
   type DomainDependencies,
@@ -48,8 +49,10 @@ import {
   normalizeTag,
   normalizeTags,
   normalizeTitle,
+  titleKey,
 } from '@/domain/invariants';
 import { RuleViolationError } from '@/domain/errors';
+import { LAB_LIMITS } from '@/domain/lab';
 import { prunePlan } from '@/domain/revisions';
 import {
   builtInTemplateIssue,
@@ -66,6 +69,7 @@ import type {
   DomainIssue,
   Folder,
   JsonObject,
+  JsonValue,
   Prompt,
   PromptDocument,
   PromptRevision,
@@ -100,6 +104,21 @@ export interface SchemaEdit {
   readonly name?: string;
   readonly description?: string;
   readonly schemaContent?: JsonObject;
+}
+
+/** A new saved test case. Identity and timestamps are derived by the store. */
+export interface TestCaseInput {
+  readonly promptId: string;
+  readonly name: string;
+  readonly inputValues?: Readonly<Record<string, JsonValue>>;
+  readonly expectedStructure?: string | null;
+}
+
+/** Fields a caller may change on a stored test case. */
+export interface TestCaseEdit {
+  readonly name?: string;
+  readonly inputValues?: Readonly<Record<string, JsonValue>>;
+  readonly expectedStructure?: string | null;
 }
 
 /** What deleting a schema did to the prompts that used it. */
@@ -324,6 +343,22 @@ export interface DataState {
   setPromptSchema: (promptId: string, schemaId: string | null) => Promise<Prompt>;
 
   /**
+   * Creates a saved test case for one prompt (TASK-022).
+   *
+   * A case is a named set of typed variable values. It is data, not an
+   * execution: the laboratory renders it locally and no model is involved.
+   * Names are trimmed, must be unique per prompt (case-insensitively), and a
+   * prompt holds at most `LAB_LIMITS.maxCasesPerPrompt` cases.
+   */
+  addTestCase: (input: TestCaseInput) => Promise<TestCase>;
+  /** Renames a case or replaces its stored values. */
+  updateTestCase: (id: string, changes: TestCaseEdit) => Promise<TestCase>;
+  /** Copies a case under a new name; the copy shares nothing with its source. */
+  duplicateTestCase: (id: string, name?: string) => Promise<TestCase>;
+  /** Deletes one case. Nothing else references a case, so nothing cascades. */
+  deleteTestCase: (id: string) => Promise<void>;
+
+  /**
    * Stores a user template (TASK-018).
    *
    * The document is validated first: a template that could not become a valid
@@ -541,6 +576,51 @@ export function createDataStore(options: DataStoreOptions = {}) {
       set((state) => ({
         activity: capActivityLog([event, ...state.activity], ACTIVITY_LOG_LIMIT),
       }));
+    }
+
+    function caseNameIssue(message: string): DomainIssue {
+      return { path: 'name', message, severity: 'error' };
+    }
+
+    /**
+     * A case name must be present and unique within its prompt.
+     *
+     * Two cases called "Billing" would make every result card and comparison
+     * ambiguous, and the laboratory compares by name, so uniqueness is a rule
+     * rather than a nicety.
+     */
+    function checkCaseName(
+      name: string,
+      siblings: readonly TestCase[],
+      options: { readonly excludeId?: string } = {},
+    ): DomainIssue[] {
+      if (name.length === 0) return [caseNameIssue('A test case needs a name.')];
+      if (name.length > LAB_LIMITS.maxCaseNameLength) {
+        return [
+          caseNameIssue(
+            `Keep the name under ${LAB_LIMITS.maxCaseNameLength} characters (it is ${name.length}).`,
+          ),
+        ];
+      }
+
+      const clash = siblings.some(
+        (testCase) =>
+          testCase.id !== options.excludeId && titleKey(testCase.name) === titleKey(name),
+      );
+
+      return clash
+        ? [caseNameIssue(`“${name}” is already used by another case of this prompt.`)]
+        : [];
+    }
+
+    /** `Name (copy)`, then `Name (copy 2)`, … within one prompt. */
+    function nextCaseName(name: string, siblings: readonly TestCase[]): string {
+      const taken = new Set(siblings.map((testCase) => titleKey(testCase.name)));
+      if (!taken.has(titleKey(`${name} (copy)`))) return `${name} (copy)`;
+
+      let index = 2;
+      while (taken.has(titleKey(`${name} (copy ${index})`))) index += 1;
+      return `${name} (copy ${index})`;
     }
 
     async function writePrompt(
@@ -1491,6 +1571,117 @@ export function createDataStore(options: DataStoreOptions = {}) {
 
           set((state) => ({ prompts: upsertPrompt(state.prompts, saved) }));
           return saved;
+        }),
+
+      addTestCase: async (input) =>
+        run(async (repos) => {
+          const prompt = await repos.prompts.get(input.promptId);
+          if (!prompt) throw new RecordNotFoundError(`Prompt ${input.promptId} no longer exists.`);
+
+          const siblings = get().testCases.filter(
+            (testCase) => testCase.promptId === input.promptId,
+          );
+          if (siblings.length >= LAB_LIMITS.maxCasesPerPrompt) {
+            throw new RuleViolationError([
+              caseNameIssue(
+                `This prompt already has ${LAB_LIMITS.maxCasesPerPrompt} test cases. Delete one before adding another.`,
+              ),
+            ]);
+          }
+
+          const name = normalizeTitle(input.name);
+          throwIfInvalid(checkCaseName(name, siblings));
+
+          const candidate = createTestCase(
+            {
+              promptId: input.promptId,
+              name,
+              inputValues: input.inputValues ?? {},
+              expectedStructure: input.expectedStructure ?? null,
+            },
+            dependencies,
+          );
+
+          const saved = await repos.testCases.create(candidate);
+          set((state) => ({ testCases: [...state.testCases, saved] }));
+          return saved;
+        }),
+
+      updateTestCase: async (id, changes) =>
+        run(async (repos) => {
+          const current = await repos.testCases.get(id);
+          if (!current) throw new RecordNotFoundError(`Test case ${id} no longer exists.`);
+
+          const name = changes.name === undefined ? current.name : normalizeTitle(changes.name);
+          throwIfInvalid(
+            checkCaseName(
+              name,
+              get().testCases.filter((testCase) => testCase.promptId === current.promptId),
+              { excludeId: id },
+            ),
+          );
+
+          const next: TestCase = {
+            ...current,
+            name,
+            inputValues:
+              changes.inputValues === undefined ? current.inputValues : { ...changes.inputValues },
+            expectedStructure:
+              changes.expectedStructure === undefined
+                ? current.expectedStructure
+                : changes.expectedStructure,
+            updatedAt: dependencies.now().toISOString(),
+          };
+
+          const saved = await repos.testCases.update(next);
+          set((state) => ({ testCases: upsertById(state.testCases, saved) }));
+          return saved;
+        }),
+
+      duplicateTestCase: async (id, name) =>
+        run(async (repos) => {
+          const source = await repos.testCases.get(id);
+          if (!source) throw new RecordNotFoundError(`Test case ${id} no longer exists.`);
+
+          const siblings = get().testCases.filter(
+            (testCase) => testCase.promptId === source.promptId,
+          );
+          if (siblings.length >= LAB_LIMITS.maxCasesPerPrompt) {
+            throw new RuleViolationError([
+              caseNameIssue(
+                `This prompt already has ${LAB_LIMITS.maxCasesPerPrompt} test cases. Delete one before duplicating another.`,
+              ),
+            ]);
+          }
+
+          const candidate = createTestCase(
+            {
+              promptId: source.promptId,
+              name: name ?? nextCaseName(source.name, siblings),
+              inputValues: JSON.parse(JSON.stringify(source.inputValues)) as Record<
+                string,
+                JsonValue
+              >,
+              expectedStructure: source.expectedStructure,
+            },
+            dependencies,
+          );
+          throwIfInvalid(checkCaseName(candidate.name, siblings));
+
+          const saved = await repos.testCases.create(candidate);
+          set((state) => ({ testCases: [...state.testCases, saved] }));
+          return saved;
+        }),
+
+      deleteTestCase: async (id) =>
+        run(async (repos) => {
+          const current = await repos.testCases.get(id);
+          if (!current) throw new RecordNotFoundError(`Test case ${id} no longer exists.`);
+
+          await repos.testCases.delete(id);
+          set((state) => ({
+            testCases: state.testCases.filter((testCase) => testCase.id !== id),
+          }));
         }),
 
       createTemplate: async (input) =>

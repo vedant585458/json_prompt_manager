@@ -185,6 +185,35 @@ describe('TASK-013 commands', () => {
     expect(navigate).toHaveBeenCalledWith('/prompts/abc/playground');
   });
 
+  it('opens the laboratory and a new test case from a prompt', () => {
+    const open = byId.get('lab.open');
+    const newCase = byId.get('lab.new-case');
+    if (!open || !newCase) throw new Error('Missing laboratory commands');
+
+    expect(isCommandAvailable(open, createTestContext({ pathname: '/prompts/abc' }))).toBe(true);
+    expect(
+      isCommandAvailable(open, createTestContext({ pathname: '/prompts/abc/playground' })),
+    ).toBe(true);
+    expect(isCommandAvailable(open, createTestContext({ pathname: '/library' }))).toBe(false);
+    expect(isCommandAvailable(open, createTestContext({ pathname: '/prompts/abc/lab' }))).toBe(
+      false,
+    );
+
+    expect(isCommandAvailable(newCase, createTestContext({ pathname: '/prompts/abc/lab' }))).toBe(
+      true,
+    );
+    expect(isCommandAvailable(newCase, createTestContext({ pathname: '/diff' }))).toBe(false);
+
+    const navigate = vi.fn();
+    run('lab.open', { pathname: '/prompts/abc', navigate });
+    run('lab.new-case', { pathname: '/prompts/abc', navigate });
+    run('lab.new-case', { pathname: '/prompts/abc/playground', navigate });
+
+    expect(navigate).toHaveBeenNthCalledWith(1, '/prompts/abc/lab');
+    expect(navigate).toHaveBeenNthCalledWith(2, '/prompts/abc/lab?new=1');
+    expect(navigate).toHaveBeenNthCalledWith(3, '/prompts/abc/lab?new=1&from=playground');
+  });
+
   it('opens a comparison from a prompt and from anywhere', () => {
     const compare = byId.get('diff.compare');
     const open = byId.get('diff.open');

@@ -1007,3 +1007,162 @@ describe('dataStore favorites, pins, and bulk writes (TASK-013)', () => {
     await repositories.close();
   });
 });
+
+describe('dataStore test cases (TASK-022)', () => {
+  async function seedPrompt(repositories: Repositories): Promise<void> {
+    await repositories.prompts.create(createPromptEntity({ title: 'Triage' }));
+  }
+
+  it('creates a case scoped to one prompt and keeps it across a rehydrate', async () => {
+    const { repositories, store } = await createHarness(seedPrompt);
+    const promptId = store.getState().prompts[0]!.id;
+
+    const created = await store.getState().addTestCase({
+      promptId,
+      name: '  Billing  ',
+      inputValues: { ticket: 'Billing' },
+      expectedStructure: null,
+    });
+
+    expect(created.name).toBe('Billing');
+    expect(created.promptId).toBe(promptId);
+    expect(created.inputValues).toEqual({ ticket: 'Billing' });
+    expect(store.getState().testCases).toHaveLength(1);
+
+    // The record is in storage, so a fresh store sees it after hydration.
+    await store.getState().hydrate();
+    expect(store.getState().testCases.map((testCase) => testCase.id)).toEqual([created.id]);
+
+    await repositories.close();
+  });
+
+  it('rejects a duplicate name within the prompt but allows it on another prompt', async () => {
+    const { repositories, store } = await createHarness(async (repos) => {
+      await repos.prompts.create(createPromptEntity({ title: 'One' }));
+      await repos.prompts.create(createPromptEntity({ title: 'Two' }));
+    });
+    const [first, second] = store.getState().prompts;
+
+    await store.getState().addTestCase({ promptId: first!.id, name: 'Billing' });
+
+    await expect(
+      store.getState().addTestCase({ promptId: first!.id, name: 'billing' }),
+    ).rejects.toBeInstanceOf(RuleViolationError);
+
+    await expect(
+      store.getState().addTestCase({ promptId: second!.id, name: 'Billing' }),
+    ).resolves.toMatchObject({ promptId: second!.id });
+
+    expect(store.getState().testCases).toHaveLength(2);
+
+    await repositories.close();
+  });
+
+  it('rejects a missing or over-long name and a missing prompt', async () => {
+    const { repositories, store } = await createHarness(seedPrompt);
+    const promptId = store.getState().prompts[0]!.id;
+
+    await expect(store.getState().addTestCase({ promptId, name: '   ' })).rejects.toBeInstanceOf(
+      RuleViolationError,
+    );
+
+    await expect(
+      store.getState().addTestCase({ promptId, name: 'x'.repeat(121) }),
+    ).rejects.toBeInstanceOf(RuleViolationError);
+
+    await expect(
+      store.getState().addTestCase({ promptId: 'missing', name: 'Billing' }),
+    ).rejects.toBeInstanceOf(RecordNotFoundError);
+
+    expect(store.getState().testCases).toEqual([]);
+
+    await repositories.close();
+  });
+
+  it('renames a case and replaces its values, touching updatedAt', async () => {
+    const { repositories, store } = await createHarness(seedPrompt);
+    const promptId = store.getState().prompts[0]!.id;
+    const created = await store.getState().addTestCase({
+      promptId,
+      name: 'Billing',
+      inputValues: { ticket: 'Billing' },
+    });
+
+    const renamed = await store.getState().updateTestCase(created.id, {
+      name: 'Billing refund',
+      inputValues: { ticket: 'Billing', priority: 1 },
+    });
+
+    expect(renamed.id).toBe(created.id);
+    expect(renamed.name).toBe('Billing refund');
+    expect(renamed.inputValues).toEqual({ ticket: 'Billing', priority: 1 });
+    expect(renamed.createdAt).toBe(created.createdAt);
+    expect(renamed.updatedAt > created.updatedAt).toBe(true);
+    expect(store.getState().testCases).toHaveLength(1);
+
+    await repositories.close();
+  });
+
+  it('keeps untouched fields on a partial edit and refuses a duplicate rename', async () => {
+    const { repositories, store } = await createHarness(seedPrompt);
+    const promptId = store.getState().prompts[0]!.id;
+    const one = await store.getState().addTestCase({ promptId, name: 'One' });
+    const two = await store.getState().addTestCase({ promptId, name: 'Two' });
+
+    await expect(store.getState().updateTestCase(two.id, { name: 'ONE' })).rejects.toBeInstanceOf(
+      RuleViolationError,
+    );
+
+    const renamed = await store.getState().updateTestCase(one.id, { name: 'Renamed' });
+    expect(renamed.inputValues).toEqual({});
+
+    await repositories.close();
+  });
+
+  it('duplicates a case without sharing its values', async () => {
+    const { repositories, store } = await createHarness(seedPrompt);
+    const promptId = store.getState().prompts[0]!.id;
+    const source = await store.getState().addTestCase({
+      promptId,
+      name: 'Billing',
+      inputValues: { ticket: 'Billing' },
+    });
+
+    const copy = await store.getState().duplicateTestCase(source.id);
+    expect(copy.id).not.toBe(source.id);
+    expect(copy.name).toBe('Billing (copy)');
+    expect(copy.inputValues).toEqual({ ticket: 'Billing' });
+
+    const updated = await store.getState().updateTestCase(copy.id, {
+      inputValues: { ticket: 'changed' },
+    });
+    expect(updated.inputValues).toEqual({ ticket: 'changed' });
+    expect(store.getState().testCases.find((c) => c.id === source.id)!.inputValues).toEqual({
+      ticket: 'Billing',
+    });
+
+    const third = await store.getState().duplicateTestCase(source.id);
+    expect(third.name).toBe('Billing (copy 2)');
+
+    await repositories.close();
+  });
+
+  it('deletes one case without touching its siblings or the prompt', async () => {
+    const { repositories, store } = await createHarness(seedPrompt);
+    const promptId = store.getState().prompts[0]!.id;
+    const one = await store.getState().addTestCase({ promptId, name: 'One' });
+    const two = await store.getState().addTestCase({ promptId, name: 'Two' });
+
+    await store.getState().deleteTestCase(one.id);
+
+    expect(store.getState().testCases.map((c) => c.id)).toEqual([two.id]);
+    await expect(repositories.testCases.get(one.id)).resolves.toBeNull();
+    expect(store.getState().prompts).toHaveLength(1);
+
+    await expect(store.getState().deleteTestCase(one.id)).rejects.toBeInstanceOf(
+      RecordNotFoundError,
+    );
+
+    await repositories.close();
+  });
+});

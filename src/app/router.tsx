@@ -9,6 +9,7 @@ import { EditorRoute } from '@/routes/editor/EditorRoute';
 import { HealthRoute } from '@/routes/health/HealthRoute';
 import { DiffRoute } from '@/routes/diff/DiffRoute';
 import { HistoryRoute } from '@/routes/history/HistoryRoute';
+import { LabRoute } from '@/routes/lab/LabRoute';
 import { LibraryRoute } from '@/routes/library/LibraryRoute';
 import { NotFoundRoute } from '@/routes/not-found/NotFoundRoute';
 import { PlaygroundRoute } from '@/routes/playground/PlaygroundRoute';
@@ -37,6 +38,7 @@ export const routes: RouteObject[] = [
       { path: 'prompts/:promptId/compose', element: <ComposerEditRoute /> },
       { path: 'prompts/:promptId/history', element: <HistoryRoute /> },
       { path: 'prompts/:promptId/playground', element: <PlaygroundRoute /> },
+      { path: 'prompts/:promptId/lab', element: <LabRoute /> },
       { path: 'diff', element: <DiffRoute /> },
       { path: 'composer', element: <ComposerRoute /> },
       { path: 'templates', element: <TemplatesRoute /> },

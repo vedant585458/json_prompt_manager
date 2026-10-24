@@ -4,7 +4,7 @@
 **Created:** 2026-10-24
 **Repository:** `vedant585458/json_prompt_manager`
 **Branch:** `arena/3b0d1d76-json-prompt-manager`
-**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-021 is the latest completed task.
+**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-022 is the latest completed task.
 **Authoritative status source:** This file. One status per task, maintained here only.
 
 ---
@@ -603,7 +603,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-019 — Version history and safe restoration — High — deps: 015
 - [x] TASK-020 — Structural diff explorer — High — deps: 019
 - [x] TASK-021 — Variable playground and prompt preview — High — deps: 015
-- [ ] TASK-022 — Prompt laboratory with saved test cases — Medium — deps: 021
+- [x] TASK-022 — Prompt laboratory with saved test cases — Medium — deps: 021
 - [ ] TASK-023 — Blueprint dependency graph — Medium — deps: 016, 019
 - [ ] TASK-024 — Quality inspector — Medium — deps: 016, 021
 - [ ] TASK-025 — Health dashboard and activity timeline — Medium — deps: 016, 019
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 21 of 31 tasks complete. TASK-001 through TASK-021 were completed on 2026-10-24.
+**Progress:** 22 of 31 tasks complete. TASK-001 through TASK-022 were completed on 2026-10-24.
 
 ---
 
@@ -1426,7 +1426,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-022 — Prompt laboratory with saved test cases
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** Medium
 - **Dependencies:** TASK-021
 - **Objective:** Allow repeatable local experiments: named test cases, validated runs, variant comparison, and an unmistakably clear statement that no model provider is involved.
@@ -1445,6 +1445,21 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Unit tests for case CRUD and run orchestration; integration test for save case → run → compare; network-spy test; manual mobile check; typecheck/lint/tests/build.
 - **Deliverables:** `src/domain/lab.ts`, `src/features/testCases/*`, `src/routes/lab/*`, comparison components, tests.
 - **Out of scope:** Real model calls, evaluation scoring, batch model benchmarking.
+
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Run orchestration (`src/domain/lab.ts`):** `runTestCase({ document, promptSchema, testCase, expectedSchema, missingExpectedSchemaId })` is synchronous and pure, and checks in order: the document's own shape rules (`validatePromptDocument(documentToJson(document))` — the studio's warning-demoting helper is deliberately *not* used, because a run cannot render a document whose shape is wrong), the attached prompt schema (`validateJsonValue(..., { checkDocument: false })` so the same problem is not reported twice), and the case's values (`resolveCaseInputs`). Any error returns `status: 'blocked'` with `text: ''` and `characters: 0`, and `renderPrompt` is wrapped in `try/catch` so a document that slips past the shape rules refuses the run instead of taking the screen down. Problems carry `category: 'document' | 'inputs' | 'render'`, and a render problem that duplicates an input problem for the same variable name is dropped, so one variable yields one finding. `resolveCaseInputs` treats a declared default as *answered* without copying it into the substituted values, a required value with no answer as an error, an optional unanswered value as a warning that keeps its placeholder visible, a stored value for an undeclared name as a warning (never silently pruned), and a value that contradicts its declared type as an error. `LAB_LIMITS` are 50 cases per prompt, 120-character names, and the renderer's 200,000-character cap. `checkStructure` reports `none | missing-schema | invalid-schema | not-json | pass | fail`: prose is `not-json` with a line number, never "failed". `formatCaseInputs`, `describeCoverage`, `describeLabRun`, and `summarizeLabRuns` round it out.
+  - **Comparison (`src/domain/renderDiff.ts`):** line-level alignment with an LCS over `Int32Array`, removals before additions, and exact added/removed counts. Past 2,000 lines or 400,000 cells it abandons the table for a prefix/suffix overview capped at 200 rows per side and sets `truncated`, while its counts stay truthful; `renderedComparisonToText` writes a `+`/`-`/space-prefixed copy capped at 200,000 characters with a note saying it was capped. `describeRenderedComparison` says "identical" in words, so the screen never implies a difference it cannot show.
+  - **Persistence (`src/store/dataStore.ts`):** `addTestCase`, `updateTestCase`, `duplicateTestCase`, and `deleteTestCase` write through `repos.testCases` and refresh state from the stored record. Names are trimmed, non-empty, under 120 characters, and unique per prompt case-insensitively; the 50-case cap is enforced with an actionable message; a duplicate deep-copies `inputValues` (a shared object would let one edit change two cases) and names itself `Name (copy)`, `Name (copy 2)`, …; edits keep `createdAt` and advance `updatedAt`. `deletePrompt`'s existing cascade already removed a prompt's cases, so nothing new was needed there.
+  - **Screen (`src/routes/lab/LabRoute.tsx`):** a permanent `Alert` states "Local rendering only. No AI model provider is connected; PromptForge does not execute prompts against a model." A version selector renders the stored prompt or any snapshot (cases are matched by variable name, so a case saved against another version still runs and reports what it could not resolve). A pre-run card lists document, prompt-schema, and per-case input checks before anything is pressed; results show one card per run with status, the character count (labelled characters), variable coverage, the unresolved count, problems grouped Document/Inputs/Rendering, the expected-structure verdict, the rendered text, and copy. Results are not persisted: reopening the laboratory starts with no runs rather than a stale claim.
+  - **Components (`src/features/testCases/*`):** `CaseList` shows coverage, last update, expected schema, and run/edit/duplicate/delete/load-into-playground per case, with a confirmation dialog that says the prompt is unaffected; `CaseEditor` creates and edits a case with typed fields (text, decimal text with `inputMode="decimal"`, true/false select with an explicit "not answered", JSON text area), an expected-schema picker, live coverage, and a blank field treated as unanswered so editing cannot turn "no answer" into an empty string; `RunResults` renders the run cards and a `RunSummaryLine`; `VariantComparison` offers two selectors, the diff rows with `+`/`-` marks *and* screen-reader words, the identical verdict, and a copy button; `playgroundBridge` converts between case values and this tab's playground text in both directions, reporting values it cannot parse instead of dropping them.
+  - **Integration:** the router gained `/prompts/:promptId/lab`; the palette gained `lab.open` and `lab.new-case` (the latter accepts `?new=1` and, from the playground, `?from=playground` to seed the form with this tab's inputs); the playground header gained "Save as a test case" and "Laboratory" links, and the editor's Preview tab gained the same two; `src/domain/index.ts` and `purity.test.ts` register both new domain modules.
+  - **Tests added (67 cases; whole suite 94 files / 1,456 tests):** `src/domain/lab.test.ts` 21, `src/domain/renderDiff.test.ts` 13, `src/features/testCases/playgroundBridge.test.ts` 6, `src/routes/lab/LabRoute.test.tsx` 19, `src/store/dataStore.test.ts` +7, `src/lib/commands/coreCommands.test.ts` +1.
+  - **Validation executed:** `npx tsc --noEmit` exit 0; `npx eslint .` exit 0 with 0 warnings; `npx vitest run` — **94 files / 1,456 tests passed, 0 failures**; `npx vitest run --coverage` — thresholds pass (all files 96.18/90.97/97.32/97.09; `src/domain` 96.38/92.61/98.69/96.96 with `lab.ts` at 97.24/86.76/88.46/97.02 and `renderDiff.ts` at 93.57/95.31/100/93.87; `src/store` 96.14/89.4/97.59/97.67; `src/data` 96.51/87.03/100/97.22); `npx prettier --check .` clean; `npm run check:contrast` — 64 pairings pass in both themes; `npm run build` exit 0 — CSS 59.23 kB (13.88 kB gzip), app JS 1,047.77 kB (300.48 kB gzip, +42.6 kB over TASK-021's 1,005.20 kB), lazy `JsonEditor` chunk 427.66 kB (138.58 kB gzip). The no-network requirement is a test, not a claim: `LabRoute.test.tsx` replaces `fetch` with a function that throws and asserts a full run never calls it (and that a run writes nothing to `sessionStorage`).
+  - **Not performed (stated honestly):** no browser binary exists in this environment, so the requested manual mobile check did not happen — there is no 390 px walkthrough, no keyboard or pointer pass on a real device, and no screenshot. Responsive and keyboard claims rest on the stacked `xl` layout, wrapping monospace output, labelled native controls, and jsdom tests against the real route.
+  - **Deviations recorded:** (1) the scope said "reuse TASK-020 text comparison", but TASK-020's `diff.ts` compares *documents* by JSON pointer and `textDiff.ts` is a line-count summary for the save pipeline; neither produces a rendered-text diff, so `renderDiff.ts` implements one with the same visual language (ADR-107). (2) The case stores an *expected structure* (a schema id) rather than expected text, because a stored expected output would go stale on every edit and could not be checked without pretending to know what a model would say. (3) Prompt-schema conformance is part of the pre-run gate and the pre-run card, not only of the run. (4) Case changes record no `ActivityEvent`: the `ActivityType` union has no lab member and widening it is a dashboard decision (TASK-025).
+  - **Known limitations:** a structure check on a prose prompt usually ends in `not-json` (reported as a skipped check with its reason); cases go stale when a document's variables change (warnings, no auto-prune); results are per mount and deliberately not stored; the 50-case and 120-character caps are fixed; the +42.6 kB bundle growth is the new route and components, which are not code-split.
+  - **Docs:** `docs/DECISIONS.md` gained ADR-107 and a TASK-022 verification log, and ADR-04's stale "Planned" status was corrected to "Accepted"; `docs/ARCHITECTURE.md` gained a "Prompt laboratory and saved test cases (TASK-022)" section, the `/prompts/:promptId/lab` route row, and an updated playground note about the hand-off; `README.md` gained a "Prompt laboratory with saved test cases" section, updated editor and playground bullets, and structure entries; `tasks.md` updated.
+
 
 ---
 

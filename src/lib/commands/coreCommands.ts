@@ -211,6 +211,34 @@ export function createCoreCommands(): readonly CommandDefinition[] {
       run: (context) => context.navigate(`${context.pathname}/playground`),
     },
     {
+      id: 'lab.open',
+      title: 'Open the prompt laboratory',
+      group: 'Workspace',
+      description: 'Run saved test cases against this prompt and compare what they render.',
+      keywords: searchTerms('lab laboratory test cases saved inputs run compare variants'),
+      when: (context) => /^\/prompts\/[^/]+(\/playground|\/history)?$/.test(context.pathname),
+      run: (context) => {
+        const promptId = context.pathname.split('/')[2];
+        context.navigate(promptId ? `/prompts/${encodeURIComponent(promptId)}/lab` : '/library');
+      },
+    },
+    {
+      id: 'lab.new-case',
+      title: 'Save a test case for the open prompt',
+      group: 'Workspace',
+      description: 'Opens the laboratory with a new case form for the prompt in the workspace.',
+      keywords: searchTerms('save test case laboratory inputs fixture case'),
+      when: (context) => /^\/prompts\/[^/]+(\/playground|\/history|\/lab)?$/.test(context.pathname),
+      run: (context) => {
+        const promptId = context.pathname.split('/')[2];
+        if (!promptId) return;
+        // The playground's remembered inputs are offered as the starting values,
+        // which is the one place they exist.
+        const fromPlayground = context.pathname.endsWith('/playground') ? '&from=playground' : '';
+        context.navigate(`/prompts/${encodeURIComponent(promptId)}/lab?new=1${fromPlayground}`);
+      },
+    },
+    {
       id: 'library.favorites',
       title: 'Show favorite prompts',
       group: 'Workspace',

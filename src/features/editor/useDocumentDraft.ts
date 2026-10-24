@@ -34,6 +34,22 @@ export interface UseDocumentDraftOptions {
   readonly debounceMs?: number;
   /** Override for tests; defaults to `window.localStorage`. */
   readonly storage?: Storage | null;
+  /**
+   * Whether this hook reads and writes recovery drafts (TASK-015).
+   *
+   * The save pipeline owns recovery so that a draft records the version it was
+   * typed over and is cleared only after a successful write; when it is in
+   * charge it passes `false` and this hook stops touching storage.
+   */
+  readonly manageRecovery?: boolean;
+  /**
+   * Whether a new saved base resets the text (TASK-014 behaviour, the default).
+   *
+   * The save pipeline keeps the text while the store echoes a save back, because
+   * resetting from `savedText` would discard characters typed while the write was
+   * in flight. It passes `false` and resets explicitly instead.
+   */
+  readonly resetOnSavedChange?: boolean;
 }
 
 export interface DocumentDraft {
@@ -68,6 +84,8 @@ export function useDocumentDraft({
   savedUpdatedAt,
   debounceMs = PARSE_DEBOUNCE_MS,
   storage,
+  manageRecovery = true,
+  resetOnSavedChange = true,
 }: UseDocumentDraftOptions): DocumentDraft {
   const [text, setTextState] = useState(savedText);
   const [parse, setParse] = useState<DraftParse>(() => {
@@ -79,30 +97,37 @@ export function useDocumentDraft({
     };
   });
   const [recovery, setRecovery] = useState<StoredDraft | null>(() => {
+    if (!manageRecovery) return null;
     const draft = readStoredDraft(promptId, storage);
     return draft && draft.text !== savedText ? draft : null;
   });
   const [draftPersisted, setDraftPersisted] = useState(false);
 
   const firstRun = useRef(true);
+  // Read inside the reset effect so a saved-text change only resets the text when
+  // `resetOnSavedChange` asks for it, without lying about the dependency list.
+  const savedTextRef = useRef(savedText);
+  savedTextRef.current = savedText;
   const dirty = text !== savedText;
   const largeDocument = isLargeJsonText(text);
   const stats = useMemo(() => jsonTextStats(text), [text]);
 
   // A different prompt (or a new saved base) means a different draft.
+  const resetKey = resetOnSavedChange ? savedText : '';
   useEffect(() => {
-    const draft = readStoredDraft(promptId, storage);
-    const result = scanJson(savedText);
+    const base = savedTextRef.current;
+    const draft = manageRecovery ? readStoredDraft(promptId, storage) : null;
+    const result = scanJson(base);
 
-    setTextState(savedText);
+    setTextState(base);
     setParse({
       value: result.ok ? result.value : null,
       error: result.ok ? null : result.error,
       checking: false,
     });
-    setRecovery(draft && draft.text !== savedText ? draft : null);
+    setRecovery(draft && draft.text !== base ? draft : null);
     firstRun.current = true;
-  }, [promptId, savedText, storage]);
+  }, [promptId, resetKey, storage, manageRecovery]);
 
   // Debounced parse. The first render already parsed synchronously, so the
   // effect skips it and the status bar does not flash "Checking…" on mount.
@@ -133,6 +158,7 @@ export function useDocumentDraft({
 
   // Recovery copy: write when dirty, remove when clean.
   useEffect(() => {
+    if (!manageRecovery) return;
     if (!dirty) {
       clearStoredDraft(promptId, storage);
       setDraftPersisted(false);
@@ -148,7 +174,7 @@ export function useDocumentDraft({
     }, DRAFT_WRITE_DELAY_MS);
 
     return () => clearTimeout(timer);
-  }, [dirty, promptId, savedUpdatedAt, storage, text]);
+  }, [dirty, manageRecovery, promptId, savedUpdatedAt, storage, text]);
 
   // Browsers only show the native "leave site?" prompt; in-app navigation is
   // guarded by the route's dialog.

@@ -144,7 +144,7 @@ renders even if the shell itself throws.
 | -------------------- | --------------------- | ------------------------------------------ |
 | `/`                  | Dashboard             | **Implemented** (TASK-010)                 |
 | `/library`           | Library               | **Implemented** (TASK-011)                 |
-| `/prompts/:promptId` | Prompt workspace      | Scaffold → TASK-014                        |
+| `/prompts/:promptId` | Prompt workspace      | **Implemented** (TASK-014, saved in 015)   |
 | `/composer`          | Composer              | Scaffold → TASK-017                        |
 | `/templates`         | Templates             | Scaffold → TASK-018                        |
 | `/validation`        | Validation            | Scaffold → TASK-016                        |
@@ -337,11 +337,44 @@ Palette commands added here: `prompt.toggle-favorite` (available on the editor r
 `library.favorites` / `library.archived`, which switch the library scope through the same URL contract
 the rail uses.
 
+## Saving and recovery (TASK-015)
+
+One hook, `src/features/save/useSavePipeline.ts`, owns every write of editor content. It wraps
+`useDocumentDraft` (text + parse) with a persisted baseline, a save state, a conflict, a recovery
+candidate, and a cross-tab notice. Components render; they do not decide when a save happened.
+
+| Piece                                                       | Responsibility                                                                                                                                                              |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/features/save/useSavePipeline.ts`                      | Baseline `{ text, version, updatedAt }`, derived save state, validation before write, queued write with `expectedVersion`, autosave debounce, `Mod+S`, retry, snapshot gate |
+| `src/features/save/saveBus.ts`                              | Lazily created shared `WriteQueue` and `WriteBroadcaster`, so every editor mount serializes and announces through the same instances                                        |
+| `src/features/save/recoveryStorage.ts`                      | Version-aware recovery drafts over `draftStorage`: `readRecovery` (with a diff hint), `writeRecovery`, `clearRecovery`, `canRecover`                                        |
+| `src/domain/textDiff.ts`                                    | `summarizeLineDifference` / `describeLineDifference` — common-prefix/suffix line comparison used for the recovery hint                                                      |
+| `src/components/editor/SaveStatus.tsx`                      | `role="status"` live region: label + icon + detail per state, last-saved time, Retry, and an explicit Save now button                                                       |
+| `src/components/editor/SaveConflictDialog.tsx`              | Stale-write resolution: reload the stored version, keep the draft as new content, or view the stored version — no timeout, no silent overwrite                              |
+| `src/store/dataStore.ts` (`editPrompt`, `readStoredPrompt`) | `expectedVersion` guard on writes; a read-only read for conflict previews that does not disturb the draft                                                                   |
+
+**Rules the pipeline follows.**
+
+- **Ordered, latest-content writes.** Every save is queued per prompt, and the queued task re-reads the
+  text when it runs, so a fast edit is the one that lands. A save requested while another is in flight
+  coalesces onto it.
+- **"Saved" is a resolved fact.** The state is derived (`disabled`, `conflict`, `saving`, `error`,
+  `dirty`, `saved`, `clean`) and `saved` is unreachable until the write promise resolves. A failed
+  write keeps the draft, shows the reason, and offers Retry.
+- **Conflicts ask.** A write whose `expectedVersion` lost the race becomes a conflict: autosave stops
+  and the dialog presents the two destructive outcomes by name, plus a preview of what storage holds.
+- **Another tab is a notice.** Announcements raise a banner with _Review both versions_ / _Keep
+  editing_; a message never replaces the draft (ADR-82).
+- **Recovery is the safety net, not the save.** A dirty draft is mirrored to `localStorage` with the
+  version it was typed over; the copy is cleared only after a confirmed write.
+- **Ephemeral mode is explicit.** No Save button claims to work, a banner says saving is disabled, and
+  recovery drafts still protect the text.
+
 ## JSON editor workspace (TASK-014)
 
-`/prompts/:promptId` is a workspace, not a form: a metadata header, a raw/tree tab strip, the
-CodeMirror host, a syntax-error panel, a status bar, and a collapsible inspector. The editor owns its
-document text and nothing else — persistence arrives in TASK-015.
+`/prompts/:promptId` is a workspace, not a form: a metadata header, a save-status row, a raw/tree tab
+strip, the CodeMirror host, a syntax-error panel, a status bar, and a collapsible inspector. The
+editor owns its document text; persistence lives in the save pipeline (see the next section).
 
 | Piece                                       | Responsibility                                                                                                                                                                                                     |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -354,8 +387,8 @@ document text and nothing else — persistence arrives in TASK-015.
 | `src/components/editor/JsonErrorPanel.tsx`  | `role="alert"` error with the exact line/column and a "go to line" action; states that the text is unchanged                                                                                                       |
 | `src/components/editor/EditorStatusBar.tsx` | Caret line/column, line and character counts, indent, and a validity badge that has a `Checking…` state instead of a stale "Valid JSON"                                                                            |
 | `src/components/editor/EditorInspector.tsx` | Collapsible inspector with real structure facts (nodes, depth, top-level keys) and an explicit note that schema validation is TASK-016                                                                             |
-| `src/features/editor/useDocumentDraft.ts`   | Draft text, debounced parse, recovery copy in `localStorage`, `beforeunload` guard, and the `Checking…` state (ADR-76)                                                                                             |
-| `src/features/editor/draftStorage.ts`       | Versionless, fail-soft draft storage: namespaced keys, size cap, defensive parsing, and no throwing when storage is blocked                                                                                        |
+| `src/features/editor/useDocumentDraft.ts`   | Draft text, debounced parse, `beforeunload` guard, and the `Checking…` state; when the save pipeline is present it leaves recovery to the pipeline (ADR-80)                                                        |
+| `src/features/editor/draftStorage.ts`       | Fail-soft draft storage: namespaced keys, size cap, defensive parsing, and no throwing when storage is blocked                                                                                                     |
 
 **Rules the workspace follows.**
 
@@ -365,8 +398,9 @@ document text and nothing else — persistence arrives in TASK-015.
   person can act on (ADR-73).
 - **A syntax error never edits the text.** It disables formatting and minifying (the actions that need a
   parsed value), shows the error panel, and leaves the tree view with guidance instead of a partial tree.
-- **Nothing claims a save.** The status bar, the footer, and the summary card all say the text is a
-  draft; there is no save command, no "Saved" state, and `Mod-S` is deliberately unbound until TASK-015.
+- **Nothing claims a save.** The save-status row reports what the pipeline knows: "Saving…", "Saved at
+  HH:MM" (only after the write resolved), the failure with a Retry action, or "Saving is off" in
+  ephemeral mode. The status bar's draft line says "Unsaved changes — this text is not in storage yet.".
 - **Leaving is guarded twice.** `useBlocker` asks before an in-app navigation while the draft is dirty,
   and `beforeunload` covers the browser; the recovery copy survives either way.
 - **The editor is a lazy chunk.** The route imports it with `React.lazy`, so CodeMirror lives in its own
@@ -470,8 +504,9 @@ DataBootstrap renders    loading skeletons → banner + children, or a recovery 
 - **`dataStore`** owns the in-memory library (`prompts`, `folders`, `collections`, `templates`,
   `testCases`, `schemas`, `snippets`, `activity`, `settings`) plus `mode`, `status`, `error`, and
   `busy`. Every mutation calls a repository and then adopts the value the repository returned, so a
-  failed write can never look saved. Prompt writes read the current row first and pass its version as
-  `expectedVersion`, which keeps the optimistic-concurrency guarantee intact.
+  failed write can never look saved. Document writes pass the version the editor's draft was based on
+  as `expectedVersion`, so a stale save fails loudly instead of overwriting another tab; ordinary
+  metadata writes read the current row first.
 - **Activity is recorded for create, update, archive, restore, delete, and snapshot.** If the
   activity write alone fails, the mutation stands and the store says the timeline is incomplete —
   rollback would be worse than a missing log line.
@@ -480,9 +515,10 @@ DataBootstrap renders    loading skeletons → banner + children, or a recovery 
   `applySettings` adopts a persisted record, `toSettings` writes preferences back without losing
   `onboardedAt` or `seedVersion`.
 - **`uiStore`** holds panels, the command palette, and selection — never persisted, reset on reload.
-- **Editor drafts** (TASK-014) are the one deliberate `localStorage` record outside preferences: a
-  namespaced, size-capped copy of the text in this tab, written after a short pause and removed as soon
-  as the draft is clean. It is a recovery aid, not a save — nothing in TASK-014 writes a prompt.
+- **Editor recovery drafts** (TASK-015) are the one deliberate `localStorage` record outside
+  preferences: a namespaced, size-capped copy of the text in this tab, written after a short pause and
+  removed only once storage confirmed a write. They are a recovery aid, not a save — the prompt itself
+  is written through `editPrompt` with a version guard.
 - **`selectors.ts`** filters/sorts the library (search, tags, folders and subtrees, collections,
   status, parse state, snapshot coverage, edited-after window), memoizes with a single-entry cache keyed on array
   identity plus query, and computes dashboard aggregates. It is pure and tested without a renderer.

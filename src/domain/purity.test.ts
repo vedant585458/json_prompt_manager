@@ -56,6 +56,7 @@ describe('domain layer purity', () => {
       'promptDocument.ts',
       'search.ts',
       'serialization.ts',
+      'textDiff.ts',
       'types.ts',
     ]);
   });
@@ -118,6 +119,7 @@ describe('domain layer purity', () => {
       '@/domain/promptDocument',
       '@/domain/search',
       '@/domain/serialization',
+      '@/domain/textDiff',
       '@/domain/types',
     ]);
   });

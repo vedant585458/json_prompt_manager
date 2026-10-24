@@ -70,6 +70,12 @@ export type { StorageMode } from '@/data';
 export type DataStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 /** Fields a caller may change; identity, timestamps, and counters are derived. */
+/** Optional guard for a prompt write (TASK-015). */
+export interface WriteGuard {
+  /** Version the edit was based on; a newer stored version is a conflict. */
+  readonly expectedVersion?: number;
+}
+
 export interface PromptEdit {
   readonly title?: string;
   readonly description?: string;
@@ -152,7 +158,22 @@ export interface DataState {
   hydrate: () => Promise<void>;
 
   addPrompt: (input?: CreatePromptInput) => Promise<Prompt>;
-  editPrompt: (id: string, changes: PromptEdit) => Promise<Prompt>;
+  /**
+   * Applies an edit and reports the saved prompt.
+   *
+   * `expectedVersion` is the version the caller's copy is based on (TASK-015).
+   * When supplied, a write against a newer stored record fails with
+   * `StaleWriteError` instead of silently overwriting it — the editor uses this
+   * to detect a save from another tab. Omit it for ordinary edits.
+   */
+  editPrompt: (id: string, changes: PromptEdit, options?: WriteGuard) => Promise<Prompt>;
+  /**
+   * Reads one prompt straight from storage without touching state (TASK-015).
+   *
+   * Conflict resolution needs to show what is *currently* stored while the
+   * editor still holds the user's draft, so it cannot go through `hydrate`.
+   */
+  readStoredPrompt: (id: string) => Promise<Prompt | null>;
   /** Copies a prompt under a "(copy)" title; the copy shares no mutable state. */
   duplicatePrompt: (id: string) => Promise<Prompt>;
   movePrompt: (id: string, folderId: string | null) => Promise<Prompt>;
@@ -374,13 +395,16 @@ export function createDataStore(options: DataStoreOptions = {}) {
       changes: PromptEdit,
       activityType: ActivityType,
       describe: (saved: Prompt, previous: Prompt) => string,
+      guard?: WriteGuard,
     ): Promise<Prompt> {
       return run(async (repos) => {
         const current = await repos.prompts.get(id);
         if (!current) throw new RecordNotFoundError(`Prompt ${id} no longer exists.`);
 
         const next = applyEdit(current, changes, dependencies.now().toISOString());
-        const saved = await repos.prompts.update(next, { expectedVersion: current.version });
+        const saved = await repos.prompts.update(next, {
+          expectedVersion: guard?.expectedVersion ?? current.version,
+        });
 
         set((state) => ({ prompts: upsertPrompt(state.prompts, saved) }));
         await recordActivity({
@@ -538,8 +562,18 @@ export function createDataStore(options: DataStoreOptions = {}) {
           return saved;
         }),
 
-      editPrompt: (id, changes) =>
-        writePrompt(id, changes, 'updated', (saved) => `Updated "${saved.title}"`),
+      editPrompt: (id, changes, guard) =>
+        writePrompt(id, changes, 'updated', (saved) => `Updated "${saved.title}"`, guard),
+
+      readStoredPrompt: async (id) => {
+        const repos = requireRepositories();
+        try {
+          return await repos.prompts.get(id);
+        } catch (error) {
+          set({ error: describeDataError(error) });
+          throw error;
+        }
+      },
 
       duplicatePrompt: async (id) =>
         run(async (repos) => {

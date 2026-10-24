@@ -2,7 +2,7 @@
 
 **Advanced JSON Prompt Management Studio** — a local-first workspace for creating, organizing, validating, versioning, comparing, and optimizing structured JSON prompts.
 
-> **Status: TASK-014 complete — the JSON editor workspace (raw + tree views).**
+> **Status: TASK-015 complete — the save pipeline, autosave, and recovery.**
 > The repository contains the toolchain, the Prompt Observatory token system with dark and light
 > themes, the primitive layer, the overlay/feedback layer demonstrated in a design gallery, the typed
 > domain model, the persistence layer (repository interfaces, IndexedDB with migrations, an in-memory
@@ -19,9 +19,13 @@
 > delete with a confirmed cascade), folder/collection management with cycle guards, and multi-select
 > bulk actions with an honest undo, and the **JSON editor**: a CodeMirror 6 host with formatting,
 > minify, find/replace, folding, copy, and undo/redo, a scanner that reports exact syntax locations,
-> a read-only tree view, a document inspector, and a draft that is explicitly not a save. Every declared
-> route is reachable; screens not yet built say so instead of showing mock controls. Each subsequent
-> feature is built in a separate, explicitly authorized task tracked in [`tasks.md`](./tasks.md).
+> a read-only tree view, a document inspector, and a draft that is explicitly not a save — and now a
+> **save pipeline**: debounced autosave from the saved preferences, `Mod+S`, serialized version-guarded
+> writes, a truthful save status, an explicit stale-write conflict dialog, `localStorage` recovery
+> drafts that are cleared only after a confirmed write, cross-tab write notices, and a labelled
+> ephemeral mode that refuses to save instead of pretending. Every declared route is reachable; screens
+> not yet built say so instead of showing mock controls. Each subsequent feature is built in a separate,
+> explicitly authorized task tracked in [`tasks.md`](./tasks.md).
 
 ---
 
@@ -87,8 +91,9 @@ src/
   components/library/  filter bar, ingredient rail, prompt cards and rows, badges
   components/prompts/  prompt create/edit dialog, action menu, delete confirmation, summary card
   components/editor/   CodeMirror host and theme, toolbar, tree view, error panel, status bar,
-                       inspector
-  features/editor/     draft state (local recovery copy), parse debounce, in-app leave guard
+                       save status, conflict dialog, inspector
+  features/editor/     draft text, parse debounce, in-app leave guard
+  features/save/       save pipeline, recovery drafts, shared write queue and broadcaster
   lib/commands/   registry, shortcut parsing/matching, core commands, React bindings
   components/     ui primitives, layout, and domain components
   features/       feature modules (organization, save pipeline, revisions, diff, lab, ...)
@@ -221,12 +226,18 @@ inspector.
 - **Tree view.** A read-only, keyboard-operable `role="tree"` of the parsed document with arrow-key
   navigation, expandable nodes, typed summaries, and a copy-path control. Invalid JSON shows guidance
   instead of a partial tree.
-- **Drafts.** Edits are a draft in this tab: they are mirrored to `localStorage` (recoverable after a
-  reload), never written to the database, and the status bar says so. Leaving with unsaved edits asks
-  first, and `beforeunload` covers the browser's own navigation.
-- **Not here yet.** Saving and autosave arrive in TASK-015, schema validation in TASK-016, and
-  variables in TASK-021; no control pretends otherwise. CodeMirror is a lazy chunk, so the rest of the
-  app does not pay for it.
+- **Saving.** Autosave runs after the delay set in Settings (or `Mod+S` for an immediate write). Writes
+  are serialized per prompt and carry the version the draft was based on, so a save that lost a race is
+  reported as a conflict — reload the stored version, keep the draft as new content, or view both —
+  rather than silently overwriting. "Saved" appears only after the write resolves; a failure keeps the
+  draft and offers Retry.
+- **Recovery.** A dirty draft is mirrored to `localStorage` with the version it was typed over, and is
+  cleared only once storage confirms a write. After a reload the editor offers the draft with a line
+  hint. A write announced by another tab raises a notice; it never replaces what you are typing. When
+  storage cannot open, the editor says saving is off and keeps the recovery draft anyway.
+- **Not here yet.** Schema validation arrives in TASK-016, revision history in TASK-019, and variables
+  in TASK-021; no control pretends otherwise. CodeMirror is a lazy chunk, so the rest of the app does
+  not pay for it.
 
 ## Design system
 

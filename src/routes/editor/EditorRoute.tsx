@@ -1,8 +1,10 @@
-import { AlertTriangle, FileJson, Save } from 'lucide-react';
+import { FileJson } from 'lucide-react';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useBlocker, useParams } from 'react-router-dom';
 
 import { EditorInspector } from '@/components/editor/EditorInspector';
+import { SaveConflictDialog } from '@/components/editor/SaveConflictDialog';
+import { SaveStatus } from '@/components/editor/SaveStatus';
 import { EditorStatusBar } from '@/components/editor/EditorStatusBar';
 import { EditorToolbar } from '@/components/editor/EditorToolbar';
 import { JsonErrorPanel } from '@/components/editor/JsonErrorPanel';
@@ -25,8 +27,7 @@ import {
 import type { JsonEditorHandle } from '@/components/editor/JsonEditor';
 import type { JsonSyntaxError } from '@/domain/jsonText';
 import { formatJsonText, minifyJsonText } from '@/domain/jsonText';
-import { formatDocument } from '@/domain/serialization';
-import { useDocumentDraft } from '@/features/editor/useDocumentDraft';
+import { useSavePipeline } from '@/features/save/useSavePipeline';
 import { registerPromptFavoriteToggle } from '@/lib/commands/promptActions';
 import { cn } from '@/lib/cn';
 import { describeDataError } from '@/store/dataStore';
@@ -41,17 +42,17 @@ import { usePreferencesStore } from '@/store/preferences';
  * inspector scaffold.
  *
  * Honesty rules that matter here:
- * - The text is a **draft**. Nothing in this task saves to the database, and the
- *   status bar says so instead of showing a save state.
- * - A syntax error never touches the text; it only disables the rewrites that
- *   would need a parsed value.
+ * - The text is a **draft** until the save pipeline confirms a write. The status
+ *   row never says "Saved" before the transaction resolves (TASK-015).
+ * - A syntax error never touches the text; it only blocks saving and the rewrites
+ *   that would need a parsed value.
  * - Leaving with unsaved edits asks first, and the draft stays recoverable in
  *   this browser either way.
+ * - A write from another tab is announced, never applied over a dirty draft.
  */
 
 const JsonEditor = lazy(() => import('@/components/editor/JsonEditor'));
 
-const CANONICAL_INDENT = 2;
 const EMPTY_CARET = { line: 1, column: 1 };
 
 function EditorFallback() {
@@ -82,6 +83,7 @@ export function EditorRoute() {
   const archivePrompt = store((state) => state.archivePrompt);
   const unarchivePrompt = store((state) => state.unarchivePrompt);
   const indentSize = usePreferencesStore((state) => state.indentSize);
+  const autosaveEnabled = usePreferencesStore((state) => state.autosaveEnabled);
 
   const toast = useToast();
   const now = useMemo(() => new Date(), []);
@@ -92,21 +94,11 @@ export function EditorRoute() {
   const [caret, setCaret] = useState(EMPTY_CARET);
   const editorRef = useRef<JsonEditorHandle>(null);
 
-  // The stored document is canonical text with two spaces. The indent preference
-  // belongs to the Format action, so changing it never rewrites the base the
-  // draft is compared against.
-  const savedText = useMemo(
-    () => (prompt ? formatDocument(prompt.content, CANONICAL_INDENT) : ''),
-    [prompt],
-  );
+  // The pipeline keeps the draft, so the canonical indent lives there; the indent
+  // preference still belongs to the Format action.
+  const save = useSavePipeline({ prompt, store });
 
-  const draft = useDocumentDraft({
-    promptId: prompt?.id ?? '',
-    savedText,
-    savedUpdatedAt: prompt?.updatedAt ?? '',
-  });
-
-  const blocker = useBlocker(draft.dirty && Boolean(prompt));
+  const blocker = useBlocker(save.dirty && Boolean(prompt));
 
   const handleCaret = useCallback((position: { line: number; column: number }) => {
     setCaret(position);
@@ -195,7 +187,7 @@ export function EditorRoute() {
   const applyRewrite = useCallback(
     (kind: 'format' | 'minify') => {
       const result =
-        kind === 'format' ? formatJsonText(draft.text, indentSize) : minifyJsonText(draft.text);
+        kind === 'format' ? formatJsonText(save.text, indentSize) : minifyJsonText(save.text);
 
       if (!result.ok) {
         toast.error({
@@ -205,15 +197,15 @@ export function EditorRoute() {
         return;
       }
 
-      if (result.text === draft.text) {
+      if (result.text === save.text) {
         toast.info({ title: kind === 'format' ? 'Already formatted' : 'Already minified' });
         return;
       }
 
-      draft.setText(result.text);
+      save.setText(result.text);
       toast.success({ title: kind === 'format' ? 'Formatted' : 'Minified' });
     },
-    [draft, indentSize, toast],
+    [save, indentSize, toast],
   );
 
   if (status === 'loading' || status === 'idle') {
@@ -260,7 +252,7 @@ export function EditorRoute() {
     );
   }
 
-  const syntaxError: JsonSyntaxError | null = draft.parse.error;
+  const syntaxError: JsonSyntaxError | null = save.parse.error;
 
   return (
     <div className="mx-auto flex w-full max-w-6xl min-w-0 flex-col gap-4">
@@ -290,28 +282,75 @@ export function EditorRoute() {
         onToggleArchive={handleToggleArchive}
       />
 
-      {draft.recovery ? (
+      {!save.durable ? (
+        <Alert tone="warning" title="Ephemeral mode — saving is disabled">
+          <p className="text-xs leading-relaxed">
+            Storage did not open in this browser, so this prompt cannot be written anywhere. Your
+            edits are still mirrored to a recovery draft here and survive a reload of this tab.
+          </p>
+        </Alert>
+      ) : null}
+
+      {save.recovery ? (
         <Alert
           tone="warning"
           title="An unsaved draft from this browser is available"
           action={
             <div className="flex flex-wrap gap-2">
-              <Button variant="primary" size="sm" onClick={draft.restoreRecovery}>
+              <Button variant="primary" size="sm" onClick={save.restoreRecovery}>
                 Restore the draft
               </Button>
-              <Button variant="ghost" size="sm" onClick={draft.discardRecovery}>
+              <Button variant="ghost" size="sm" onClick={save.discardRecovery}>
                 Discard it
               </Button>
             </div>
           }
         >
-          It was written {new Date(draft.recovery.savedAt).toLocaleString()} and is not part of the
-          stored prompt.
+          <p className="text-xs leading-relaxed">
+            It was written {new Date(save.recovery.draft.savedAt).toLocaleString()} and is not part
+            of the stored prompt. {save.recovery.hint}
+            {save.recovery.basedOnOlderVersion
+              ? ' It was typed over an older version of this prompt, so the stored text has changed since.'
+              : ''}
+          </p>
+        </Alert>
+      ) : null}
+
+      {save.remote ? (
+        <Alert
+          tone="info"
+          title="This prompt was saved in another tab"
+          action={
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" size="sm" onClick={() => void save.reviewConflict()}>
+                Review both versions
+              </Button>
+              <Button variant="ghost" size="sm" onClick={save.dismissRemote}>
+                Keep editing
+              </Button>
+            </div>
+          }
+        >
+          <p className="text-xs leading-relaxed">
+            Version {save.remote.version} was written elsewhere at{' '}
+            {new Date(save.remote.at).toLocaleTimeString()}. Your draft is untouched; saving it now
+            would be a conflict, which you will be asked to resolve.
+          </p>
         </Alert>
       ) : null}
 
       <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_19rem]">
         <div className="min-w-0 space-y-3">
+          <SaveStatus
+            state={save.state}
+            lastSavedAt={save.lastSavedAt}
+            error={save.error}
+            canSave={save.durable && save.dirty && !save.saving && !save.conflict}
+            autosaveEnabled={autosaveEnabled}
+            onSave={() => void save.saveNow('manual')}
+            onRetry={() => void save.retry()}
+          />
+
           <Tabs value={view} onValueChange={(value) => setView(value as 'raw' | 'tree')}>
             <TabsList aria-label="Editor view">
               <TabsTrigger value="raw">Raw JSON</TabsTrigger>
@@ -320,7 +359,7 @@ export function EditorRoute() {
 
             <TabsContent value="raw" className="space-y-3">
               <EditorToolbar
-                documentText={draft.text}
+                documentText={save.text}
                 canRewrite={syntaxError === null}
                 errorLine={syntaxError?.line ?? null}
                 onFormat={() => applyRewrite('format')}
@@ -335,8 +374,8 @@ export function EditorRoute() {
               <Suspense fallback={<EditorFallback />}>
                 <JsonEditor
                   ref={editorRef}
-                  value={draft.text}
-                  onChange={draft.setText}
+                  value={save.text}
+                  onChange={save.setText}
                   indent={indentSize}
                   ariaLabel={`JSON document for ${prompt.title}`}
                   onCaretChange={handleCaret}
@@ -348,36 +387,37 @@ export function EditorRoute() {
             </TabsContent>
 
             <TabsContent value="tree">
-              <TreeView value={draft.parse.value} error={syntaxError} />
+              <TreeView value={save.parse.value} error={syntaxError} />
             </TabsContent>
           </Tabs>
 
           <EditorStatusBar
             caret={caret}
-            stats={draft.stats}
+            stats={save.stats}
             error={syntaxError}
-            checking={draft.parse.checking}
+            checking={save.parse.checking}
             indent={indentSize}
-            largeDocument={draft.largeDocument}
-            draftOnly={draft.dirty}
+            largeDocument={save.largeDocument}
+            draftOnly={save.dirty}
           />
         </div>
 
         <EditorInspector
           open={inspectorOpen}
           onToggle={() => setInspectorOpen((open) => !open)}
-          stats={draft.stats}
-          value={draft.parse.value}
+          stats={save.stats}
+          value={save.parse.value}
           error={syntaxError}
         />
       </div>
 
-      {draft.dirty ? (
-        <p className="flex items-center gap-1.5 text-2xs text-warning">
-          <AlertTriangle aria-hidden="true" size={12} />
-          Draft only — this text is in this tab, not in storage. Copy it or keep the tab open.
-        </p>
-      ) : null}
+      <SaveConflictDialog
+        conflict={save.conflict}
+        busy={save.saving}
+        onReloadStored={() => void save.reloadStoredVersion()}
+        onKeepDraft={() => void save.keepDraftAsNew()}
+        onDismiss={save.dismissConflict}
+      />
 
       <ConfirmDialog
         open={blocker.state === 'blocked'}
@@ -385,21 +425,12 @@ export function EditorRoute() {
           if (!open) blocker.reset?.();
         }}
         title="Leave with unsaved changes?"
-        description="Your edits are not saved. They stay recoverable in this browser as a draft, but leaving discards the undo history for this tab."
+        description="This draft has not been written to storage yet. It stays recoverable in this browser, but leaving closes the tab's undo history."
         confirmLabel="Leave the editor"
         cancelLabel="Stay"
         tone="destructive"
         onConfirm={() => blocker.proceed?.()}
       />
-
-      <p className="sr-only" role="status" aria-live="polite">
-        {draft.draftPersisted ? 'Recovery draft written to this browser.' : ''}
-      </p>
-
-      <p className="flex items-center gap-1.5 text-2xs text-ink-muted">
-        <Save aria-hidden="true" size={12} />
-        Saving to the library arrives in TASK-015; nothing here claims to have saved.
-      </p>
     </div>
   );
 }

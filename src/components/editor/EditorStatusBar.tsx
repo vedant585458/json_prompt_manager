@@ -69,8 +69,8 @@ export function EditorStatusBar({
       ) : null}
 
       {draftOnly ? (
-        <span className="basis-full">
-          This is a draft in this tab. Nothing has been saved — saving arrives in TASK-015.
+        <span className="basis-full text-warning">
+          Unsaved changes — this text is not in storage yet.
         </span>
       ) : null}
     </div>

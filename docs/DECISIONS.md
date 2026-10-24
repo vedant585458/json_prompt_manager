@@ -1968,3 +1968,146 @@ draft.
   preference belongs to the Format action, so changing it does not rewrite the draft's baseline.
 - `PromptSummaryCard`'s "not yet" copy was corrected: the editor now exists, and the card says
   validation (TASK-016) and history (TASK-019) are what remain, and that the editor is a draft.
+
+## ADR-78 — A save carries the version it was based on, and conflicts are detected by storage
+
+**Context.** TASK-014 left the editor as a draft: nothing was written, so nothing could be lost or
+overwritten. TASK-015 makes writes real. `editPrompt` used to re-read the record and write at
+`current.version`, which is last-writer-wins: a second tab's write would be replaced without a word.
+The TASK-006 concurrency helpers (write queue, `expectedVersion`) existed but the save path did not
+use them.
+
+**Decision.** `DataStore.editPrompt(id, changes, { expectedVersion })` passes the guard through to
+`PromptRepository.update`. The save pipeline always sends the version its draft was based on, so a
+write that lost the race fails with `StaleWriteError` and becomes a conflict. The store also gained
+`readStoredPrompt(id)`: a read straight from the repository that does **not** update state, because
+the conflict dialog must show what storage holds now while the editor still holds the draft.
+`hydrate()` would have replaced the very thing the dialog protects.
+
+**Consequences.** Ordinary edits (favorite, title, archive) keep working without a guard. A stale
+write can no longer silently overwrite; it is reported. The store now has one read-only escape hatch,
+documented as such and used only by the pipeline.
+
+## ADR-79 — A conflict freezes saving and asks; the editor never resolves it on a timeout
+
+**Context.** The task requires three explicit outcomes: reload the stored version, keep the draft as
+new content, or view the stored version. Both destructive outcomes lose something — one drops the
+draft, the other replaces someone else's write.
+
+**Decision.** When a write fails with `StaleWriteError` (or the user opens the dialog from a
+cross-tab notice) the pipeline records a `SaveConflict`, stops autosave, and renders a dialog. It
+reads the stored record through `readStoredPrompt` to fill the preview. _Reload_ replaces the text
+and baseline with the stored version and clears the recovery copy; _Keep_ writes the draft on top of
+the freshly read version, explicitly labelled as replacing the other write; _View_ expands an
+in-dialog preview. Nothing is hydrated, overwritten, or dismissed automatically.
+
+**Consequences.** A user who ignores the dialog keeps a dirty draft and a disabled Save button, which
+is visible and reversible. The dialog is the only path to either resolution, so both are testable and
+neither is a surprise.
+
+## ADR-80 — Exactly one writer owns the recovery draft, and it is cleared only after a write lands
+
+**Context.** TASK-014's `useDocumentDraft` mirrored drafts and cleared them whenever the text matched
+the saved text. With real saving, "matches the saved text" is exactly the state the pipeline creates
+after a successful write — but a _failed_ write must not leave the user without the copy, and the
+draft now needs to record the version it was typed over.
+
+**Decision.** The pipeline owns recovery. `useDocumentDraft` gained `manageRecovery: false` (and
+`resetOnSavedChange: false`, because resetting the text from a store echo would drop characters typed
+while a write was in flight) and stops touching storage when the pipeline is in charge. The pipeline
+mirrors dirty text after a 400 ms debounce, records `baseVersion`, and clears the copy only after a
+confirmed write, an explicit discard, or a reload of the stored version.
+
+**Consequences.** There is one code path that can write or delete a draft, so there is one place to
+reason about data loss. `draftStorage`'s TASK-014 tests still cover the storage primitives; the new
+`recoveryStorage` tests cover the version-aware semantics.
+
+## ADR-81 — Save state is derived from resolved outcomes, never optimistic
+
+**Context.** "Saved" is the one status in this application that must never be wrong. The task says so
+explicitly, and a wrong "Saved" is how people lose work.
+
+**Decision.** The pipeline keeps _facts_ (text, baseline, in-flight promise, last result, conflict,
+saving) and derives the state in one expression: `disabled` when storage is ephemeral, then
+`conflict`, then `saving`, then `error`, then `dirty`, then `saved`, then `clean`. `saved` is only
+reachable after the write promise resolved, and any newer text makes the state `dirty` again because
+the baseline moved, not the text. A failure stays visible until a write succeeds, and the failed text
+is remembered so autosave does not retry a document that is known to be rejected.
+
+**Consequences.** The status component has no internal state and cannot disagree with the pipeline.
+Validation failures (invalid JSON, invalid document) are reported as errors _before_ a write is
+attempted, with the field path or line/column in the detail.
+
+## ADR-82 — Another tab's write is an announcement, never an applied edit
+
+**Context.** Two tabs can hold the same prompt. Applying a remote write automatically would destroy a
+dirty draft; ignoring it lets two people overwrite each other silently.
+
+**Decision.** A confirmed write is announced through `WriteBroadcaster` (TASK-006). A tab that sees an
+announcement for the same prompt at a higher version shows a passive banner with _Review both
+versions_ (the conflict dialog) and _Keep editing_. Store-side changes are treated separately: a
+version bump with unchanged content is adopted silently, a content change over an unchanged draft is
+adopted and the text moves to what is stored, and a content change over a dirty draft becomes the same
+passive notice. The browser's own `BroadcastChannel` is unavailable in some environments, so the
+broadcaster degrades to a no-op and the version guard on writes remains the enforcement.
+
+**Consequences.** Multi-tab editing is honest and lossy only by explicit choice. The announcement is a
+notification channel, not a merge strategy — PromptForge still does not merge documents.
+
+## Verification log — TASK-015
+
+**Scope verified:** autosave debounce and version/`updatedAt` bumps, explicit `Mod+S`, retry after a
+failed write, syntax/document validation before saving, serialized writes and rapid-edit coalescing,
+stale-write detection with both destructive outcomes, recovery mirroring/restore/discard/clearing,
+recovery persistence across a remount, ephemeral mode, cross-tab announcements, and the save-status
+component's states.
+
+### Tests added (48 cases)
+
+| File                                                | Cases | Covers                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| --------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/features/save/useSavePipeline.test.tsx`        | 16    | autosave debounce + version/updatedAt, autosave off, `Mod+S`, snapshot enablement, one ordered write for rapid edits, ordered sequential saves, invalid JSON, invalid document with field path, failure/retry with the draft and recovery copy intact, stale-write conflict + reload, stale-write conflict + keep draft, recovery mirror/restore, recovery discard, recovery cleared after save, ephemeral mode, announce + remote notice |
+| `src/features/save/savePipeline.indexedDb.test.tsx` | 2     | confirmed write reopened from a second real IndexedDB connection; refused write leaves no version bump and no content change                                                                                                                                                                                                                                                                                                              |
+| `src/features/save/recoveryStorage.test.ts`         | 9     | round-trip with `baseVersion`, hint text, identical-text suppression, older-version flag, pre-version drafts, foreign/unparsable storage, clearing, blocked storage, capability probe                                                                                                                                                                                                                                                     |
+| `src/components/editor/SaveStatus.test.tsx`         | 7     | live-region attributes, saving without claiming success, saved timestamp, dirty + autosave copy, error + retry, ephemeral, explicit save button                                                                                                                                                                                                                                                                                           |
+| `src/domain/textDiff.test.ts`                       | 9     | identical text, edited line, inserted/removed lines with their comma, untouched tail, empty draft, sentence output, line splitting                                                                                                                                                                                                                                                                                                        |
+| `src/routes/editor/EditorRoute.test.tsx` (extended) | +5    | ephemeral saving-off copy, `Mod+S` save, autosave, conflict keep-draft, conflict reload, recovery hint                                                                                                                                                                                                                                                                                                                                    |
+
+### Gates
+
+| Gate                        | Result                                                                                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npx tsc --noEmit`          | exit 0                                                                                                                                                             |
+| `npx eslint .`              | exit 0, 0 warnings                                                                                                                                                 |
+| `npx vitest run`            | **68 files / 910 tests passed, 0 failures**                                                                                                                        |
+| `npx vitest run --coverage` | thresholds pass — `src/domain` 98.02/93.96/100/98.05, `src/data` 96.51/87.03/100/97.22, `src/store` 95.71/90.16/96.8/97.21; `dataStore.ts` 94.82/82.58/97.26/97.41 |
+| `npx prettier --check .`    | clean                                                                                                                                                              |
+| `npm run check:contrast`    | 64 pairings pass in both themes                                                                                                                                    |
+| `npm run build`             | exit 0 — CSS 53.89 kB (13.18 kB gzip), app JS 779.30 kB (232.69 kB gzip), lazy editor chunk 427.59 kB (138.55 kB gzip)                                             |
+
+### Known limitations and honesty notes
+
+- **The task's manual reload test was not performed.** No browser binary exists in this environment.
+  Reload recovery is covered by tests that unmount and remount the pipeline over the same storage and
+  by the IndexedDB reopen test; no screenshot or manual pass is claimed.
+- The cross-tab banner is exercised with an injected broadcaster in tests. A real `BroadcastChannel`
+  between two browser tabs was not exercised (no browser), and environments without it get a no-op.
+- Saving writes the **content** only: title, tags, filing, and status still change through their own
+  store mutations. A title edit bumps the version; the pipeline adopts metadata-only bumps silently so
+  that it does not turn into a false conflict.
+- Autosave stops for a document that is not a valid prompt document (missing `schemaVersion`, etc.).
+  The status says why, with the field path, instead of retrying forever.
+- Recovery drafts are `localStorage` copies capped at 2 000 000 characters. Beyond that, or with site
+  data blocked, there is no recovery — the status and banner never claim otherwise.
+
+### Deliberate deviations recorded for TASK-015
+
+- `editPrompt` gained an optional expected-version guard and `readStoredPrompt` was added (ADR-78).
+- Recovery is owned by the pipeline rather than `useDocumentDraft` (ADR-80); the older hook keeps its
+  TASK-014 behaviour through default-true flags.
+- `SnapshotService` defaults to the store's existing `snapshotPrompt` rather than a no-op; TASK-019
+  replaces the presentation, not the write.
+- `src/domain/textDiff.ts` is a new domain module, so the purity guard's module list and the barrel
+  export list were extended.
+- The recovery mirror delay is 400 ms (slightly longer than TASK-014's 300 ms) so it never competes
+  with the shorter autosave delays (minimum 300 ms) for the same keystroke.

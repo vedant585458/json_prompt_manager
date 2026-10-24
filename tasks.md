@@ -4,7 +4,7 @@
 **Created:** 2026-10-24
 **Repository:** `vedant585458/json_prompt_manager`
 **Branch:** `arena/3b0d1d76-json-prompt-manager`
-**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-012 is the latest completed task.
+**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-015 is the latest completed task.
 **Authoritative status source:** This file. One status per task, maintained here only.
 
 ---
@@ -596,7 +596,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-012 — Prompt CRUD, folders, and collections — High — deps: 011
 - [x] TASK-013 — Tags, favorites, pins, archive, and bulk actions — Medium — deps: 012
 - [x] TASK-014 — JSON editor workspace (raw + tree views) — High — deps: 012
-- [ ] TASK-015 — Save pipeline, autosave, and recovery — High — deps: 014
+- [x] TASK-015 — Save pipeline, autosave, and recovery — High — deps: 014
 - [ ] TASK-016 — Validation engine and validation studio — High — deps: 015
 - [ ] TASK-017 — Guided prompt composer with JSON synchronization — High — deps: 015
 - [ ] TASK-018 — Template catalog and custom templates — Medium — deps: 012, 017
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 14 of 31 tasks complete. TASK-001 through TASK-014 were completed on 2026-10-24.
+**Progress:** 15 of 31 tasks complete. TASK-001 through TASK-015 were completed on 2026-10-24.
 
 ---
 
@@ -1161,7 +1161,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-015 — Save pipeline, autosave, and recovery
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-014
 - **Objective:** Make edits durable and honest: a single serialized save pipeline with debounced autosave, explicit save, stale-write protection, recovery drafts, and a truthful save-status indicator.
@@ -1182,6 +1182,22 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Integration tests with fake-indexeddb: autosave debounce, failure/retry, stale-write conflict outcomes, recovery draft restore/discard, rapid-edit queue ordering, ephemeral mode; manual reload recovery test in browser; typecheck/lint/tests/build.
 - **Deliverables:** `src/features/save/useSavePipeline.ts`, `SaveStatus.tsx`, conflict dialog, recovery storage module, settings fields, tests, `docs/PERSISTENCE.md` update.
 - **Out of scope:** Revision history UI (TASK-019), schema validation, import/export.
+
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Pipeline (`src/features/save/useSavePipeline.ts`):** the draft's single owner of persistence. It wraps `useDocumentDraft` (which keeps the text, the debounced parse, stats, and the large-document guard) with a persisted baseline `{ text, version, updatedAt }`, so "dirty" means "the text differs from what storage confirmed" rather than "differs from a prop". Saving validates the latest text (`scanJson` + `validatePromptDocument`) and writes through the existing `createWriteQueue` per prompt, re-reading the text *inside* the queued task so a fast edit is never left behind. Autosave is a debounce over the autosave preferences; `Mod+S`/`Ctrl+S` writes immediately; a second save while one is in flight coalesces onto it; a failure keeps the draft, records the text that failed (so the timer does not hammer the same rejected document), and exposes `retry`. The status is derived, not stored: `disabled | conflict | saving | error | dirty | saved | clean`, and `saved` is only reachable after the write promise resolved.
+  - **Stale writes (`src/store/dataStore.ts`):** `editPrompt` gained an optional `{ expectedVersion }` guard and now passes it to `PromptRepository.update`, so a write based on a version that storage no longer holds fails with `StaleWriteError` instead of last-writer-wins. `readStoredPrompt(id)` was added to read one record straight from storage without touching state — the conflict dialog needs what is *stored now* while the editor still holds the draft. Nothing else in the store changed shape.
+  - **Conflicts (`src/components/editor/SaveConflictDialog.tsx`):** three explicit outcomes, no timeout and no silent overwrite: *Reload the stored version* (reads storage, replaces the draft, clears the recovery copy), *Keep my draft as new content* (writes the draft on top of the fresh version, explicitly labelled as replacing the other write), and *View the stored version* (an in-dialog, keyboard-scrollable preview read through `readStoredPrompt`). Version numbers for both sides are shown in words.
+  - **Recovery (`src/features/save/recoveryStorage.ts`):** a semantic layer over the TASK-014 `draftStorage` helpers. Drafts now record `baseVersion` alongside `baseUpdatedAt`; a candidate is offered only when its text differs from the stored text, carries a `describeLineDifference` hint (first differing line plus added/removed counts, from the new `src/domain/textDiff.ts`), and is flagged `basedOnOlderVersion` when it was typed over another version. The pipeline mirrors dirty text after a 400 ms debounce and clears the copy **only** after a confirmed write (or an explicit discard), so a failed save leaves the safety net in place.
+  - **Cross-tab (`src/features/save/saveBus.ts`):** one lazily created write queue and one `WriteBroadcaster` shared by every editor mount, both injectable for tests. A confirmed write is announced; an announcement for the same prompt at a higher version raises a passive "saved in another tab" banner with *Review both versions* (opens the conflict dialog) and *Keep editing* — the draft is never replaced by a message from another tab. Store-side content changes are handled separately: a metadata-only version bump is adopted silently, a content change with no local edits is adopted, and a content change over a dirty draft becomes the same passive notice.
+  - **Status UI (`src/components/editor/SaveStatus.tsx`):** a `role="status"` `aria-live="polite"` region with an icon and words for every state, the last-saved time, the failure message and detail, a Retry button on error, and an explicit *Save now* button with a `⌘S` hint. `EditorStatusBar`'s placeholder line became "Unsaved changes — this text is not in storage yet."; the route's "saving arrives in TASK-015" footer is gone.
+  - **Ephemeral mode:** `state: 'disabled'`, a banner in the editor ("Ephemeral mode — saving is disabled"), a Save button that is genuinely disabled, and recovery drafts that still work (the acceptance criterion).
+  - **Settings:** the autosave toggle and delay already existed in `SettingsRoute` and in the preferences store; TASK-015 makes them real — the editor's autosave reads `autosaveEnabled`/`autosaveDelayMs` live, and the status line says when autosave is off.
+  - **Snapshots:** `snapshot(label)` is exposed behind a `SnapshotService` interface (default: the store's existing `snapshotPrompt`) and is only permitted when the draft is clean (`canSnapshot`), so TASK-019 can swap in richer revision creation without changing the editor.
+  - **Tests added (48 new cases; whole suite 910 across 68 files):** `src/features/save/useSavePipeline.test.tsx` 16 (autosave debounce and version/updatedAt bump, autosave-off, `Mod+S`, snapshot enablement, rapid edits collapsing to one ordered write, sequential saves staying in order, invalid JSON and invalid-document refusal, failure/retry with the recovery copy intact, stale-write conflict with both outcomes, recovery mirroring/restore/discard/clearing, ephemeral mode, broadcast announce + remote notice), `src/features/save/savePipeline.indexedDb.test.tsx` 2 (a confirmed write reopened from a second real IndexedDB connection; a refused write leaving no version bump and no content change), `src/features/save/recoveryStorage.test.ts` 9, `src/components/editor/SaveStatus.test.tsx` 7, `src/domain/textDiff.test.ts` 9, `src/routes/editor/EditorRoute.test.tsx` +5 (ephemeral saving-off copy, `Mod+S` save, autosave, conflict keep-draft, conflict reload, recovery hint — the two TASK-014 placeholder assertions were replaced). Existing `useDocumentDraft` and route tests keep their behavior through two new opt-out flags (`manageRecovery`, `resetOnSavedChange`) whose defaults preserve TASK-014 semantics.
+  - **Validation executed:** `npx tsc --noEmit` exit 0; `npx eslint .` exit 0 with 0 warnings; `npx vitest run` — **68 files / 910 tests passed, 0 failures**; `npx vitest run --coverage` — thresholds pass (`src/domain` 98.02/93.96/100/98.05, `src/data` 96.51/87.03/100/97.22, `src/store` 95.71/90.16/96.8/97.21; `dataStore.ts` 94.82/82.58/97.26/97.41); `npx prettier --check .` clean; `npm run check:contrast` — 64 pairings pass in both themes; `npm run build` exit 0 — CSS 53.89 kB (13.18 kB gzip), app JS 779.30 kB (232.69 kB gzip), lazy `JsonEditor` chunk unchanged at 427.59 kB (138.55 kB gzip), same accepted >500 kB advisory.
+  - **Not performed (stated honestly):** the task's "manual reload recovery test in browser" was **not** performed — this environment has no browser binary, so no manual reload, no visual pass, and no screenshot is claimed. Reload recovery is covered by scripted tests that unmount and remount the pipeline against the same storage (jsdom + a `localStorage` stand-in) and by the IndexedDB reopen test.
+  - **Deviations recorded:** `editPrompt` gained an optional expected-version guard and the store gained `readStoredPrompt` (ADR-78); recovery drafts are owned by the pipeline, not `useDocumentDraft`, so there is exactly one writer (ADR-80); the conflict dialog reads storage directly rather than hydrating first, because hydrating would replace the very draft the dialog is protecting (ADR-79); the "already saved" fast path avoids bumping a version for an empty `Mod+S`; the `SnapshotService` default is the store's real `snapshotPrompt` rather than a no-op — TASK-019 replaces the presentation, not the write.
+  - **Docs:** `docs/DECISIONS.md` gained ADR-78…ADR-82 and a TASK-015 verification log; `docs/PERSISTENCE.md` gained a save-pipeline section (what is written, when, by whom, and what a recovery draft is not); `docs/ARCHITECTURE.md` gained a "Saving and recovery (TASK-015)" section; `README.md` and `tasks.md` updated.
 
 ---
 

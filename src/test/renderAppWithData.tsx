@@ -5,7 +5,7 @@ import { DataBootstrap } from '@/app/DataBootstrap';
 import { AppProviders } from '@/app/providers/AppProviders';
 import { routes } from '@/app/router';
 import { bootData } from '@/app/dataBoot';
-import type { Repositories } from '@/data';
+import type { Repositories, StorageMode } from '@/data';
 import { createDataStore, type DataStore } from '@/store/dataStore';
 
 /**
@@ -25,15 +25,27 @@ export const NO_SEED = {
 export interface RenderAppWithDataOptions {
   readonly repositories: Repositories;
   readonly path?: string;
+  /**
+   * Storage mode the app boots with (TASK-015).
+   *
+   * The repositories are whatever the test passes, so `durable` here means "the
+   * UI may save", which is what save-pipeline tests need; the IndexedDB adapter
+   * itself is covered by the data-layer suites.
+   */
+  readonly mode?: StorageMode;
 }
 
-export function renderAppWithData({ repositories, path = '/' }: RenderAppWithDataOptions) {
+export function renderAppWithData({
+  repositories,
+  path = '/',
+  mode = 'ephemeral',
+}: RenderAppWithDataOptions) {
   const store = createDataStore();
 
   const boot = (target: DataStore) =>
     bootData({
       store: target,
-      openStorage: async () => ({ repositories, mode: 'ephemeral', notice: null }),
+      openStorage: async () => ({ repositories, mode, notice: null }),
       seed: async () => NO_SEED,
     });
 

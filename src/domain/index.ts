@@ -14,3 +14,4 @@ export * from '@/domain/factories';
 export * from '@/domain/search';
 export * from '@/domain/jsonText';
 export * from '@/domain/jsonTree';
+export * from '@/domain/textDiff';

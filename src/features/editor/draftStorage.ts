@@ -19,6 +19,13 @@ export interface StoredDraft {
   readonly savedAt: string;
   /** `updatedAt` of the stored prompt the draft was typed over. */
   readonly baseUpdatedAt: string;
+  /**
+   * Version of the stored prompt the draft was typed over (TASK-015).
+   *
+   * Optional because drafts written by TASK-014 predate it; a recovery candidate
+   * then falls back to comparing `baseUpdatedAt`.
+   */
+  readonly baseVersion?: number;
 }
 
 function defaultStorage(): Storage | null {
@@ -57,7 +64,9 @@ function isStoredDraft(value: unknown): value is StoredDraft {
     typeof candidate.text === 'string' &&
     candidate.text.length <= MAX_DRAFT_CHARS &&
     typeof candidate.savedAt === 'string' &&
-    typeof candidate.baseUpdatedAt === 'string'
+    typeof candidate.baseUpdatedAt === 'string' &&
+    (candidate.baseVersion === undefined ||
+      (typeof candidate.baseVersion === 'number' && Number.isFinite(candidate.baseVersion)))
   );
 }
 

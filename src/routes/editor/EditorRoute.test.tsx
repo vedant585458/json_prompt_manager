@@ -12,8 +12,10 @@ import {
   createPrompt,
 } from '@/domain/factories';
 import { createBlankDocument } from '@/domain/promptDocument';
+import { formatDocument } from '@/domain/serialization';
 import type { Prompt } from '@/domain/types';
 import { renderAppWithData } from '@/test/renderAppWithData';
+import { usePreferencesStore } from '@/store/preferences';
 import { useUiStore } from '@/store/uiStore';
 
 const COMPLETED_ONBOARDING = '2026-01-02T09:00:00.000Z';
@@ -22,6 +24,7 @@ const BASE_TIME = '2026-10-24T09:00:00.000Z';
 interface Seed {
   readonly prompts?: readonly Prompt[];
   readonly path?: string;
+  readonly mode?: 'durable' | 'ephemeral';
 }
 
 function makePrompt(overrides: Partial<Prompt> & { id: string; title: string }): Prompt {
@@ -68,7 +71,11 @@ function renderEditor(seed: Seed = {}) {
   });
 
   return {
-    ...renderAppWithData({ repositories, path: seed.path ?? '/prompts/alpha' }),
+    ...renderAppWithData({
+      repositories,
+      path: seed.path ?? '/prompts/alpha',
+      mode: seed.mode ?? 'ephemeral',
+    }),
     repositories,
   };
 }
@@ -174,7 +181,7 @@ describe('JSON workspace (TASK-014)', () => {
     return openEditor({ prompts: [prompt] });
   }
 
-  it('renders the stored document in the editor and never claims it was saved', async () => {
+  it('renders the stored document and reports that saving is off when storage is ephemeral', async () => {
     await openEditor({ prompts: [prompt] });
 
     const editor = await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
@@ -182,8 +189,9 @@ describe('JSON workspace (TASK-014)', () => {
     expect(editor.textContent).toContain('"Invoice parser"');
 
     expect(await screen.findByText('Valid JSON')).toBeVisible();
-    expect(screen.getByText(/Saving to the library arrives in TASK-015/)).toBeVisible();
-    expect(screen.queryByText(/^Saved$/)).not.toBeInTheDocument();
+    expect(screen.getByText('Saving is off')).toBeVisible();
+    expect(screen.getByText(/Ephemeral mode — saving is disabled/)).toBeVisible();
+    expect(screen.queryByText(/^Saved/)).not.toBeInTheDocument();
   });
 
   it('reports a syntax error from typing, keeps the text, and jumps to the line', async () => {
@@ -325,6 +333,178 @@ describe('JSON workspace (TASK-014)', () => {
     await expect(repositories.prompts.get('alpha')).resolves.toMatchObject({
       title: 'Invoice parser',
     });
-    expect(screen.getByText(/Draft only — this text is in this tab/)).toBeVisible();
+    expect(screen.getByText('Unsaved changes — this text is not in storage yet.')).toBeVisible();
+  });
+});
+
+describe('save pipeline (TASK-015)', () => {
+  const prompt = makePrompt({ id: 'alpha', title: 'Invoice parser' });
+
+  function draftWithObjective(objective: string): string {
+    const document = JSON.parse(formatDocument(prompt.content, 2)) as Record<string, unknown>;
+    document.objective = objective;
+    return JSON.stringify(document, null, 2);
+  }
+
+  async function openDurable(seed: Seed = {}) {
+    return openEditor({ prompts: [prompt], mode: 'durable', ...seed });
+  }
+
+  beforeEach(() => {
+    usePreferencesStore.setState({ autosaveEnabled: false });
+    window.localStorage.clear();
+  });
+
+  it('saves on Mod+S and only claims success once the write lands', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openDurable();
+
+    await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
+    await user.click(screen.getByRole('button', { name: 'Minify JSON' }));
+
+    expect(await screen.findByText('Unsaved changes')).toBeVisible();
+
+    await user.keyboard('{Control>}s{/Control}');
+
+    expect(await screen.findByText(/^Saved at /)).toBeVisible();
+    await waitFor(async () => {
+      await expect(repositories.prompts.get('alpha')).resolves.toMatchObject({ version: 2 });
+    });
+  });
+
+  it('autosaves after the configured delay', async () => {
+    usePreferencesStore.setState({ autosaveEnabled: true, autosaveDelayMs: 300 });
+    const user = userEvent.setup();
+    const { repositories } = await openDurable();
+
+    await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
+    await user.click(screen.getByRole('button', { name: 'Minify JSON' }));
+
+    expect(await screen.findByText(/^Saved at /, undefined, { timeout: 3000 })).toBeVisible();
+    await waitFor(async () => {
+      await expect(repositories.prompts.get('alpha')).resolves.toMatchObject({ version: 2 });
+    });
+  });
+
+  it('offers a conflict instead of overwriting a newer version, and keeps the draft on request', async () => {
+    const user = userEvent.setup();
+    const mine = draftWithObjective('Mine, typed earlier.');
+    window.localStorage.setItem(
+      draftStorageKey('alpha'),
+      JSON.stringify({
+        promptId: 'alpha',
+        text: mine,
+        savedAt: '2026-10-24T10:00:00.000Z',
+        baseUpdatedAt: BASE_TIME,
+        baseVersion: 1,
+      }),
+    );
+
+    const { repositories } = await openDurable();
+    await user.click(await screen.findByRole('button', { name: 'Restore the draft' }));
+
+    // Another tab writes first.
+    const stored = await repositories.prompts.get('alpha');
+    if (!stored) throw new Error('seed prompt missing');
+    const theirs = JSON.parse(formatDocument(stored.content, 2)) as Record<string, unknown>;
+    theirs.objective = 'Written elsewhere.';
+    await repositories.prompts.update(
+      {
+        ...stored,
+        content: theirs as unknown as Prompt['content'],
+        version: stored.version + 1,
+        updatedAt: '2026-10-24T11:00:00.000Z',
+      },
+      { expectedVersion: stored.version },
+    );
+
+    await user.keyboard('{Control>}s{/Control}');
+
+    const dialog = await screen.findByRole('dialog', { name: 'This prompt changed in storage' });
+    expect(within(dialog).getByText('version 2')).toBeVisible();
+
+    await user.click(within(dialog).getByRole('button', { name: 'View the stored version' }));
+    expect(within(dialog).getByText(/Written elsewhere\./)).toBeVisible();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Keep my draft as new content' }));
+
+    await waitFor(async () => {
+      const saved = await repositories.prompts.get('alpha');
+      expect(saved?.content.objective).toBe('Mine, typed earlier.');
+      expect(saved?.version).toBe(3);
+    });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('dialog', { name: 'This prompt changed in storage' }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it('reloads the stored version on request and drops the draft', async () => {
+    const user = userEvent.setup();
+    const mine = draftWithObjective('Mine, typed earlier.');
+    window.localStorage.setItem(
+      draftStorageKey('alpha'),
+      JSON.stringify({
+        promptId: 'alpha',
+        text: mine,
+        savedAt: '2026-10-24T10:00:00.000Z',
+        baseUpdatedAt: BASE_TIME,
+        baseVersion: 1,
+      }),
+    );
+
+    const { repositories } = await openDurable();
+    await user.click(await screen.findByRole('button', { name: 'Restore the draft' }));
+
+    const stored = await repositories.prompts.get('alpha');
+    if (!stored) throw new Error('seed prompt missing');
+    const theirs = JSON.parse(formatDocument(stored.content, 2)) as Record<string, unknown>;
+    theirs.objective = 'Written elsewhere.';
+    await repositories.prompts.update(
+      {
+        ...stored,
+        content: theirs as unknown as Prompt['content'],
+        version: stored.version + 1,
+      },
+      { expectedVersion: stored.version },
+    );
+
+    await user.keyboard('{Control>}s{/Control}');
+    const dialog = await screen.findByRole('dialog', { name: 'This prompt changed in storage' });
+    await user.click(within(dialog).getByRole('button', { name: 'Reload the stored version' }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('textbox', { name: 'JSON document for Invoice parser' }).textContent,
+      ).toContain('Written elsewhere.'),
+    );
+    expect(screen.getByText('No unsaved changes')).toBeVisible();
+    expect(window.localStorage.getItem(draftStorageKey('alpha'))).toBeNull();
+  });
+
+  it('describes how a recovery draft differs from the stored prompt', async () => {
+    const user = userEvent.setup();
+    const mine = draftWithObjective('A different objective.');
+    window.localStorage.setItem(
+      draftStorageKey('alpha'),
+      JSON.stringify({
+        promptId: 'alpha',
+        text: mine,
+        savedAt: '2026-10-24T10:00:00.000Z',
+        baseUpdatedAt: BASE_TIME,
+        baseVersion: 1,
+      }),
+    );
+
+    await openDurable();
+
+    expect(await screen.findByText(/Differs from the stored document at line/)).toBeVisible();
+    expect(screen.getByText(/typed over an older version|written/)).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Restore the draft' }));
+    expect(
+      screen.getByRole('textbox', { name: 'JSON document for Invoice parser' }).textContent,
+    ).toContain('A different objective.');
   });
 });

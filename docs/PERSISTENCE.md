@@ -240,8 +240,8 @@ const unsubscribe = broadcaster.subscribe((announcement) => {
 Announcements are `prompt-written`, `prompt-deleted`, and `settings-written` on the channel
 `promptforge`, received messages are validated with `isWriteAnnouncement` (unknown or malformed
 payloads are dropped), and the whole object degrades to a no-op when `BroadcastChannel` is missing or
-creation throws. Edits are **not** merged across tabs: version checks still reject stale writes;
-TASK-015 uses the announcements to warn a dirty tab and offer reload/diff.
+creation throws. Edits are **not** merged across tabs: version checks still reject stale writes; the
+save pipeline (TASK-015) uses the announcements to warn a dirty tab and offer to review both versions.
 
 ---
 
@@ -312,13 +312,82 @@ the last-written version make it idempotent instead, which the seed suite verifi
 
 ---
 
-## 9a. What is deliberately _not_ in this layer (TASK-014)
+## 6a. The editor save pipeline (TASK-015)
+
+Everything the editor writes goes through one hook, `src/features/save/useSavePipeline.ts`. It owns
+the draft's relationship with storage; no component calls `editPrompt` for document content.
+
+### What is written, and what is not
+
+A save writes `PromptDocument` content only — `editPrompt(id, { content }, { expectedVersion })`.
+Title, tags, filing, and status still change through their own store mutations, so a save can never
+revert a rename made in another surface. The text is validated first (`scanJson`, then
+`validatePromptDocument`); an invalid document is refused with a line/column or field path, and
+storage is not touched. Saving with no changes is a no-op that does not bump a version.
+
+### Ordering
+
+Writes for one prompt run through the shared `createWriteQueue()` instance (`src/features/save/saveBus.ts`),
+keyed by prompt id. The queued task re-reads the editor text _when it runs_, so an edit that arrives
+while an earlier write is in flight is the text that lands — rapid edits collapse into one write with
+the latest content rather than a lost update. A second explicit save while one is in flight coalesces
+onto the same promise.
+
+### Versions and conflicts
+
+The pipeline always sends the version its draft was based on. `PromptRepository.update` rejects a
+guarded write whose `expectedVersion` no longer matches with `StaleWriteError`, so the store can no
+longer overwrite another tab's write by re-reading first (ADR-78). A stale write becomes a conflict
+state: autosave stops and the dialog offers _Reload the stored version_ (reads storage, replaces the
+draft, clears the recovery copy), _Keep my draft as new content_ (writes the draft over the freshly
+read version, explicitly labelled), or _View the stored version_ (a preview read with the store's
+read-only `readStoredPrompt`). Nothing is hydrated or overwritten before the user chooses (ADR-79).
+
+A version bump whose content did not change (a favorite, a rename) is adopted silently. A content
+change from another tab becomes a passive banner; the draft is never replaced by it (ADR-82).
+
+### Autosave and explicit save
+
+Autosave is a debounce over `autosaveEnabled`/`autosaveDelayMs` from the preferences store; changing
+either takes effect in the mounted editor immediately. `Mod+S`/`Ctrl+S` writes immediately, from
+anywhere on the screen. A failed write keeps the draft, shows the failure with its detail and a Retry
+action, and never reports success; the failed text is remembered so the timer does not retry a
+document that is known to be rejected. The last confirmed `updatedAt` is shown as "Saved at …".
+
+### Recovery drafts
+
+`src/features/save/recoveryStorage.ts` is a version-aware layer over TASK-014's `draftStorage`:
+
+| Property        | Value                                                                                          |
+| --------------- | ---------------------------------------------------------------------------------------------- |
+| Key             | `promptforge.editor.draft.<promptId>` (unchanged)                                              |
+| Written         | 400 ms after the last edit while the draft is dirty                                            |
+| Record          | `{ promptId, text, savedAt, baseUpdatedAt, baseVersion? }`                                     |
+| Size cap        | 2 000 000 characters                                                                           |
+| Cleared         | only after a confirmed write, an explicit discard, or a reload of the stored version           |
+| Offered on open | when its text differs from the stored text, with a line-level hint and an "older version" flag |
+
+It is **not** a persisted prompt: no repository, table, or migration was added for it, and it never
+travels between devices. Clearing site data, or a browser that blocks `localStorage`, means no
+recovery.
+
+### Ephemeral mode
+
+When storage did not open, the pipeline reports `disabled`: the Save button is genuinely disabled, the
+editor shows "Ephemeral mode — saving is disabled", and a write is refused before it reaches the
+store. Recovery drafts keep working, because they do not need the database.
+
+### Revisions
+
+`snapshot(label)` is exposed behind a `SnapshotService` interface and only allowed when the draft is
+clean, so a snapshot always describes stored content. The default implementation is the store's
+existing `snapshotPrompt`; TASK-019 replaces the presentation, not the write.
+
+## 9a. What is deliberately _not_ in this layer
 
 The editor's recovery draft is **not** a persisted prompt. It is a `localStorage` copy of the text in
-the current tab (`promptforge.editor.draft.<promptId>`), size-capped, written after a short pause, and
-removed as soon as the text matches the stored document. It exists so a reload does not lose typing;
-saving to the database, autosave, and conflict handling arrive in TASK-015. No repository, table, or
-migration was added for it.
+the current tab, namespaced per prompt, size-capped, and removed once storage has confirmed the write.
+It exists so a reload does not lose typing. No repository, table, or migration was added for it.
 
 ## 10. Module boundary (ADR-39)
 

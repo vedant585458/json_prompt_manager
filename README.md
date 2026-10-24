@@ -2,12 +2,14 @@
 
 **Advanced JSON Prompt Management Studio** — a local-first workspace for creating, organizing, validating, versioning, comparing, and optimizing structured JSON prompts.
 
-> **Status: TASK-004 complete — overlays and feedback.**
+> **Status: TASK-006 complete — persistence foundation.**
 > The repository contains the toolchain, the Prompt Observatory token system with dark and light
-> themes, the primitive layer (buttons, form controls, tabs, tooltips, status, progress), and the
+> themes, the primitive layer (buttons, form controls, tabs, tooltips, status, progress), the
 > overlay/feedback layer (dialogs, confirmations, sheets, dropdown and context menus, toasts,
-> alerts, empty/error states, skeletons), all demonstrated in a design gallery. No PromptForge
-> product features are implemented yet. Each subsequent feature is built in a separate, explicitly
+> alerts, empty/error states, skeletons) demonstrated in a design gallery, the typed domain model,
+> and the persistence layer (repository interfaces, IndexedDB with migrations, an in-memory parity
+> adapter, typed storage errors). No PromptForge product surface is implemented yet, and nothing
+> opens the database at runtime. Each subsequent feature is built in a separate, explicitly
 > authorized task tracked in [`tasks.md`](./tasks.md).
 
 ---
@@ -46,17 +48,17 @@ All of the above must pass before a task can be marked complete in `tasks.md`.
 
 ## Technology stack
 
-| Area        | Choice                                                             |
-| ----------- | ------------------------------------------------------------------ |
-| UI          | React 19, TypeScript (strict), Vite                                |
-| Styling     | Tailwind CSS v4 via `@tailwindcss/vite`                            |
-| State       | Zustand (introduced with the data layer)                           |
-| Routing     | react-router-dom                                                   |
-| Persistence | IndexedDB through repository interfaces (`idb`) — planned TASK-006 |
-| Editor      | CodeMirror 6 — planned TASK-014                                    |
-| Validation  | Ajv (JSON Schema) — planned TASK-016                               |
-| Testing     | Vitest, Testing Library, `jest-dom`, `fake-indexeddb`, jsdom       |
-| Quality     | ESLint (flat config), Prettier                                     |
+| Area        | Choice                                                                    |
+| ----------- | ------------------------------------------------------------------------- |
+| UI          | React 19, TypeScript (strict), Vite                                       |
+| Styling     | Tailwind CSS v4 via `@tailwindcss/vite`                                   |
+| State       | Zustand (introduced with the data layer)                                  |
+| Routing     | react-router-dom                                                          |
+| Persistence | IndexedDB through repository interfaces (`idb`), in-memory parity adapter |
+| Editor      | CodeMirror 6 — planned TASK-014                                           |
+| Validation  | Ajv (JSON Schema) — planned TASK-016                                      |
+| Testing     | Vitest, Testing Library, `jest-dom`, `fake-indexeddb`, jsdom              |
+| Quality     | ESLint (flat config), Prettier                                            |
 
 Dependencies for later tasks are already pinned in `package.json` where they define the
 architecture; features are still implemented only when their task is authorized.
@@ -70,7 +72,8 @@ src/
   components/     ui primitives, layout, and domain components
   features/       feature modules (save pipeline, revisions, diff, lab, ...)
   domain/         pure TypeScript domain logic and types (no React, no storage)
-  data/           repository interfaces, IndexedDB adapters, migrations
+  data/           repository interfaces, IndexedDB + in-memory adapters, migrations,
+                  typed storage errors, write queue, cross-tab announcements
   store/          Zustand stores
   hooks/          reusable hooks
   lib/            small framework-agnostic utilities
@@ -141,14 +144,34 @@ if (!result.ok)
 else editor.load(formatDocument(result.value));
 ```
 
+## Persistence
+
+`src/data/` holds the storage layer behind repository interfaces: eleven repositories over a
+`promptforge` IndexedDB database (schema v2, eleven object stores, versioned migrations) plus an
+in-memory adapter that passes the same contract suite. Every failure is typed — `StaleWriteError`,
+`QuotaExceededError`, `StorageUnavailableError`, `CorruptDataError`, and friends — and prompt writes
+are guarded by an `expectedVersion` check, so a stale edit is rejected instead of overwriting newer
+content.
+
+```ts
+import { createWriteQueue, type Repositories } from '@/data';
+
+const queue = createWriteQueue();
+await queue.run(prompt.id, () => repositories.prompts.update(next, { expectedVersion }));
+```
+
+Code outside `src/data` imports only `@/data`; ESLint blocks deep adapter imports and any React/UI
+import inside the layer. Schema, migrations, and failure semantics are documented in
+[`docs/PERSISTENCE.md`](./docs/PERSISTENCE.md).
+
 ## Data and privacy
 
-PromptForge is designed to be **local-first and single-user**. Once persistence lands
-(TASK-006), all prompts, revisions, and settings will be stored in the browser's IndexedDB on
-this device. The application will not send prompt content to any server, make no external
-runtime requests, and integrate no AI model provider in its planned v1 scope.
+PromptForge is designed to be **local-first and single-user**. Prompts, revisions, and settings are
+stored in the browser's IndexedDB on this device (or in memory in ephemeral mode). The application
+does not send prompt content to any server, makes no external runtime requests, and integrates no AI
+model provider in its planned v1 scope.
 
-**At this stage the application stores nothing at all.**
+**Seeding and store wiring are TASK-007; until then no screen opens the database.**
 
 ## Roadmap
 

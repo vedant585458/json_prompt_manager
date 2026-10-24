@@ -587,7 +587,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-003 — Core UI primitives and design gallery — High — deps: 002
 - [x] TASK-004 — Overlay, feedback, and form primitives — High — deps: 003
 - [x] TASK-005 — Domain model and prompt document specification — High — deps: 001
-- [ ] TASK-006 — Persistence foundation with repositories and migrations — High — deps: 005
+- [x] TASK-006 — Persistence foundation with repositories and migrations — High — deps: 005
 - [ ] TASK-007 — Seed data, application store, and first-run foundation — High — deps: 004, 006
 - [ ] TASK-008 — Application shell, routing, and responsive navigation — High — deps: 004, 007
 - [ ] TASK-009 — Keyboard shortcut registry and command palette — High — deps: 008
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 5 of 31 tasks complete. TASK-001 through TASK-005 were completed on 2026-10-24. TASK-006 is not started and requires explicit authorization.
+**Progress:** 6 of 31 tasks complete. TASK-001 through TASK-006 were completed on 2026-10-24.
 
 ---
 
@@ -794,7 +794,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-006 — Persistence foundation with repositories and migrations
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-005
 - **Objective:** Provide a durable, migration-aware local persistence layer behind repository interfaces, with in-memory adapters for testing and explicit failure semantics.
@@ -816,6 +816,30 @@ Each task follows the required template. **No task may begin without explicit us
 - **Deliverables:** `src/data/repositories/*.ts` (interfaces + IndexedDB), `src/data/db/schema.ts`, `migrations.ts`, `errors.ts`, `src/data/adapters/inMemory.ts`, contract tests, `docs/PERSISTENCE.md`.
 - **Out of scope:** Seeding product content, store wiring, autosave UI, import/export.
 
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Modules delivered:**
+    - `src/data/db/schema.ts` — database `promptforge`, `DB_SCHEMA_VERSION = 2`, eleven object stores with key paths (`id`, except `settings`/`meta` = `key`), v1 index definitions, the v2 `prompts.status` index, typed `PromptForgeDB` rows, numeric flag mirrors (`archivedFlag`, `favoriteFlag`, `pinnedFlag`, `builtInFlag`), and `expectedIndexes()` as the single source of truth for the integrity check and schema assertions.
+    - `src/data/db/migrations.ts` — `migration1` (stores + v1 indexes), `migration2` (`prompts.status`), `MIGRATIONS`, `validateMigrations` (gapless, ascending), `pendingMigrations`, `applyMigrations` (inside the `versionchange` transaction, replay-safe, throwing `MigrationError`), `missingStores`.
+    - `src/data/db/indexedDb.ts` — `openPromptForgeDatabase` (migration capture, `meta` bookkeeping with preserved `seedVersion`, integrity check, `onBlocked`/`onBlocking`), `deletePromptForgeDatabase`, `probeStorage`, `isIndexedDbAvailable`, `assertSchemaIntegrity`, `assertStorageAvailable`, `isNewerDatabaseError`.
+    - `src/data/db/errors.ts` — `StorageError` with stable `code` values plus `StorageUnavailableError`, `QuotaExceededError`, `StaleWriteError`, `MigrationError` (`failed` | `newer-database`), `CorruptDataError`, `DuplicateRecordError`, `InvalidWriteError`, `RecordNotFoundError`, `mapStorageError`, `withStorageErrors`.
+    - `src/data/repositories/contracts.ts` — `Repositories` (prompts, revisions, folders, collections, templates, testCases, schemas, snippets, activity, settings, meta, `close`), `PromptQuery`, and the documented ordering rules.
+    - `src/data/repositories/shared.ts` — row conversion (`toPromptRow`, `toRevisionRow`, …), stored-record validation, ordering comparators, `matchesPromptQuery`, `cloneRecord`.
+    - `src/data/repositories/indexedDb.ts` — `createIndexedDbRepositories` over the typed `idb` connection with transactional writes, index-backed queries, and one documented cast site for the generic entity stores.
+    - `src/data/adapters/inMemory.ts` — `createInMemoryRepositories(seed?)` with identical cloning, ordering, query, version, and error semantics.
+    - `src/data/repositories/contract.ts` — `describeRepositoryContract(label, createRepositories)`, 25 shared cases used by both adapters.
+    - `src/data/writeQueue.ts` — `createWriteQueue()` with per-key `run`, `isBusy`, `size`, `drain`, and failure-tolerant chaining.
+    - `src/data/broadcast.ts` — `createWriteBroadcaster`, `isWriteAnnouncement`, `BROADCAST_CHANNEL_NAME`, no-op fallback when `BroadcastChannel` is unavailable.
+    - `src/data/index.ts` — the only public surface for code outside the layer.
+  - **Schema and migrations:** v1 creates the eleven stores from `tasks.md` §6.3; v2 adds `prompts.status`. Booleans are indexed through `0 | 1` mirrors because IndexedDB cannot index booleans. Migrations run inside the `versionchange` transaction, record the schema version in `meta` while preserving `seedVersion`, abort atomically on failure (the original error is captured and rethrown as `MigrationError('failed')`, not the platform `AbortError`), and a database from a newer build is refused with `MigrationError('newer-database')`.
+  - **Write semantics:** `prompts.update` requires `expectedVersion === stored.version` and `version === expectedVersion + 1` inside one `readwrite` transaction; a stale base raises `StaleWriteError` and changes nothing, a bad counter raises `InvalidWriteError`. `delete` is idempotent, `create` on an existing id raises `DuplicateRecordError`, reads and writes clone via `structuredClone`, and malformed stored rows surface as `CorruptDataError`.
+  - **Failure semantics:** every repository operation is wrapped in `withStorageErrors`; the mapping table (`QuotaExceededError`, `VersionError`, `DataError`/`DataCloneError`/`NotFoundError`, `ConstraintError`, `InvalidStateError`/`AbortError`/`UnknownError`) is covered exhaustively. `idb`'s cached `transaction.done` rejection is marked handled in the upgrade callback so an aborted migration produces no unhandled rejection.
+  - **Module boundaries:** ESLint forbids React/UI imports inside `src/data/**` and forbids `@/data/repositories/*`, `@/data/adapters/*`, and `@/data/db/*` imports from anywhere outside it, so consumers must use `@/data`. Both rules were verified by temporarily adding violating files (ESLint rejected each) and removing them.
+  - **Coverage configuration:** `vite.config.ts` now measures `src/domain/**` and `src/data/**` with per-glob floors — domain 90 % on all metrics; data 90 % statements / 82 % branches / 88 % functions / 92 % lines. Per-glob enforcement was proven by temporarily raising the data branch floor to 99 % (gate failed as expected) and reverting.
+  - **Tests added (107 data cases, whole suite 353):** shared contract suite 25 cases in both adapters; `indexedDb.contract.test.ts` 37 (schema against `expectedIndexes()`, unique compound revision index, row conversion, reopening, quota injection, IndexedDB absence, corrupted rows, migration errors); `inMemory.contract.test.ts` 27 (contract + seeding + operations after `close()`); `migrations.test.ts` 12 (v0→v2, idempotency, v1→v2 data-preserving upgrade, `meta` preservation, atomic abort, newer database, incomplete schema); `errors.test.ts` 13; `writeQueue.test.ts` 7; `broadcast.test.ts` 11.
+  - **Validation executed:** `npm run typecheck` exit 0; `npm run lint` exit 0 with **0 warnings**; `npm run test:run` — 27 files / **353 tests passed**; `npm run test:run -- data` — 6 files / 107 tests passed; `npm run test:coverage` — 96.12 % statements, 91.55 % branches, 94.25 % functions, 97.20 % lines combined, data alone 94.54 / 84.88 / 92.25 / 96.34 (gate passes); `npm run format:check` clean; `npm run check:contrast` 52 pairings pass; `npm run build` exit 0 (CSS 43.08 kB → 11.30 kB gzip; JS 433.64 kB → 133.38 kB gzip).
+  - **Documented deviation:** the validation step asks for a manual DevTools inspection of the created stores and indexes. No browser or headed environment exists in this workspace, so that inspection was **not** performed and is not claimed. The substitute is the automated assertion that a real (fake) database has exactly the stores and indexes in `expectedIndexes()` plus the unique compound index check; `docs/PERSISTENCE.md` §9 records the limitation and the exact manual procedure to run later.
+  - **Docs:** new `docs/PERSISTENCE.md` (code map, schema table, migration strategy, repository contract, failure semantics, concurrency helpers, in-memory adapter, boundary rules, verification, known limitations, future server-backed path); ADR-33…ADR-40 in `docs/DECISIONS.md` with a TASK-006 verification log; `docs/ARCHITECTURE.md` and `README.md` updated for the new layer.
+  - **Notes/limitations:** nothing seeds the database or wires repositories into a store yet (TASK-007); quota is injected at the object-store boundary rather than produced by a real full disk; blocked/terminated upgrades are wired but not faithfully simulable under `fake-indexeddb`; seed idempotency is covered only as "the `seedVersion` row survives reopen and upgrade" until seeding exists in TASK-007.
 ---
 
 ### TASK-007 — Seed data, application store, and first-run foundation

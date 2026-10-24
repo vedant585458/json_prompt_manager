@@ -2,14 +2,18 @@
 
 **Advanced JSON Prompt Management Studio** — a local-first workspace for creating, organizing, validating, versioning, comparing, and optimizing structured JSON prompts.
 
-> **Status: TASK-005 complete — domain model.**
+> **Status: TASK-006 complete — persistence foundation.**
 > The repository contains the toolchain, the Prompt Observatory token system with dark and light
-> themes, the primitive layer (buttons, form controls, tabs, tooltips, status, progress), and the
+> themes, the primitive layer (buttons, form controls, tabs, tooltips, status, progress), the
 > overlay/feedback layer (dialogs, confirmations, sheets, dropdown and context menus, toasts,
-> alerts, empty/error states, skeletons), all demonstrated in a design gallery, plus the typed
-> domain model (entities, canonical prompt document, validation, factories, serialization).
-> No PromptForge product surface is implemented yet. Each subsequent feature is built in a
-> separate, explicitly authorized task tracked in [`tasks.md`](./tasks.md).
+> alerts, empty/error states, skeletons) demonstrated in a design gallery, the typed domain model
+> (entities, canonical prompt document, validation, factories, serialization), and the persistence
+> layer (repository interfaces, IndexedDB adapter with migrations, an in-memory adapter proven by the
+> same contract suite, typed storage errors, a per-prompt write queue, and cross-tab write
+> announcements).
+> No PromptForge product surface is implemented yet, and nothing opens the database yet. Each
+> subsequent feature is built in a separate, explicitly authorized task tracked in
+> [`tasks.md`](./tasks.md).
 
 ---
 
@@ -46,17 +50,17 @@ All of the above must pass before a task can be marked complete in `tasks.md`.
 
 ## Technology stack
 
-| Area        | Choice                                                             |
-| ----------- | ------------------------------------------------------------------ |
-| UI          | React 19, TypeScript (strict), Vite                                |
-| Styling     | Tailwind CSS v4 via `@tailwindcss/vite`                            |
-| State       | Zustand (introduced with the data layer)                           |
-| Routing     | react-router-dom                                                   |
-| Persistence | IndexedDB through repository interfaces (`idb`) — planned TASK-006 |
-| Editor      | CodeMirror 6 — planned TASK-014                                    |
-| Validation  | Ajv (JSON Schema) — planned TASK-016                               |
-| Testing     | Vitest, Testing Library, `jest-dom`, `fake-indexeddb`, jsdom       |
-| Quality     | ESLint (flat config), Prettier                                     |
+| Area        | Choice                                                                    |
+| ----------- | ------------------------------------------------------------------------- |
+| UI          | React 19, TypeScript (strict), Vite                                       |
+| Styling     | Tailwind CSS v4 via `@tailwindcss/vite`                                   |
+| State       | Zustand (introduced with the data layer)                                  |
+| Routing     | react-router-dom                                                          |
+| Persistence | IndexedDB through repository interfaces (`idb`), in-memory parity adapter |
+| Editor      | CodeMirror 6 — planned TASK-014                                           |
+| Validation  | Ajv (JSON Schema) — planned TASK-016                                      |
+| Testing     | Vitest, Testing Library, `jest-dom`, `fake-indexeddb`, jsdom              |
+| Quality     | ESLint (flat config), Prettier                                            |
 
 Dependencies for later tasks are already pinned in `package.json` where they define the
 architecture; features are still implemented only when their task is authorized.
@@ -70,7 +74,8 @@ src/
   components/     ui primitives, layout, and domain components
   features/       feature modules (save pipeline, revisions, diff, lab, ...)
   domain/         pure TypeScript domain logic and types (no React, no storage)
-  data/           repository interfaces, IndexedDB adapters, migrations
+  data/           repository interfaces, IndexedDB + in-memory adapters, migrations,
+                  typed storage errors, write queue, cross-tab announcements
   store/          Zustand stores
   hooks/          reusable hooks
   lib/            small framework-agnostic utilities
@@ -124,14 +129,34 @@ state — including live dialog, confirmation, sheet, menu, toast, and state dem
 reference for later tasks. It becomes the `/design` route in TASK-008 and
 is the temporary application root until then.
 
+## Persistence
+
+`src/data/` is a self-contained layer behind repository interfaces: eleven repositories, a
+`promptforge` IndexedDB database at schema version 2 with eleven object stores and versioned
+migrations, an in-memory adapter that passes the same 25-case contract suite, typed storage errors
+mapped at the repository boundary, and a per-prompt write queue.
+
+- **Nothing outside `src/data` imports an adapter or the database module** — only the public surface
+  `src/data/index.ts`. ESLint enforces that, and it also forbids React/UI imports inside the layer.
+- **Versions only move forward, by one.** `prompts.update` requires an `expectedVersion` that equals
+  the stored version; a stale base is rejected with `StaleWriteError` and mutates nothing.
+- **Migrations are atomic and replayable.** They run inside the `versionchange` transaction, record
+  themselves in `meta`, and abort the whole upgrade on failure.
+- **Failures are typed.** `QuotaExceededError`, `StorageUnavailableError`, `CorruptDataError`,
+  `DuplicateRecordError`, `RecordNotFoundError`, `InvalidWriteError`, `StaleWriteError`, and
+  `MigrationError` let the UI choose a recovery path instead of parsing messages.
+
+Details, schema tables, and the verification evidence live in
+[`docs/PERSISTENCE.md`](./PERSISTENCE.md). Seeding and store wiring are TASK-007; no screen reads
+these repositories yet, so the database is not created at runtime.
+
 ## Data and privacy
 
-PromptForge is designed to be **local-first and single-user**. Once persistence lands
-(TASK-006), all prompts, revisions, and settings will be stored in the browser's IndexedDB on
-this device. The application will not send prompt content to any server, make no external
-runtime requests, and integrate no AI model provider in its planned v1 scope.
-
-**At this stage the application stores nothing at all.**
+PromptForge is designed to be **local-first and single-user**. Prompts, revisions, and settings are
+stored in the browser's IndexedDB on this device (or in memory, in ephemeral mode). The application
+does not send prompt content to any server, makes no external runtime requests, and integrates no AI
+model provider in its planned v1 scope. Cross-tab messaging uses `BroadcastChannel` and carries ids,
+versions, and timestamps only — never prompt content.
 
 ## Roadmap
 

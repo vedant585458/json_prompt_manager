@@ -33,11 +33,21 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
-      // Domain code is measured from TASK-005 onward; UI coverage arrives with
-      // the integration suites in TASK-029.
-      include: ['src/domain/**/*.ts'],
-      exclude: ['src/domain/**/*.test.ts', 'src/domain/index.ts'],
-      thresholds: { statements: 90, branches: 90, functions: 90, lines: 90 },
+      // Domain (TASK-005) and data (TASK-006) code is measured; UI coverage
+      // arrives with the integration suites in TASK-029.
+      include: ['src/domain/**/*.ts', 'src/data/**/*.ts'],
+      exclude: [
+        'src/domain/**/*.test.ts',
+        'src/domain/index.ts',
+        'src/data/**/*.test.ts',
+        'src/data/index.ts',
+      ],
+      // Separate floors: data code has unavoidable platform-failure branches
+      // that a fake IndexedDB cannot reach as densely as pure domain logic.
+      thresholds: {
+        'src/domain/**': { statements: 90, branches: 90, functions: 90, lines: 90 },
+        'src/data/**': { statements: 90, branches: 82, functions: 88, lines: 92 },
+      },
     },
   },
 });

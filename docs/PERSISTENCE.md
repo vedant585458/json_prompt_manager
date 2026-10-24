@@ -1,0 +1,339 @@
+# PromptForge — Persistence
+
+**Status:** written by TASK-006 (persistence foundation). Covers the schema, the migration
+strategy, the repository contract, failure semantics, and the test evidence behind them.
+
+**Scope of this task.** Repository interfaces, the IndexedDB implementation, an in-memory
+implementation, migrations, typed errors, a write queue, cross-tab write announcements, one shared
+contract suite, module-boundary lint rules, and this document.
+
+**Explicitly out of scope here:** seeding product content and store wiring (TASK-007), the autosave
+UI and save pipeline (TASK-015), and import/export (TASK-026). No screen reads these repositories
+yet.
+
+---
+
+## 1. Where the code lives
+
+| Path                                 | Responsibility                                                                          |
+| ------------------------------------ | --------------------------------------------------------------------------------------- |
+| `src/data/db/schema.ts`              | database name, schema version, store/index definitions, row types, `expectedIndexes()`  |
+| `src/data/db/migrations.ts`          | ordered migrations, validation, `pendingMigrations`, `applyMigrations`, `missingStores` |
+| `src/data/db/indexedDb.ts`           | opening, `meta` bookkeeping, integrity check, capability probe, deletion                |
+| `src/data/db/errors.ts`              | typed error hierarchy, `mapStorageError`, `withStorageErrors`                           |
+| `src/data/repositories/contracts.ts` | the interfaces the rest of the app depends on                                           |
+| `src/data/repositories/shared.ts`    | row conversion, validation, ordering, query matching, cloning                           |
+| `src/data/repositories/indexedDb.ts` | the durable implementation                                                              |
+| `src/data/repositories/contract.ts`  | the shared contract suite every adapter must pass                                       |
+| `src/data/adapters/inMemory.ts`      | the ephemeral implementation used in tests and by the future demo mode                  |
+| `src/data/writeQueue.ts`             | per-key serialization of writes                                                         |
+| `src/data/broadcast.ts`              | `BroadcastChannel` write announcements, with a no-op fallback                           |
+| `src/data/index.ts`                  | the only public entry point for code outside `src/data`                                 |
+
+Layer direction: **domain (pure) ← data (storage) ← store/UI**. `src/data` imports the domain model
+and never the reverse; `src/data` imports nothing from React, components, stores, or styling (ADR-39).
+
+---
+
+## 2. Database
+
+- Name: `promptforge` (probe database: `promptforge-probe`, created and deleted by the capability check).
+- Version: `DB_SCHEMA_VERSION = 2`.
+- One database, eleven object stores. The `settings` and `meta` stores are singletons keyed `"app"`.
+- Every other store is keyed by the entity `id`.
+
+| Store         | Key path | Indexes                                                                                                                   |
+| ------------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `prompts`     | `id`     | `updatedAt`, `folderId`, `archived` → `archivedFlag`, `favorite` → `favoriteFlag`, `pinned` → `pinnedFlag`, `status` (v2) |
+| `revisions`   | `id`     | `promptId`, `promptId_revisionNumber` **(unique, compound `[promptId, revisionNumber]`)**                                 |
+| `folders`     | `id`     | —                                                                                                                         |
+| `collections` | `id`     | —                                                                                                                         |
+| `templates`   | `id`     | `isBuiltIn` → `builtInFlag`                                                                                               |
+| `testCases`   | `id`     | `promptId`                                                                                                                |
+| `schemas`     | `id`     | —                                                                                                                         |
+| `snippets`    | `id`     | —                                                                                                                         |
+| `activity`    | `id`     | `createdAt`                                                                                                               |
+| `settings`    | `key`    | —                                                                                                                         |
+| `meta`        | `key`    | —                                                                                                                         |
+
+### Numeric flag mirrors (ADR-34)
+
+IndexedDB does not index booleans: a boolean key path produces no index entry, so an `archived`
+index would silently match nothing. The domain booleans stay authoritative and the adapter writes
+`0 | 1` mirrors (`archivedFlag`, `favoriteFlag`, `pinnedFlag`, `builtInFlag`) through `flag()` on
+every write. Index names keep the specification's names, so query code reads naturally.
+
+### `expectedIndexes()`
+
+`expectedIndexes()` merges the v1 definitions with the indexes added by later migrations. It is the
+single source of truth for two things: the post-open integrity check, and the test that asserts a
+real database has exactly the expected index names per store. Because no browser is available in
+this work environment, that assertion **is** the schema verification (see §9).
+
+---
+
+## 3. Migrations (ADR-37)
+
+`MIGRATIONS` is an ordered list, one entry per version, starting at 1 with no gaps:
+
+| Version | Description                                          |
+| ------- | ---------------------------------------------------- |
+| 1       | Create the eleven object stores and their v1 indexes |
+| 2       | Add the `prompts.status` index                       |
+
+A migration has `version`, `description`, and `apply({ database, transaction, fromVersion, toVersion })`.
+Each step re-checks what exists before creating it, so re-running is a no-op even after a partial
+upgrade. `createObjectStore` and `createIndex` are only legal inside the `versionchange` transaction,
+which is the atomic unit: if any step throws, the browser rolls the entire upgrade back.
+
+`openPromptForgeDatabase()`:
+
+1. refuses to run without `indexedDB` (`StorageUnavailableError`);
+2. opens `promptforge` at `DB_SCHEMA_VERSION`, running `applyMigrations` inside `upgrade`;
+3. on failure inside the upgrade, rethrows the captured cause as `MigrationError('failed')` rather
+   than the generic `AbortError` the platform raises;
+4. writes the `meta` singleton (`dbSchemaVersion`, preserved `seedVersion`) so upgrades never re-seed;
+5. verifies the schema against `expectedIndexes()`/`missingStores()` and closes with
+   `CorruptDataError` if the layout is incomplete;
+6. refuses a database created by a newer build with `MigrationError('newer-database')`
+   (`isNewerDatabaseError` classifies it without string matching).
+
+`validateMigrations` rejects an empty list, gaps, duplicate versions, and out-of-order lists;
+`pendingMigrations(migrations, from, to)` selects the steps to run.
+
+### Observed behaviour (tests)
+
+- fresh database: v0 → v2, `appliedMigrations` lists both steps, indexes match `expectedIndexes()`;
+- reopening: `appliedMigrations` is empty, version unchanged, third open identical;
+- v1 fixture upgraded to v2: rows survive, `status` index appears, `seedVersion` preserved;
+- failing migration: open rejects with `MigrationError('failed')` and the database is left at its
+  previous version (a later normal open creates v2 cleanly);
+- newer database: open rejects with `MigrationError('newer-database')`;
+- incomplete layout: open rejects with `MigrationError('failed')` (from the migration guard) or
+  `CorruptDataError` (from the integrity check), depending on which check sees it first.
+
+---
+
+## 4. Repository contract
+
+`Repositories` exposes eleven repositories plus `close()`. The same interface backs both adapters, so
+the store and UI layers never know which one is active.
+
+| Repository                                                                | Operations                                                                                   |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `prompts`                                                                 | `list`, `query(criteria?)`, `get`, `create`, `update(prompt, { expectedVersion })`, `delete` |
+| `revisions`                                                               | `listByPrompt`, `get`, `create`, `deleteByPrompt`, `countByPrompt`                           |
+| `folders`, `collections`, `templates`, `testCases`, `schemas`, `snippets` | `list`, `get`, `create`, `update`, `delete`                                                  |
+| `activity`                                                                | `append`, `list(limit?)`, `prune(limit)`, `clear`                                            |
+| `settings`                                                                | `get()` (null before first run), `save`                                                      |
+| `meta`                                                                    | `get`, `getSeedVersion` (0 before seeding), `setSeedVersion`                                 |
+
+### Ordering is part of the contract
+
+| Query                    | Order                                              |
+| ------------------------ | -------------------------------------------------- |
+| `prompts.list/query`     | `updatedAt` descending, `id` ascending tie-breaker |
+| `revisions.listByPrompt` | `revisionNumber` descending                        |
+| named entities           | name ascending, case-insensitive, `id` ascending   |
+| `activity.list`          | `createdAt` descending, `id` descending            |
+
+### Query semantics
+
+`PromptQuery` fields combine with **AND**: `folderId` (including `null` for Unfiled; omit to include
+every folder), `collectionId`, `tag`, `status`, `archived`, `favorite`, `pinned`, and the inclusive
+`updatedAfter`/`updatedBefore` ISO-string bounds.
+
+### Write semantics
+
+- `create` on an existing id rejects with `DuplicateRecordError`; nothing is overwritten.
+- `update` on an unknown id rejects with `RecordNotFoundError`.
+- `delete` is **idempotent**: deleting a missing record resolves.
+- Reads and writes copy through `structuredClone` (ADR-40), so mutating a returned object cannot
+  change stored state, and mutating an argument after the call cannot either.
+- Stored rows are re-validated on read (`assertStoredPrompt`, `assertStoredRevision`,
+  `assertStoredEntity`); a malformed row surfaces as `CorruptDataError` instead of propagating as
+  `undefined` later.
+
+### Optimistic concurrency (ADR-35)
+
+`prompts.update(prompt, { expectedVersion })`:
+
+1. `expectedVersion` must equal the stored `version` → otherwise `StaleWriteError(promptId,
+expectedVersion, actualVersion)`, **no mutation**;
+2. the incoming record must carry `version === expectedVersion + 1` → otherwise `InvalidWriteError`.
+
+The check and the write happen in one `readwrite` transaction, so a concurrent writer cannot slip
+between them.
+
+---
+
+## 5. Failure semantics (ADR-36)
+
+No raw `DOMException` leaves the data layer. `mapStorageError(error, context)` and
+`withStorageErrors(context, operation)` convert platform failures into one typed hierarchy, and the
+`context` string (`prompts.create`, `database.open`) appears in the message so a log line is
+actionable without a stack trace.
+
+| Platform failure                                  | Typed error                        | What the UI should offer                |
+| ------------------------------------------------- | ---------------------------------- | --------------------------------------- |
+| `QuotaExceededError`                              | `QuotaExceededError`               | export, prune revisions/activity, retry |
+| `VersionError`                                    | `MigrationError('newer-database')` | stop writing; reload in a newer build   |
+| `DataError`, `DataCloneError`, `NotFoundError`    | `CorruptDataError`                 | reload the record, offer repair         |
+| `ConstraintError`                                 | `DuplicateRecordError`             | rename or open the existing record      |
+| `InvalidStateError`, `AbortError`, `UnknownError` | `StorageUnavailableError`          | retry; fall back to ephemeral mode      |
+| anything else                                     | `StorageError('unknown')`          | generic retry                           |
+
+Every error carries a stable `code` (`unavailable`, `quota-exceeded`, `stale-write`, `migration`,
+`corrupt-data`, `duplicate-record`, `not-found`, `invalid-write`, `unknown`) and, where available,
+the original error as `cause` for diagnostics. Messages are user-safe: they never contain prompt
+content.
+
+### No unhandled rejections
+
+`idb` caches a `done` promise for the wrapped `versionchange` transaction. When an upgrade aborts,
+that promise rejects and nothing awaits it — the open request already carries the failure — which
+surfaces as an unhandled rejection. `openPromptForgeDatabase` marks it handled
+(`void transaction.done.catch(() => undefined)`) and keeps the open rejection as the single source of
+truth. The migration test suite asserts a clean run with zero unhandled errors.
+
+### Storage capability probe
+
+`probeStorage(name?)` proves storage end to end — open, write, read, delete — and never throws:
+
+```ts
+const probe = await probeStorage();
+if (!probe.available) {
+  // probe.error is a StorageUnavailableError; TASK-007 switches to ephemeral mode
+}
+```
+
+`isIndexedDbAvailable()` is the synchronous check, `assertStorageAvailable()` the throwing one.
+
+---
+
+## 6. Concurrency helpers
+
+### Write queue (ADR-35)
+
+```ts
+const queue = createWriteQueue();
+await queue.run(promptId, () => repositories.prompts.update(next, { expectedVersion }));
+```
+
+`run(key, task)` serializes tasks for the same key in submission order while different keys run
+concurrently. A rejected task does not wedge the chain; `isBusy(key)` and `size(key)` report depth;
+`drain()` resolves once everything has settled, including work queued during the drain. The queue is
+bookkeeping only — version checks remain the enforcement.
+
+### Cross-tab announcements (ADR-38)
+
+```ts
+const broadcaster = createWriteBroadcaster();
+broadcaster.announcePromptWrite({ id: prompt.id, version: prompt.version });
+const unsubscribe = broadcaster.subscribe((announcement) => {
+  /* warn about the other tab */
+});
+```
+
+Announcements are `prompt-written`, `prompt-deleted`, and `settings-written` on the channel
+`promptforge`, received messages are validated with `isWriteAnnouncement` (unknown or malformed
+payloads are dropped), and the whole object degrades to a no-op when `BroadcastChannel` is missing or
+creation throws. Edits are **not** merged across tabs: version checks still reject stale writes;
+TASK-015 uses the announcements to warn a dirty tab and offer reload/diff.
+
+---
+
+## 7. In-memory adapter
+
+`createInMemoryRepositories(seed?)` implements the same interfaces over `Map`s, with the same
+cloning, ordering, query, version, and error semantics. It exists for three reasons: fast contract
+parity tests, an ephemeral demo mode when IndexedDB is unavailable, and the TASK-029 UI suites.
+`close()` marks the instance closed — operations after it reject with `StorageUnavailableError`,
+which is the one behaviour that intentionally differs (there is no connection to lose).
+
+---
+
+## 8. Module boundary (ADR-39)
+
+Two ESLint rules enforce the layering:
+
+1. `src/data/**` may not import `react`, `react-dom`, `@/components/*`, `@/app/*`, `@/routes/*`,
+   `@/store/*`, `@/styles/*`, `zustand`, `lucide-react`, `@radix-ui/*`, `clsx`, or `tailwind-merge`.
+2. Code outside `src/data` may not import `@/data/repositories/*`, `@/data/adapters/*`, or
+   `@/data/db/*` — it must import `@/data`, so the adapter choice stays in one place.
+
+Both rules were verified by adding a temporary file that violates each rule, confirming ESLint
+rejects it, and removing the file. The data layer also contains no `any` in its public types.
+
+---
+
+## 9. Verification
+
+### Automated suites
+
+| Suite               | File                                               | What it proves                                                                                      |
+| ------------------- | -------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Shared contract     | `src/data/repositories/contract.ts` + two callers  | identical semantics in both adapters (25 cases each)                                                |
+| IndexedDB specifics | `src/data/repositories/indexedDb.contract.test.ts` | stores/indexes, unique compound index, row conversion, lifecycle, quota, unavailability, corruption |
+| In-memory specifics | `src/data/adapters/inMemory.contract.test.ts`      | seed loading, operations after `close()`                                                            |
+| Migrations          | `src/data/db/migrations.test.ts`                   | v0→v2, idempotency, v1→v2 upgrade, meta, atomic abort, newer database, incomplete schema            |
+| Errors              | `src/data/db/errors.test.ts`                       | the full mapping table, cause retention, typed pass-through                                         |
+| Write queue         | `src/data/writeQueue.test.ts`                      | order, concurrency, failure recovery, depth, drain                                                  |
+| Broadcast           | `src/data/broadcast.test.ts`                       | announcements, validation, subscribe/unsubscribe, no-op fallback                                    |
+
+Current result: **6 data files / 107 tests**, whole suite **27 files / 353 tests**, all passing.
+
+### Schema verification without a browser
+
+The task's validation step asks for a manual DevTools inspection of the created stores and indexes.
+**No browser or headed environment exists in this workspace, so that inspection was not performed
+and is not claimed.** The documented substitute is stronger for regression purposes:
+
+- `IndexedDB schema > creates every store and index from the specification` opens a real (fake)
+  database and compares `objectStoreNames` and each store's `indexNames` to `expectedIndexes()`;
+- `marks the revision number index as unique` reads the index metadata from the transaction;
+- `detects a structurally incomplete database` proves the integrity check fails a layout that does
+  not match.
+
+When a browser is available, the manual check is: open DevTools → Application → IndexedDB →
+`promptforge` → confirm eleven stores and, on `prompts`, the indexes `updatedAt`, `folderId`,
+`archived`, `favorite`, `pinned`, `status`; on `revisions`, `promptId` and the unique compound
+`promptId_revisionNumber`.
+
+### Coverage
+
+`npm run test:coverage` measures `src/domain/**` and `src/data/**` with separate floors: domain
+90 % on all four metrics, data 90 % statements / 82 % branches / 88 % functions / 92 % lines. The
+data floor is lower on branches because platform-failure branches that a fake IndexedDB cannot reach
+are excluded by construction (for example, a real browser's version-change blocking events).
+
+---
+
+## 10. Known limitations at this stage
+
+- No seeding, no store wiring, and no UI reads these repositories (TASK-007 onward). The database is
+  only created when something calls `openPromptForgeDatabase()`.
+- The contract suite covers semantics, not browser performance. A large-library benchmark is not part
+  of v1.
+- `fake-indexeddb` is not a browser: quota, blocking, and termination behaviour are emulated where
+  possible (quota is injected at the object-store boundary) and otherwise untested.
+- Cross-tab merging does not exist by design; the channel only notifies.
+- `structuredClone` copies do not extend to class instances — the data layer stores plain domain
+  objects only.
+- Multi-tab `versionchange` handling closes the connection (`onBlocking`) but the recovery UI that
+  asks the user to reload is TASK-015's.
+
+---
+
+## 11. Future server-backed path
+
+The interfaces exist so a server adapter can be added without touching the UI:
+
+1. implement `Repositories` against an HTTP API with the same ordering, query, and version rules;
+2. keep `expectedVersion` → `409` mapping onto `StaleWriteError` so conflict UI is unchanged;
+3. use the `meta` seed version and `revisions` history server-side for the same migration and
+   recovery flows;
+4. optionally drain the write queue to an outbox for offline-first sync.
+
+This is a design note, not a commitment: v1 remains client-only and sends nothing anywhere
+(ADR-01). No network code exists in the data layer, and none may be added without an explicit task.

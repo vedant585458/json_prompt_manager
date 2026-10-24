@@ -6,34 +6,42 @@ also summarized in [`../tasks.md`](../tasks.md) §5.3; entries here reflect what
 
 Status values: **Accepted** (in force), **Planned** (agreed, not yet built), **Superseded**.
 
-| ADR    | Decision                                                             | Status   | Task         |
-| ------ | -------------------------------------------------------------------- | -------- | ------------ |
-| ADR-01 | Client-only, local-first v1 with no backend                          | Accepted | —            |
-| ADR-02 | Repository boundary between UI and persistence                       | Planned  | TASK-006     |
-| ADR-03 | Toolchain: Vite + React 19 + strict TypeScript                       | Accepted | TASK-001     |
-| ADR-04 | Variables resolved by a non-evaluating renderer                      | Planned  | TASK-021     |
-| ADR-05 | In-house structural JSON diff                                        | Planned  | TASK-020     |
-| ADR-06 | Purpose-built deterministic blueprint graph                          | Planned  | TASK-023     |
-| ADR-07 | Autosave never spams revisions; restore creates a safety revision    | Planned  | TASK-015/019 |
-| ADR-08 | Built-in templates are versioned, immutable seeds                    | Planned  | TASK-018     |
-| ADR-09 | CSS custom properties as the single token source                     | Accepted | TASK-002     |
-| ADR-10 | Tailwind v4 `@theme inline` bridge over raw `--pf-*` tokens          | Accepted | TASK-002     |
-| ADR-11 | Dark-first default; `system` preference resolved before first paint  | Accepted | TASK-002     |
-| ADR-12 | Self-hosted typography with metric-adjusted fallbacks                | Accepted | TASK-002     |
-| ADR-13 | Split accent tokens: `accent` (text/icon) vs `accent-fill` (surface) | Accepted | TASK-002     |
-| ADR-14 | Contrast is an executable gate, not a spreadsheet                    | Accepted | TASK-002     |
-| ADR-15 | Token-backed layout, stacking, motion, and elevation scales          | Accepted | TASK-002     |
-| ADR-22 | Destructive confirmations are deliberately non-dismissible           | Accepted | TASK-004     |
-| ADR-23 | Toast queue with an 8 s error floor and pause-on-hover/focus         | Accepted | TASK-004     |
-| ADR-24 | Empty and error states require a real action; details are disclosed  | Accepted | TASK-004     |
-| ADR-25 | `aria-modal` is set explicitly on dialog and sheet content           | Accepted | TASK-004     |
-| ADR-26 | Overlays restore focus to the opener captured at mount               | Accepted | TASK-004     |
-| ADR-27 | Context-menu keyboard shortcut handled in the wrapper                | Accepted | TASK-004     |
-| ADR-28 | Domain operations return issue-bearing results, never throw          | Accepted | TASK-005     |
-| ADR-29 | Unknown document fields ride along in `extras`                       | Accepted | TASK-005     |
-| ADR-30 | Factories receive an injected clock and ID generator                 | Accepted | TASK-005     |
-| ADR-31 | Content identity uses a pure FNV-1a hash, not `crypto.subtle`        | Accepted | TASK-005     |
-| ADR-32 | `Prompt.variables` is a denormalized copy of the document's list     | Accepted | TASK-005     |
+| ADR    | Decision                                                                | Status     | Task         |
+| ------ | ----------------------------------------------------------------------- | ---------- | ------------ |
+| ADR-01 | Client-only, local-first v1 with no backend                             | Accepted   | —            |
+| ADR-02 | Repository boundary between UI and persistence                          | Accepted   | TASK-006     |
+| ADR-03 | Toolchain: Vite + React 19 + strict TypeScript                          | Accepted   | TASK-001     |
+| ADR-04 | Variables resolved by a non-evaluating renderer                         | Planned    | TASK-021     |
+| ADR-05 | In-house structural JSON diff                                           | Planned    | TASK-020     |
+| ADR-06 | Purpose-built deterministic blueprint graph                             | Planned    | TASK-023     |
+| ADR-07 | Autosave never spams revisions; restore creates a safety revision       | Planned    | TASK-015/019 |
+| ADR-08 | Built-in templates are versioned, immutable seeds                       | Planned    | TASK-018     |
+| ADR-09 | CSS custom properties as the single token source                        | Accepted   | TASK-002     |
+| ADR-10 | Tailwind v4 `@theme inline` bridge over raw `--pf-*` tokens             | Accepted   | TASK-002     |
+| ADR-11 | Dark-first default; `system` preference resolved before first paint     | Accepted   | TASK-002     |
+| ADR-12 | Self-hosted typography with metric-adjusted fallbacks                   | Accepted   | TASK-002     |
+| ADR-13 | Split accent tokens: `accent` (text/icon) vs `accent-fill` (surface)    | Accepted   | TASK-002     |
+| ADR-14 | Contrast is an executable gate, not a spreadsheet                       | Accepted   | TASK-002     |
+| ADR-15 | Token-backed layout, stacking, motion, and elevation scales             | Accepted   | TASK-002     |
+| ADR-22 | Destructive confirmations are deliberately non-dismissible              | Accepted   | TASK-004     |
+| ADR-23 | Toast queue with an 8 s error floor and pause-on-hover/focus            | Accepted   | TASK-004     |
+| ADR-24 | Empty and error states require a real action; details are disclosed     | Accepted   | TASK-004     |
+| ADR-25 | `aria-modal` is set explicitly on dialog and sheet content              | Accepted   | TASK-004     |
+| ADR-26 | Overlays restore focus to the opener captured at mount                  | Accepted   | TASK-004     |
+| ADR-27 | Context-menu keyboard shortcut handled in the wrapper                   | Accepted   | TASK-004     |
+| ADR-28 | Domain operations return issue-bearing results, never throw             | Accepted   | TASK-005     |
+| ADR-29 | Unknown document fields ride along in `extras`                          | Accepted   | TASK-005     |
+| ADR-30 | Factories receive an injected clock and ID generator                    | Accepted   | TASK-005     |
+| ADR-31 | Content identity uses a pure FNV-1a hash, not `crypto.subtle`           | Accepted   | TASK-005     |
+| ADR-32 | `Prompt.variables` is a denormalized copy of the document's list        | Accepted   | TASK-005     |
+| ADR-33 | One contract suite gates both storage adapters                          | Accepted   | TASK-006     |
+| ADR-34 | Boolean flags are indexed through numeric `0                            | 1` mirrors | Accepted     | TASK-006 |
+| ADR-35 | Prompt writes use optimistic concurrency plus a per-prompt queue        | Accepted   | TASK-006     |
+| ADR-36 | Platform failures are mapped into a typed storage-error hierarchy       | Accepted   | TASK-006     |
+| ADR-37 | Declarative, replayable migrations inside the versionchange transaction | Accepted   | TASK-006     |
+| ADR-38 | Cross-tab writes are announced, never merged                            | Accepted   | TASK-006     |
+| ADR-39 | The data layer has a lint-enforced boundary and one public entry point  | Accepted   | TASK-006     |
+| ADR-40 | Stored state is copied with `structuredClone` on read and write         | Accepted   | TASK-006     |
 
 ---
 
@@ -576,6 +584,138 @@ the same write (TASK-015 own that), and a mismatch is a repair candidate for the
 
 ---
 
+## ADR-33 — One contract suite gates both storage adapters
+
+**Context.** Two implementations of the same eleven repositories invite drift: the in-memory adapter
+is used by tests and by the ephemeral mode, so a divergence would make tests pass while the real app
+misbehaves (or the reverse).
+
+**Decision.** `src/data/repositories/contract.ts` exports `describeRepositoryContract(label,
+createRepositories)` — 25 cases covering CRUD, ordering, queries, revisions, activity, settings,
+seed metadata, stale writes, and copying. The IndexedDB suite and the in-memory suite both call it
+and add only their adapter-specific tests.
+
+**Consequences.** A behavioural change must be made twice or fail; the ephemeral mode is credible
+because it is verified against the durable one. The contract is deliberately semantic, not
+implementation-shaped: it never inspects stores or transactions.
+
+---
+
+## ADR-34 — Boolean flags are indexed through numeric `0 | 1` mirrors
+
+**Context.** IndexedDB silently skips index entries whose key is not a valid key type, and booleans
+are not valid keys. An `archived` index over a boolean field would exist, report success, and match
+nothing — a bug that only appears at runtime with data.
+
+**Decision.** Rows store the domain booleans plus derived `archivedFlag`, `favoriteFlag`,
+`pinnedFlag`, and `builtInFlag` mirrors (`flag()`). Index definitions target the mirrors while
+keeping the specification's index names (`archived`, `favorite`, `pinned`, `isBuiltIn`). The adapter
+recomputes mirrors on every write; the booleans stay authoritative.
+
+**Consequences.** Filters work in both adapters, and the compound query path stays index-friendly.
+The cost is a derived value in the row, which is asserted by the contract suite and repairable by
+rewriting the record.
+
+---
+
+## ADR-35 — Prompt writes use optimistic concurrency plus a per-prompt queue
+
+**Context.** Autosave, explicit saves, and revision creation can target the same prompt within
+milliseconds. Without ordering, a slow write can land after a fast later one and resurrect older
+content; without a version check, two tabs can silently overwrite each other.
+
+**Decision.** `prompts.update` requires `expectedVersion` to equal the stored version, and the
+incoming record must carry `expectedVersion + 1`; mismatches raise `StaleWriteError` (stale base) or
+`InvalidWriteError` (bad counter) inside a single `readwrite` transaction, mutating nothing. In
+addition, `createWriteQueue()` serializes tasks per prompt id (different prompts stay concurrent),
+survives a rejected task, and exposes `isBusy`, `size`, and `drain`.
+
+**Consequences.** The invariant "a version number only moves forward, by exactly one" is enforced at
+the storage boundary, not by UI discipline. The queue is scheduling only — never the enforcement —
+so a caller that skips it still cannot corrupt data. TASK-015 composes both.
+
+---
+
+## ADR-36 — Platform failures are mapped into a typed storage-error hierarchy
+
+**Context.** A raw `DOMException` tells the UI nothing actionable: `AbortError`, `DataError`, and
+`QuotaExceededError` need completely different recovery.
+
+**Decision.** Every repository call is wrapped in `withStorageErrors(context, operation)` and
+`mapStorageError` converts platform failures into `StorageError` subclasses with a stable `code`
+(`unavailable`, `quota-exceeded`, `stale-write`, `migration`, `corrupt-data`, `duplicate-record`,
+`not-found`, `invalid-write`, `unknown`), a user-safe message that includes the operation context, and
+the original error as `cause`. Already-typed errors pass through untouched.
+
+**Consequences.** The UI can branch on `code` without string matching, logs stay diagnosable, and no
+prompt content is ever embedded in a message. The mapping table is covered exhaustively by
+`errors.test.ts`.
+
+---
+
+## ADR-37 — Declarative, replayable migrations inside the versionchange transaction
+
+**Context.** IndexedDB only permits schema changes inside a `versionchange` transaction, and a
+half-applied upgrade would leave a database that looks fine until a query fails.
+
+**Decision.** Migrations form a gapless, ascending list, each with an `apply` that checks before it
+creates. The whole list runs inside `openDB`'s `upgrade`; any throw aborts the transaction, so the
+database stays at its previous version. The original error is captured and remapped, because the
+platform otherwise reports a generic `AbortError`. After opening, `meta` records the schema version
+(preserving `seedVersion`) and the layout is verified against `expectedIndexes()` /
+`missingStores()`. A database from a newer build is refused with `MigrationError('newer-database')`.
+
+**Consequences.** Upgrades are atomic and repeatable; a failed migration is recoverable by fixing the
+code and reopening. The integrity check turns a structurally wrong database into one clear
+`CorruptDataError` instead of scattered `NotFoundError`s, and no upgrade ever re-seeds user data.
+
+---
+
+## ADR-38 — Cross-tab writes are announced, never merged
+
+**Context.** Two tabs editing the same prompt is a real workflow on a local-first app. Merging
+structured prompt documents automatically is not tractable and would hide data loss.
+
+**Decision.** `createWriteBroadcaster()` posts `prompt-written`, `prompt-deleted`, and
+`settings-written` announcements on `BroadcastChannel('promptforge')`; receivers validate with
+`isWriteAnnouncement` and drop anything else. Version checks remain the enforcement; no merge exists.
+Missing or throwing channel implementations degrade to a no-op with `supported: false`.
+
+**Consequences.** A dirty tab can warn about an out-of-date draft and offer reload/diff (TASK-015).
+The channel carries no prompt content — only ids, versions, and timestamps — so it cannot leak drafts.
+
+---
+
+## ADR-39 — The data layer has a lint-enforced boundary and one public entry point
+
+**Context.** A storage layer that quietly imports React or components becomes untestable and
+circular, and screens that import the IndexedDB adapter directly make the ephemeral mode impossible
+to swap in.
+
+**Decision.** ESLint blocks UI/framework imports inside `src/data/**` and blocks deep adapter/database
+imports from everywhere else; `src/data/index.ts` is the only sanctioned surface. `src/data` also
+avoids `any` in its public types.
+
+**Consequences.** The layer stays DOM-free and can be exercised without a browser renderer. Both rules
+were verified by temporarily adding violating files and confirming ESLint rejected them.
+
+---
+
+## ADR-40 — Stored state is copied with `structuredClone` on read and write
+
+**Context.** Handing out live references to stored objects makes accidental mutation invisible — a UI
+component editing a field would "save" it without a write, and the version counter would be a lie.
+
+**Decision.** Both adapters clone on the way in and on the way out. Rows are also validated on read
+(`assertStoredPrompt`, `assertStoredRevision`, `assertStoredEntity`), so a malformed record surfaces
+as `CorruptDataError`.
+
+**Consequences.** Storage is isolated from caller mutation in both modes, which the contract suite
+asserts. The cost is a copy per read/write; prompts are small and list queries dominate, so this is
+acceptable for v1.
+
+---
+
 ## Verification log — TASK-005
 
 | Check              | Command                                               | Result (2026-10-24)                                                                        |
@@ -607,6 +747,48 @@ the same write (TASK-015 own that), and a mismatch is a repair candidate for the
 - Nested unknown document fields are dropped with a warning rather than preserved (ADR-29).
 - Hashing is a change detector only; it is not cryptographically collision resistant (ADR-31).
 - No persistence, seeding, or UI consumes these modules yet (TASK-006/TASK-007).
+
+---
+
+## Verification log — TASK-006
+
+| Check            | Command                                         | Result (2026-10-24)                                                                               |
+| ---------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Types            | `npm run typecheck`                             | exit 0                                                                                            |
+| Lint             | `npm run lint`                                  | exit 0, **0 warnings**                                                                            |
+| Tests            | `npm run test:run`                              | 27 files / 353 tests passed                                                                       |
+| Data tests       | `npm run test:run -- data`                      | 6 files / 107 tests passed                                                                        |
+| Coverage         | `npm run test:coverage`                         | combined 96.12% statements, 91.55% branches, 94.25% functions, 97.20% lines — gate passes         |
+| Coverage (data)  | —                                               | 94.54% statements, 84.88% branches, 92.25% functions, 96.34% lines against its own floor          |
+| Formatting       | `npm run format:check`                          | clean                                                                                             |
+| Contrast         | `npm run check:contrast`                        | 52 pairings pass, exit 0                                                                          |
+| Build            | `npm run build`                                 | exit 0 — CSS 43.08 kB (11.30 kB gzip), JS 433.64 kB (133.38 kB gzip)                              |
+| Boundaries       | temporary violating files + `npm run lint`      | both rules fired (`react` inside `src/data`, deep adapter import outside it); files then removed  |
+| Coverage floors  | threshold raised to 99% on data branches        | gate failed as expected (`84.88% < 99%`), proving per-glob thresholds are enforced, then reverted |
+| Unhandled errors | `npx vitest run src/data/db/migrations.test.ts` | zero unhandled rejections after the `transaction.done` guard was added                            |
+
+### Test inventory added in this task
+
+| File                                               | Cases | Focus                                                                                                |
+| -------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------- |
+| `src/data/repositories/contract.ts` (shared suite) | 25    | CRUD, ordering, queries, revisions, activity, settings, meta, stale writes, isolation                |
+| `src/data/repositories/indexedDb.contract.test.ts` | 37    | schema, unique index, row conversion, lifecycle, quota, unavailability, corruption, migration errors |
+| `src/data/adapters/inMemory.contract.test.ts`      | 27    | the same contract plus seeding and post-`close()` behaviour                                          |
+| `src/data/db/migrations.test.ts`                   | 12    | v0→v2, idempotency, v1→v2 upgrade, meta preservation, atomic abort, newer DB, incomplete schema      |
+| `src/data/db/errors.test.ts`                       | 13    | full mapping table, cause retention, typed pass-through, context strings                             |
+| `src/data/writeQueue.test.ts`                      | 7     | ordering, concurrency, failure recovery, depth, drain                                                |
+| `src/data/broadcast.test.ts`                       | 11    | announcements, validation, subscriptions, no-op fallback                                             |
+
+### Known limitations at this stage
+
+- No browser is available in this workspace, so the manual DevTools inspection of stores and indexes
+  was **not** performed; an automated `expectedIndexes()` assertion is the documented substitute
+  (`docs/PERSISTENCE.md` §9).
+- Quota behaviour is injected at the object-store boundary rather than produced by a real full disk.
+- Blocked/terminated upgrades are wired through callbacks but cannot be simulated faithfully in
+  `fake-indexeddb`.
+- Seeding, store wiring, autosave UI, and import/export remain out of scope (TASK-007, TASK-015,
+  TASK-026).
 
 ---
 

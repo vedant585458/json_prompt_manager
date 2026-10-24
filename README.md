@@ -38,6 +38,7 @@ sandbox/preview environments. It does not use a host allowlist.
 | `npm run format`         | Prettier write                                         |
 | `npm test`               | Vitest in watch mode                                   |
 | `npm run test:run`       | Vitest single run (CI style)                           |
+| `npm run test:coverage`  | Domain coverage report + 90% thresholds                |
 | `npm run build`          | Type-check, then production build into `dist/`         |
 | `npm run preview`        | Serve the production build at http://localhost:4173    |
 
@@ -122,6 +123,23 @@ The **design gallery** (`src/routes/design/DesignGallery.tsx`) renders every pri
 state — including live dialog, confirmation, sheet, menu, toast, and state demos — and is the visual
 reference for later tasks. It becomes the `/design` route in TASK-008 and
 is the temporary application root until then.
+
+## Domain model
+
+`src/domain/` is pure TypeScript with no React, storage, or browser APIs — enforced by
+`src/domain/purity.test.ts`. It contains the entity types, the canonical `PromptDocument`
+specification, validation that returns structured issues instead of throwing, deterministic entity
+factories (injected clock and ID generator), serialization with round-trip preservation of unknown
+fields, and the folder/revision/tag invariants. See [`docs/DATA-MODEL.md`](./docs/DATA-MODEL.md).
+
+```ts
+import { createPrompt, formatDocument, parseDocument } from '@/domain';
+
+const result = parseDocument(pastedText);
+if (!result.ok)
+  showIssues(result.issues); // path + message + severity
+else editor.load(formatDocument(result.value));
+```
 
 ## Data and privacy
 

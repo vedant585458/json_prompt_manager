@@ -30,5 +30,14 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
     restoreMocks: true,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html'],
+      // Domain code is measured from TASK-005 onward; UI coverage arrives with
+      // the integration suites in TASK-029.
+      include: ['src/domain/**/*.ts'],
+      exclude: ['src/domain/**/*.test.ts', 'src/domain/index.ts'],
+      thresholds: { statements: 90, branches: 90, functions: 90, lines: 90 },
+    },
   },
 });

@@ -586,7 +586,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-002 — Design tokens, theme system, and global styles — High — deps: 001
 - [x] TASK-003 — Core UI primitives and design gallery — High — deps: 002
 - [x] TASK-004 — Overlay, feedback, and form primitives — High — deps: 003
-- [ ] TASK-005 — Domain model and prompt document specification — High — deps: 001
+- [x] TASK-005 — Domain model and prompt document specification — High — deps: 001
 - [ ] TASK-006 — Persistence foundation with repositories and migrations — High — deps: 005
 - [ ] TASK-007 — Seed data, application store, and first-run foundation — High — deps: 004, 006
 - [ ] TASK-008 — Application shell, routing, and responsive navigation — High — deps: 004, 007
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 4 of 31 tasks complete. TASK-001 through TASK-004 were completed on 2026-10-24. TASK-005 is not started and requires explicit authorization.
+**Progress:** 5 of 31 tasks complete. TASK-001 through TASK-005 were completed on 2026-10-24. TASK-006 is not started and requires explicit authorization.
 
 ---
 
@@ -753,7 +753,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-005 — Domain model and prompt document specification
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-001
 - **Objective:** Define the typed domain: entities from §6.1, the canonical PromptForge prompt document, factories, invariants, and serialization — framework-independent and fully unit-tested.
@@ -773,6 +773,22 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** `npm run test:run -- domain` covering all modules with ≥ 90% module coverage; typecheck/lint; manual review that no UI/storage imports exist.
 - **Deliverables:** `src/domain/types.ts`, `promptDocument.ts`, `factories.ts`, `serialization.ts`, `invariants.ts`, tests, `docs/DATA-MODEL.md`.
 - **Out of scope:** Persistence, rendering/variables, diff, validation studio, sample UI.
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Modules delivered (`src/domain/`):**
+    - `types.ts` — `Prompt`, `PromptDocument`, `VariableDefinition`, `PromptRevision`, `Folder`, `Collection`, `PromptTemplate`, `TestCase`, `PromptSchema`, `Snippet`, `ActivityEvent`, `Settings`, JSON value types, `DomainIssue`/`DomainResult`, `DocumentSectionDefinition`. Everything is `readonly` and JSON-serializable.
+    - `promptDocument.ts` — canonical validation/normalization (`validatePromptDocument`, `normalizeDocument`), value guards (`isPlainObject`, `isJsonValue`), variable helpers, `createBlankDocument`, `createSampleDocument`, `DOCUMENT_SECTIONS` outline plus `getDocumentSection`/`setDocumentSection`/`isDocumentEmpty`/`documentStats`.
+    - `factories.ts` — `DomainDependencies { now, newId }` (`systemDependencies` default), factories for every entity, `createDefaultSettings`, deep-copied `createRevision` snapshots.
+    - `serialization.ts` — `stableStringify`/`tryStableStringify`, `documentToJson`/`formatDocument` (canonical section order), `parseDocument`/`parseJson` returning `DomainResult` with line/column syntax messages, `hashString`/`contentHash`/`documentHash`/`tryContentHash` (pure FNV-1a 64-bit).
+    - `invariants.ts` — tag and title normalization, variable-name rules, autosave clamping, folder depth/path/cycle detection/name uniqueness/move validation (`MAX_FOLDER_DEPTH = 5`), revision numbering and sorting, `capActivityLog` (500 entries).
+    - `index.ts` — barrel re-exporting the layer.
+  - **Validation contract:** structured issues `{ path, message, severity }` where `path` is a JSON path (`variables[2].name`); errors block persistence/import, warnings describe normalization. No exceptions reach the UI; `parseDocument` reports malformed text as one readable message.
+  - **Determinism:** identical dependencies produce identical entities; tests use a fixed clock and counter IDs. `createRevision` deep-copies so later edits cannot mutate a snapshot.
+  - **Round-trip fidelity:** unknown top-level document fields are preserved in `extras` and re-emitted on export; unknown nested fields are reported and dropped (ADR-29). `format → parse` returns an equal document, verified by test.
+  - **Dependencies added:** `@vitest/coverage-v8@5.0.5` (dev) to run the acceptance criterion's ≥ 90% coverage gate; `vite.config.ts` now configures v8 coverage scoped to `src/domain/` with 90% thresholds, and `package.json` gains `test:coverage`.
+  - **Docs:** new `docs/DATA-MODEL.md` (entities, relationships, uniqueness, document format with a full example, validation/normalization rules, serialization and hashing contract, invariants, factories). ADR-28…ADR-32 in `docs/DECISIONS.md`; `docs/ARCHITECTURE.md` §5 now indexes the domain modules and links the data model.
+  - **Validation executed:** `npm run typecheck` exit 0; `npm run lint` exit 0 with **0 warnings**; `npm run test:run` — 21 files / **246 tests passed** (domain: 5 files / 111 tests); `npm run test:coverage` — 98.69% statements, 96.21% branches, 100% functions, 98.58% lines across `src/domain/` (per module: factories 100%, invariants 100%, promptDocument 99.6%, serialization 94.4%, types 100%), gate passes; `npm run format:check` clean; `npm run build` exit 0 (CSS 42.98 kB → 11.27 kB gzip; JS 433.64 kB → 133.38 kB gzip); `npm run check:contrast` 52 pairings pass.
+  - **Layer purity verified by test:** `src/domain/purity.test.ts` reads the module sources and asserts the exact module inventory, an import allowlist (`@/domain/*` only), absence of React/store/storage imports, absence of DOM/storage globals, no `any`, and a complete barrel.
+  - **Notes/limitations:** `Prompt.variables` and `PromptDocument.variables` can diverge until the save pipeline keeps them in step (ADR-32, TASK-015); nested unknown document fields are dropped with a warning (ADR-29); hashing is change detection, not cryptography (ADR-31); no persistence, seeding, or UI consumes these modules yet (TASK-006/TASK-007).
 
 ---
 

@@ -29,6 +29,11 @@ Status values: **Accepted** (in force), **Planned** (agreed, not yet built), **S
 | ADR-25 | `aria-modal` is set explicitly on dialog and sheet content           | Accepted | TASK-004     |
 | ADR-26 | Overlays restore focus to the opener captured at mount               | Accepted | TASK-004     |
 | ADR-27 | Context-menu keyboard shortcut handled in the wrapper                | Accepted | TASK-004     |
+| ADR-28 | Domain operations return issue-bearing results, never throw          | Accepted | TASK-005     |
+| ADR-29 | Unknown document fields ride along in `extras`                       | Accepted | TASK-005     |
+| ADR-30 | Factories receive an injected clock and ID generator                 | Accepted | TASK-005     |
+| ADR-31 | Content identity uses a pure FNV-1a hash, not `crypto.subtle`        | Accepted | TASK-005     |
+| ADR-32 | `Prompt.variables` is a denormalized copy of the document's list     | Accepted | TASK-005     |
 
 ---
 
@@ -484,6 +489,124 @@ remain available, and every context menu action also exists in a visible menu (T
   `DialogContent`/`SheetContent` it must handle restoration itself.
 - Toast timers are real timers; the pause behaviour is tested with synthetic pointer events rather
   than a real pointer, and timer-driven dismissal is verified with fake timers in isolation.
+
+---
+
+## ADR-28 — Domain operations return issue-bearing results, never throw
+
+**Context.** Prompt documents arrive from the clipboard, from imports, and from the editor's raw
+text. Parsing and validation are therefore the most failure-prone code in the product, and every
+failure has to reach the user as an explanation next to the field that caused it.
+
+**Decision.** Anything that can fail on user data returns
+`DomainResult<T> = { ok: true, value, issues } | { ok: false, issues }`, where each issue carries
+`{ path, message, severity }` and `path` is a JSON path (`variables[2].name`). Errors block
+persistence and import; warnings describe normalization (trimmed strings, removed duplicates,
+non-JSON unknown fields) and never block. The parser additionally converts engine syntax errors into
+a single “Invalid JSON at line N, column M — reason” message.
+
+**Consequences.** The UI never wraps domain calls in `try/catch`, and a partially valid document can
+still be inspected and repaired. Exceptions remain only where a failure is a programmer error
+(`stableStringify` on a cyclic object) and those helpers have issue-returning twins
+(`tryStableStringify`, `tryContentHash`) for untrusted input.
+
+---
+
+## ADR-29 — Unknown document fields ride along in `extras`
+
+**Context.** Import/export (TASK-026) moves documents between installations that may run different
+versions. Dropping fields the current build does not know about would quietly destroy user data.
+
+**Decision.** Unknown **top-level** keys are captured into `PromptDocument.extras` (JSON values
+only), reported as warnings, and written back after the canonical sections on export. Unknown
+**nested** keys are reported as warnings and dropped, because section shapes are fixed and a
+half-understood nested value is more dangerous than an explicit warning.
+
+**Consequences.** Import → edit → export is lossless for top-level extensions, while nested drift is
+visible. `documentHash` includes `extras`, so a preserved field still counts as a content change.
+
+---
+
+## ADR-30 — Factories receive an injected clock and ID generator
+
+**Context.** UI tests, seed data (TASK-007), and import/export round-trips all need identical
+entities across runs. Calling `Date.now()` and `crypto.randomUUID()` inside factories makes that
+impossible and makes assertions on timestamps brittle.
+
+**Decision.** Every factory takes `DomainDependencies { now, newId }`, defaulting to
+`systemDependencies` for the running app. Timestamps derive from `now()` only; IDs from `newId()`
+only. Tests pass a fixed clock and a counter; `createRevision` deep-copies the document so a
+snapshot cannot be mutated later.
+
+**Consequences.** Deterministic tests and reproducible seed data, with a single documented place
+where real time and randomness enter the domain.
+
+---
+
+## ADR-31 — Content identity uses a pure FNV-1a hash, not `crypto.subtle`
+
+**Context.** Import conflict detection and autosave diffing need a cheap “did this content change?”
+signal. `crypto.subtle.digest` is asynchronous, unavailable in some non-secure contexts, and pushes
+the domain toward an environment-specific API.
+
+**Decision.** `hashString` implements FNV-1a 64-bit in plain TypeScript and returns 16 hex
+characters; `contentHash` hashes the stable (key-sorted) JSON of a value, and `documentHash` hashes
+a document including preserved extras. It is explicitly documented as a change detector, never a
+security primitive.
+
+**Consequences.** Synchronous, dependency-free, deterministic across platforms — at the cost of
+collision resistance that a cryptographic digest would provide. Nothing security-relevant relies on
+it; a future signed export would use Web Crypto at the persistence boundary instead.
+
+---
+
+## ADR-32 — `Prompt.variables` is a denormalized copy of the document's list
+
+**Context.** The library, the search filters, and the dashboard need variable information without
+parsing every document. The document is the source of truth, but it is nested inside `content`.
+
+**Decision.** `Prompt.variables` is written from `content.variables` at creation time (and by the
+editor when the document changes), while `PromptDocument.variables` remains authoritative for
+rendering. `createPrompt` defaults the copy to the document's list, and an explicit override exists
+for import paths that carry a separate declaration.
+
+**Consequences.** Fast list rendering without document parsing; the two copies must be updated in
+the same write (TASK-015 own that), and a mismatch is a repair candidate for the health dashboard
+(TASK-025).
+
+---
+
+## Verification log — TASK-005
+
+| Check              | Command                                               | Result (2026-10-24)                                                                        |
+| ------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Types              | `npm run typecheck`                                   | exit 0                                                                                     |
+| Lint               | `npm run lint`                                        | exit 0, **0 warnings**                                                                     |
+| Tests              | `npm run test:run`                                    | 21 files / 246 tests passed                                                                |
+| Domain tests       | `npm run test:run -- domain`                          | 5 files / 111 tests passed                                                                 |
+| Coverage           | `npm run test:coverage` (domain only, thresholds 90%) | 98.69% statements, 96.21% branches, 100% functions, 98.58% lines — gate passes             |
+| Coverage by module | —                                                     | factories 100% / invariants 100% / promptDocument 99.6% / serialization 94.4% / types 100% |
+| Formatting         | `npm run format:check`                                | clean                                                                                      |
+| Build              | `npm run build`                                       | exit 0 — CSS 42.98 kB (11.27 kB gzip), JS 433.64 kB (133.38 kB gzip)                       |
+| Purity             | `src/domain/purity.test.ts`                           | domain imports only itself; no React/storage/DOM globals; no `any`                         |
+
+### Test inventory added in this task
+
+| File                     | Coverage                                                                                                                                                                                                                                              |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `promptDocument.test.ts` | value guards (cycles, non-JSON values), schema version, required/optional fields, list and variable validation, output/context/examples/metadata, extras preservation, normalization idempotence, blank/sample documents, section helpers, statistics |
+| `serialization.test.ts`  | stable key sorting and pretty printing, undefined handling, unsupported values, document conversion and extras, format → parse round-trip, syntax-error messages with location, hashing determinism                                                   |
+| `factories.test.ts`      | determinism under injected clock/IDs, every factory, defaults, normalization, deep-copied revision snapshots, settings clamping, `crypto` fallback                                                                                                    |
+| `invariants.test.ts`     | tag normalization, title keys, variable-name rules, autosave clamping, folder depth/paths/cycles/depth limits/name uniqueness, revision numbering and sorting, activity capping                                                                       |
+| `purity.test.ts`         | module inventory, import allowlist, no framework/storage/DOM usage, no `any`, complete barrel re-export                                                                                                                                               |
+
+### Known limitations at this stage
+
+- `Prompt.variables` and `PromptDocument.variables` can diverge until the save pipeline (TASK-015)
+  keeps them in step; ADR-32 records the trade-off.
+- Nested unknown document fields are dropped with a warning rather than preserved (ADR-29).
+- Hashing is a change detector only; it is not cryptographically collision resistant (ADR-31).
+- No persistence, seeding, or UI consumes these modules yet (TASK-006/TASK-007).
 
 ---
 

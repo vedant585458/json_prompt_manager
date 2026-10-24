@@ -5,6 +5,15 @@ import { afterEach, beforeEach } from 'vitest';
 
 import { mockMatchMedia, type MatchMediaController } from '@/test/matchMedia';
 
+// React 19 requires this flag before `act()` can be used. Testing Library calls
+// `act()` internally, and Radix primitives schedule focus/portal work in
+// timers, so without the flag every interaction logs a "not configured to
+// support act(...)" warning.
+declare global {
+  var IS_REACT_ACT_ENVIRONMENT: boolean;
+}
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
 // Testing Library only auto-registers cleanup when Vitest globals are enabled;
 // this project keeps globals off, so cleanup is explicit.
 afterEach(() => {

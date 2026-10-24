@@ -36,3 +36,50 @@ export {
 export { CopyButton, CopyIconButton } from '@/components/ui/CopyButton';
 export { ProgressBar, type ProgressBarProps } from '@/components/ui/ProgressBar';
 export { controlVariants } from '@/components/ui/controlStyles';
+
+/* TASK-004 — overlays, feedback, and async states */
+export {
+  Dialog,
+  DialogTrigger,
+  DialogClose,
+  DialogContent,
+  type DialogContentProps,
+} from '@/components/ui/Dialog';
+export { ConfirmDialog, type ConfirmDialogProps } from '@/components/ui/ConfirmDialog';
+export { Sheet, SheetContent, type SheetProps, type SheetSide } from '@/components/ui/Sheet';
+export { Skeleton, SkeletonText, SkeletonCard } from '@/components/ui/Skeleton';
+export { Alert, InlineError, type AlertProps, type AlertTone } from '@/components/ui/Alert';
+export { alertVariants } from '@/components/ui/alertVariants';
+export { EmptyState, type EmptyStateProps } from '@/components/ui/EmptyState';
+export { ErrorState, type ErrorStateProps } from '@/components/ui/ErrorState';
+export {
+  AsyncBoundary,
+  type AsyncBoundaryProps,
+  type AsyncStatus,
+} from '@/components/ui/AsyncBoundary';
+export {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuCheckboxItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+  DropdownMenuActions,
+} from '@/components/ui/DropdownMenu';
+export {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuCheckboxItem,
+  ContextMenuSeparator,
+  ContextMenuLabel,
+} from '@/components/ui/ContextMenu';
+export {
+  ToastContext,
+  useToast,
+  type ToastApi,
+  type ToastOptions,
+  type ToastTone,
+} from '@/components/ui/toast-context';

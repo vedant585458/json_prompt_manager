@@ -23,6 +23,12 @@ Status values: **Accepted** (in force), **Planned** (agreed, not yet built), **S
 | ADR-13 | Split accent tokens: `accent` (text/icon) vs `accent-fill` (surface) | Accepted | TASK-002     |
 | ADR-14 | Contrast is an executable gate, not a spreadsheet                    | Accepted | TASK-002     |
 | ADR-15 | Token-backed layout, stacking, motion, and elevation scales          | Accepted | TASK-002     |
+| ADR-22 | Destructive confirmations are deliberately non-dismissible           | Accepted | TASK-004     |
+| ADR-23 | Toast queue with an 8 s error floor and pause-on-hover/focus         | Accepted | TASK-004     |
+| ADR-24 | Empty and error states require a real action; details are disclosed  | Accepted | TASK-004     |
+| ADR-25 | `aria-modal` is set explicitly on dialog and sheet content           | Accepted | TASK-004     |
+| ADR-26 | Overlays restore focus to the opener captured at mount               | Accepted | TASK-004     |
+| ADR-27 | Context-menu keyboard shortcut handled in the wrapper                | Accepted | TASK-004     |
 
 ---
 
@@ -334,6 +340,150 @@ deviation is recorded here and in `tasks.md`.
 - No screenshot-level visual verification; see `docs/ARCHITECTURE.md` §12.
 - `Toggle`-style button groups do not exist yet; the theme control is still a bespoke segmented
   control and will be restyled with primitives in TASK-008.
+
+---
+
+## ADR-22 — Destructive confirmations are deliberately non-dismissible
+
+**Context.** A destructive confirmation can be dismissed by a stray Escape press or a click on the
+overlay. For an irreversible operation (deleting a prompt, wiping the library) that dismissal is a
+reliable way to lose the user's intent, and it also makes the outcome ambiguous: did the dialog
+close because the action ran, or because the click missed?
+
+**Decision.** `ConfirmDialog` with `tone="destructive"` renders with `dismissible={false}`: Escape and
+outside-pointer events are cancelled, and the corner close button is hidden. Closing requires an
+explicit choice — "Cancel" or the confirm button. When `confirmationPhrase` is supplied the confirm
+button stays disabled until the trimmed, case-sensitive phrase matches. Non-destructive
+confirmations keep normal dismissal.
+
+**Consequences.** Destructive flows are harder to trigger accidentally at the cost of one extra
+deliberate click. Every destructive dialog must therefore have a visible Cancel button, and the
+banner states that the action cannot be undone. The intent is also protected defensively in the
+domain layer once destructive operations exist (TASK-013/TASK-026).
+
+---
+
+## ADR-23 — Toast queue with an 8 s error floor and pause-on-hover/focus
+
+**Context.** Toasts report outcomes that the user may otherwise miss — an export written, an import
+rejected, an undo now available. They also disappear, which is the point, but a single global
+timeout makes errors vanish before they can be read, and rapid actions can flood the screen.
+
+**Decision.** `ToastProvider` keeps one reducer state `{ visible, queued }`:
+
+- At most **three** toasts are visible at once; the rest wait in a FIFO queue and are promoted as
+  visible ones leave.
+- Toasts are identified by an `id` (auto-generated when omitted); re-showing the same `id` replaces
+  the existing toast instead of duplicating it.
+- Errors never auto-dismiss before **8 s** (`TOAST_MIN_ERROR_DURATION_MS`); a caller-supplied
+  `durationMs` is raised to that floor, never lowered below it. `resolveToastDuration` is exported
+  and unit-tested so the rule is verifiable without fake UI.
+- The countdown pauses while the toast is hovered or contains keyboard focus, and resumes after.
+- Announcements use a polite live region for `success`/`info` and an assertive one for `error`.
+
+**Consequences.** Tones are limited to `success | error | info`; anything else is an alert. Undo is
+modelled as an ordinary `action` (`{ label, onClick }`) so it is a real button in the tab order — no
+hover-only affordance, and activation dismisses the toast.
+
+---
+
+## ADR-24 — Empty and error states require a real action; details are disclosed
+
+**Context.** "No results" and "something went wrong" screens are easy to ship as dead ends. The brief
+also requires that error states expose technical detail without drowning the primary message.
+
+**Decision.** `EmptyState` and `ErrorState` take `action` as a **required** prop (`EmptyState` also
+accepts an optional secondary `hint`). `ErrorState` renders its `detail` (stack, validation output,
+raw message) inside a collapsed `<details>` block set in monospace on the sunken editor surface.
+`AsyncBoundary` composes both: it owns the `idle | loading | error | success` switch, shows labelled
+skeletons while loading, and requires `onRetry` for the error branch.
+
+**Consequences.** Every state ships with a next step, and a reviewer can see it in the type system.
+Server or parser detail stays one interaction away rather than in the primary message.
+
+---
+
+## ADR-25 — `aria-modal` is set explicitly on dialog and sheet content
+
+**Context.** Radix `DialogContent` provides the modal focus trap, `aria-hidden` on the rest of the
+document, and `role="dialog"`, but it does not emit `aria-modal`. Some assistive technology uses
+`aria-modal` to decide whether a dialog is modal at all.
+
+**Decision.** `DialogContent` and `SheetContent` pass `aria-modal="true"` explicitly. The value is
+asserted in `Dialog.test.tsx` and `DesignGallery.test.tsx`.
+
+**Consequences.** One duplicated attribute in exchange for correct modality announcements. If a
+non-modal dialog variant is ever needed, it must set `aria-modal={undefined}` deliberately.
+
+---
+
+## ADR-26 — Overlays restore focus to the opener captured at mount
+
+**Context.** Radix restores focus to its own `DialogTrigger`. PromptForge opens most overlays from
+external state (a row action, a command-palette entry, a toast action), so there is no trigger.
+In that case Radix's modal content handler calls `preventDefault()` and focuses nothing, leaving
+focus on `<body>`; a keyboard user loses their place entirely.
+
+**Decision.** Each overlay renders an internal `FocusCapture` inside its portal. Its layout effect
+records the element that had focus before Radix moved it, and `onCloseAutoFocus` calls
+`restoreFocus(opener)`. If the opener is no longer in the document — including the case where an
+overlay's own `autoFocus` field had already taken focus before the layout effect ran — focus returns
+to the last element focused outside any overlay, tracked by `src/components/ui/focus-return.ts` via a
+capture-phase `focusin` listener that ignores content marked `data-pf-overlay`.
+As a related choice, `ConfirmDialog` no longer auto-focuses its confirm button; focus lands on the
+safest control instead.
+
+**Consequences.** Focus returns to the exact opener for trigger-driven and programmatic opens alike,
+and nested overlays (a dialog opened from a sheet) return to the control inside the parent overlay.
+The tracker is a module-level singleton, so tests reset document state per file.
+
+---
+
+## ADR-27 — Context-menu keyboard shortcut handled in the wrapper
+
+**Context.** Browsers translate Shift+F10 and the Menu key into a `contextmenu` event, but the
+translation is not universal and jsdom never performs it, so the shortcut was untestable and could
+silently fail in embedded webviews.
+
+**Decision.** `ContextMenuTrigger` wraps the Radix trigger and, on Shift+F10 / `ContextMenu`, cancels
+the key event and dispatches a synthetic `contextmenu` event anchored to the element's centre.
+
+**Consequences.** The keyboard path is real rather than assumed, and the test presses the actual
+shortcut. Shift+F10 is Shift+Fn+F10 on some laptop keyboards; the Menu key and the long-press path
+remain available, and every context menu action also exists in a visible menu (TASK-013).
+
+---
+
+## Verification log — TASK-004
+
+| Check        | Command                                 | Result (2026-10-24)                                                                                                                                                                                                                                                                             |
+| ------------ | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Types        | `npm run typecheck`                     | exit 0                                                                                                                                                                                                                                                                                          |
+| Lint         | `npm run lint`                          | exit 0, **0 warnings**                                                                                                                                                                                                                                                                          |
+| Tests        | `npm run test:run`                      | 16 files / 135 tests passed, no React `act(...)` warnings                                                                                                                                                                                                                                       |
+| Formatting   | `npm run format:check`                  | clean                                                                                                                                                                                                                                                                                           |
+| Build        | `npm run build`                         | exit 0 — CSS 42.92 kB (11.26 kB gzip), JS 433.64 kB (133.38 kB gzip)                                                                                                                                                                                                                            |
+| Contrast     | `npm run check:contrast`                | 52 pairings pass                                                                                                                                                                                                                                                                                |
+| Dev server   | `GET /`                                 | HTTP 200 on `0.0.0.0:5173`                                                                                                                                                                                                                                                                      |
+| Compiled CSS | inspection of `dist/assets/index-*.css` | `z-modal`/`z-overlay`/`z-popover`/`z-toast`, `shadow-panel`, `skeleton` (with `prefers-reduced-motion` guard), `text-2xs`, `rounded-xs`, `bg-danger-soft`, `border-line-strong`, `bg-surface-3`, `editor-surface`, `animate-fade-in`, and the `max-sm:` bottom-sheet classes all generate rules |
+
+### Test inventory added in this task
+
+| File                     | Coverage                                                                                                                                                                                                                      |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Dialog.test.tsx`        | hidden until opened, `role="dialog"` + `aria-modal`, title/description wiring, focus trap, focus restore, Escape and overlay dismissal, non-dismissible dialog, sheet side/bottom classes and close                           |
+| `ConfirmDialog.test.tsx` | confirm/cancel callbacks, destructive non-dismissibility, required phrase (case-sensitive, trimmed), wrong-case rejection, pending state blocking a second submit, phrase reset on reopen, focus restore                      |
+| `states.test.tsx`        | `EmptyState`/`ErrorState` actions and `<details>` detail, alert tones + dismissal, `AsyncBoundary` states and retry, skeleton label hiding, dropdown items (disabled/destructive), context menu via right-click and Shift+F10 |
+| `ToastProvider.test.tsx` | duration floors and overrides, queue cap and promotion, id dedupe, hover/focus pause, dismiss/dismiss-all, keyboard undo, live-region politeness                                                                              |
+| `DesignGallery.test.tsx` | (extended) gallery still renders every section with overlay and feedback demos mounted                                                                                                                                        |
+
+### Known limitations at this stage
+
+- No screenshot-level visual verification; see `docs/ARCHITECTURE.md` §12.
+- Focus restoration relies on Radix's close-auto-focus event; if a future primitive bypasses
+  `DialogContent`/`SheetContent` it must handle restoration itself.
+- Toast timers are real timers; the pause behaviour is tested with synthetic pointer events rather
+  than a real pointer, and timer-driven dismissal is verified with fake timers in isolation.
 
 ---
 

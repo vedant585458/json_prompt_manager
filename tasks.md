@@ -585,7 +585,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-001 — Project foundation and toolchain — High — deps: none
 - [x] TASK-002 — Design tokens, theme system, and global styles — High — deps: 001
 - [x] TASK-003 — Core UI primitives and design gallery — High — deps: 002
-- [ ] TASK-004 — Overlay, feedback, and form primitives — High — deps: 003
+- [x] TASK-004 — Overlay, feedback, and form primitives — High — deps: 003
 - [ ] TASK-005 — Domain model and prompt document specification — High — deps: 001
 - [ ] TASK-006 — Persistence foundation with repositories and migrations — High — deps: 005
 - [ ] TASK-007 — Seed data, application store, and first-run foundation — High — deps: 004, 006
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 3 of 31 tasks complete. TASK-001 through TASK-003 were authorized and completed on 2026-10-24. TASK-004 is next and has not been authorized.
+**Progress:** 4 of 31 tasks complete. TASK-001 through TASK-004 were completed on 2026-10-24. TASK-005 is not started and requires explicit authorization.
 
 ---
 
@@ -721,7 +721,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-004 — Overlay, feedback, and form primitives
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-003
 - **Objective:** Complete the design system with overlays and state components required for CRUD dialogs, navigation, and every loading/empty/error surface.
@@ -738,6 +738,16 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Tests for ConfirmDialog (confirm/cancel/callback), Toast (queue, undo action, dismissal), EmptyState/ErrorState rendering; gallery manual pass with keyboard-only; typecheck/lint/tests/build.
 - **Deliverables:** overlay/feedback primitives in `src/components/ui/`, toast provider wired in `src/app/providers`, tests, gallery additions.
 - **Out of scope:** Business logic, prompt dialogs, shell layout.
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Overlays delivered (`src/components/ui/`):** `Dialog`/`DialogContent` (required `title`, optional `description`, `size` sm/md/lg, `dismissible`, `hideCloseButton`, `footer`; scroll lock and focus trap from Radix; explicit `role="dialog"` + `aria-modal="true"`; Escape/outside-pointer configurable), `ConfirmDialog` (destructive variant → non-dismissible, hidden corner close, "cannot be undone" banner; optional `confirmationPhrase` gating confirm, trimmed and case-sensitive; `pending` state), `Sheet`/`SheetContent` (right panel that becomes a bottom sheet under 640 px via `max-sm:*`, scrollable body, pinned footer), `DropdownMenu`/`DropdownMenuItem`/`DropdownMenuActions` (disabled and destructive items, checked state, shortcuts), `ContextMenu`/`ContextMenuTrigger`/items (right-click, long-press, and real Shift+F10 / Menu-key support in the wrapper).
+  - **Feedback delivered:** `ToastProvider` + `useToast` (reducer with `{visible, queued}`, max 3 visible, FIFO promotion, id dedupe, `success`/`error`/`info`, optional `action` for undo, `dismiss`/`dismissAll`, pause on hover/focus, polite + assertive live regions, 8 s error floor via exported `resolveToastDuration`), `Alert` + `InlineError` (tone variants, optional dismiss, optional action), `EmptyState` (required `action`), `ErrorState` (required `action`, technical `detail` inside a collapsed `<details>`), `Skeleton`/`SkeletonText` (shimmer behind a `prefers-reduced-motion` guard), `AsyncBoundary` (`idle | loading | error | success` + `isEmpty` + `onRetry`).
+  - **Focus management:** trap, scroll lock, and Escape come from Radix; restoration is implemented for externally opened overlays in `src/components/ui/focus-return.ts` — the opener is captured at portal mount and restored on close, falling back to the last element focused outside any overlay when the opener is gone (ADR-26). New `Alert`/`EmptyState`/`ErrorState` components are non-modal and need no trap. Destructive confirms deliberately do not pre-focus the destructive button.
+  - **Gallery:** `src/routes/design/DesignGallery.tsx` now mounts `OverlayDemos.tsx` (dialog, cancelable + typed-phrase destructive confirmations, sheet, dropdown with disabled/destructive items, context menu with keyboard/long-press notes, toast with Undo) and `FeedbackDemos.tsx` (four toast variants + a five-toast queue test, alert tones with dismissal, `InlineError`, `EmptyState`, `ErrorState`, skeleton patterns, `AsyncBoundary` state switcher). Shared section/example chrome was extracted to `galleryParts.tsx`. Every demo is driven by real state; nothing is a static mock.
+  - **Dependencies added:** `@radix-ui/react-dialog@1.3.1`, `@radix-ui/react-dropdown-menu@2.2.1`, `@radix-ui/react-context-menu@2.4.1` (all previously scheduled for this task; `npm audit` reports 0 vulnerabilities).
+  - **Validation executed:** `npm run typecheck` exit 0; `npm run lint` exit 0 with **0 warnings**; `npm run test:run` — 16 files / **135 tests passed** with no React `act(...)` warnings; `npm run format:check` clean; `npm run build` exit 0 (CSS 42.92 kB → 11.26 kB gzip; JS 433.64 kB → 133.38 kB gzip); `npm run check:contrast` 52 pairings pass; dev server serves `/` (HTTP 200).
+  - **Additional verification:** production CSS inspected for `z-modal`/`z-overlay`/`z-popover`/`z-toast`, `shadow-panel`, `skeleton` + shimmer with its reduced-motion guard, `text-2xs`, `rounded-xs`, `bg-danger-soft`, `border-line-strong`, `bg-surface-3`, `editor-surface`, `animate-fade-in`, and the `max-sm:` bottom-sheet utilities. New tests: `Dialog.test.tsx` (aria-modal, title/description, trap, restore, Escape, overlay click, non-dismissible, sheet), `ConfirmDialog.test.tsx` (callbacks, destructive dismissal rules, typed phrase incl. wrong case, pending, reset), `states.test.tsx` (empty/error actions and disclosure, alerts, boundary states + retry, skeletons, menu items, context menu via right-click and Shift+F10), `ToastProvider.test.tsx` (duration floor/override, queue cap and promotion, dedupe, hover/focus pause, dismissal, keyboard undo, live-region politeness). `test/setup.ts` now sets `IS_REACT_ACT_ENVIRONMENT` so React 19 act warnings cannot be missed.
+  - **Deviations:** (1) the destructive confirm inherits `dismissible={false}` rather than exposing a separate prop — documented as ADR-22; (2) `EmptyState`/`ErrorState` require an `action` prop instead of accepting optional content (ADR-24); (3) `ConfirmDialog` no longer auto-focuses its confirm button, which is both safer and what makes focus restoration deterministic (ADR-26); (4) "gallery manual pass with keyboard-only" was executed as automated keyboard-driven tests (Escape, Tab trap, Shift+F10, Enter on undo) plus compiled-CSS inspection, because no browser exists in this sandbox.
+  - **Notes/limitations:** focus restoration relies on `DialogContent`/`SheetContent`; a future primitive that bypasses them must implement ADR-26. Toast countdowns have no visible progress indicator, and timer behavior is verified with fake timers in isolation. Long-press context menus use Radix's implementation and were not exercised on a real touch device. No screenshot-level visual verification yet (TASK-027/028). Decisions: ADR-22…ADR-27 in `docs/DECISIONS.md`; usage and nested-overlay rules in `docs/ARCHITECTURE.md` §11.
 
 ---
 

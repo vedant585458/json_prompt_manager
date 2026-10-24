@@ -45,7 +45,7 @@ export function Button({
     <button
       type={type}
       className={cn(buttonVariants({ variant, size, block }), className)}
-      disabled={disabled ?? loading}
+      disabled={Boolean(disabled) || loading}
       aria-busy={loading || undefined}
       {...props}
     >

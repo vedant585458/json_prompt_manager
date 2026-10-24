@@ -277,27 +277,78 @@ import { Button, Field, Input, StatusPill } from '@/components/ui';
 The render-prop shape exists so `aria-describedby`/`aria-invalid` cannot be forgotten. Errors
 annotate the control; they never clear or replace its value.
 
-### Notification and overlay patterns that belong to TASK-004
+### Overlays (TASK-004)
 
-Dialogs, sheets, dropdown menus, toasts, empty states, and skeletons are intentionally absent. Do
-not fake them with ad-hoc components: TASK-004 adds them with focus management and announcements.
+All overlays are Radix-based shells in `src/components/ui/`, styled with the same tokens as the rest
+of the system.
+
+| Primitive                                | Key props                                                                                      | Notes                                                                                                                                  |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `Dialog` / `DialogContent`               | `title` (required), `description`, `size`, `dismissible`, `hideCloseButton`, `footer`          | Traps focus, locks scroll, always `role="dialog"` + `aria-modal="true"`; `dismissible` toggles Escape/outside-pointer                  |
+| `ConfirmDialog`                          | `title`, `description`, `confirmLabel`, `cancelLabel`, `tone`, `confirmationPhrase`, `pending` | Destructive tone is non-dismissible, hides the corner close, shows a "cannot be undone" banner, and can gate confirm on a typed phrase |
+| `Sheet` / `SheetContent`                 | `open`, `onOpenChange`, `title`, `description`, `side` (`right`/`bottom`), `footer`            | A `right` sheet becomes a bottom sheet under 640 px (`max-sm:*`), with a drag-friendly height cap                                      |
+| `DropdownMenu` (+ `DropdownMenuActions`) | `items`, `trigger`, `disabled`, `destructive`                                                  | Roving focus, type-ahead, Escape returns focus to the trigger; `DropdownMenuActions` is the overflow-button form used by list rows     |
+| `ContextMenu` / `ContextMenuTrigger`     | —                                                                                              | Right-click, long-press, and Menu/Shift+F10 (handled in the wrapper, ADR-27)                                                           |
+
+### Overlay rules
+
+1. **Externally controlled.** Overlays are opened with `open`/`onOpenChange`, never by wrapping a
+   controlled button in `DialogTrigger` — the trigger's own state and the dialog's would fight.
+2. **Focus always comes back.** Focus enters the content on open, stays trapped, and returns to the
+   element that opened it (ADR-26). Never remove an overlay without restoring focus.
+3. **Dismissal is a decision.** Use `dismissible={false}` plus `hideCloseButton` for destructive
+   confirmations (ADR-22). Everything else closes on Escape and an outside click.
+4. **Nested overlays.** A dialog may open from a sheet; the inner overlay is the top of the focus
+   stack, and closing it returns focus inside the sheet. Do not open a sheet from a dropdown menu —
+   close the menu first, then open the sheet. Never stack two destructive confirmations, and never
+   open an overlay from a toast action without dismissing the toast first.
+5. **Touch parity.** Anything reachable only by hover or right-click is a bug: context-menu actions
+   also exist in the row's dropdown menu, and all controls meet the 40 px touch target on small
+   screens.
+6. **Under 640 px** `Sheet` slides up from the bottom with rounded top corners; dialogs stay centred
+   with a 1 rem gutter and scroll their body rather than the page.
+
+### Feedback and state primitives (TASK-004)
+
+| Primitive                    | Key props                                                                        | Notes                                                                                                                                         |
+| ---------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ToastProvider` / `useToast` | `show`, `success`, `error`, `info`, `dismiss`, `dismissAll`                      | One region per politeness (`polite` for success/info, `assertive` for errors); max 3 visible, FIFO queue, id dedupe, 8 s error floor (ADR-23) |
+| `Alert` / `InlineError`      | `tone` (`info`/`success`/`warning`/`danger`), `title`, `dismissible`, `action`   | Inline, non-modal messaging with an icon and text label; `InlineError` is the one-line field/form variant                                     |
+| `EmptyState`                 | `title`, `description`, `action` (required), `hint`                              | Every empty state offers a next step (ADR-24)                                                                                                 |
+| `ErrorState`                 | `title`, `description`, `action` (required), `detail`                            | Technical detail lives in a collapsed `<details>` on the editor surface                                                                       |
+| `AsyncBoundary`              | `status` (`idle`/`loading`/`error`/`success`), `isEmpty`, `onRetry`, `skeletons` | Owns the state switch so pages do not re-implement loading/error/empty branches                                                               |
+| `Skeleton` / `SkeletonText`  | `className`, `lines`                                                             | Shimmer is `aria-hidden` and disabled under `prefers-reduced-motion`; pair with a labelled `Spinner` or `role="status"` when the wait matters |
+
+**Toast usage.** `const toast = useToast(); toast.success({ title: 'Export ready', action: { label: 'Undo', onClick: restore } })`.
+Use `error` for anything the user must know about; it stays for at least 8 s and is announced
+assertively. Never use a toast as the only record of a failed destructive action — surface it in the
+view as well.
 
 ### Gallery
 
-`src/routes/design/DesignGallery.tsx` renders every primitive in every state. It is the visual
-reference for later tasks. Routing lands in TASK-008, which mounts the gallery at `/design`; until
-then it is the application root, and it contains a single real interaction (the composed snapshot
-specimen) rather than simulated product UI.
+`src/routes/design/DesignGallery.tsx` renders every primitive in every state, plus real overlay and
+feedback demos (`OverlayDemos.tsx`, `FeedbackDemos.tsx`) driven by actual component state. It is the
+visual reference for later tasks. Routing lands in TASK-008, which mounts the gallery at `/design`;
+until then it is the application root.
 
 ## 12. Known limitations at this stage
 
-The repository has tooling, a token/theme foundation, and a complete primitive layer. It has no
-routing, no data model, no persistence, no overlays/toasts, and no product feature. `App.tsx`
-renders the design gallery; TASK-008 replaces that root with real routing. The `src/` skeleton
-still uses `.gitkeep` markers for modules later tasks fill in.
+The repository has tooling, a token/theme foundation, a complete primitive layer, and the overlay
+and feedback primitives. It still has no routing, no data model, no persistence, and no product
+feature. `App.tsx` renders the design gallery; TASK-008 replaces that root with real routing. The
+`src/` skeleton still uses `.gitkeep` markers for modules later tasks fill in.
 
-Verification limits at this stage: TASK-003 was validated through component tests (92 at the time
-of writing), the production CSS bundle, and dev-server responses. No browser is available in the
+Further TASK-004 limitations:
+
+- Focus restoration depends on `DialogContent`/`SheetContent`; a new primitive that bypasses them
+  must implement ADR-26 itself.
+- Toast dismissal is timer-driven with no progress indicator; the 8 s error floor is enforced in
+  code and unit-tested, but a paused countdown is invisible to the user.
+- The long-press path for context menus is Radix's implementation and was not exercised on a real
+  touch device.
+
+Verification limits at this stage: TASK-003 and TASK-004 were validated through component tests (92
+and 135 at the time of writing), the production CSS bundle, and dev-server responses. No browser is available in the
 development sandbox, so the "manual pass in both themes" was executed as an automated DOM pass
 (theme toggling with zero console warnings) plus compiled-CSS inspection rather than screenshots.
 Screenshot QA remains scheduled for TASK-027/028.

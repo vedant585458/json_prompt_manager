@@ -6,14 +6,28 @@ import { cn } from '@/lib/cn';
 export interface InputProps extends Omit<ComponentPropsWithRef<'input'>, 'size'> {
   size?: 'sm' | 'md' | 'lg';
   invalid?: boolean;
+  /** Monospace face, for keys, paths, and confirmation phrases. */
+  mono?: boolean;
   /** Leading adornment, e.g. an icon. Purely decorative. */
   adornment?: ReactNode;
 }
 
-export function Input({ size, invalid = false, className, adornment, ...props }: InputProps) {
+export function Input({
+  size,
+  invalid = false,
+  mono = false,
+  className,
+  adornment,
+  ...props
+}: InputProps) {
   const input = (
     <input
-      className={cn(controlVariants({ size, invalid }), adornment && 'pl-9', className)}
+      className={cn(
+        controlVariants({ size, invalid }),
+        adornment && 'pl-9',
+        mono && 'font-mono text-xs',
+        className,
+      )}
       aria-invalid={invalid ? true : props['aria-invalid']}
       {...props}
     />

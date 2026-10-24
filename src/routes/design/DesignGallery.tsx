@@ -40,6 +40,9 @@ import {
   Tooltip,
 } from '@/components/ui';
 import { cn } from '@/lib/cn';
+import { OverlayDemos } from '@/routes/design/OverlayDemos';
+import { FeedbackDemos } from '@/routes/design/FeedbackDemos';
+import { Example, GallerySection } from '@/routes/design/galleryParts';
 
 /**
  * Design gallery (TASK-003).
@@ -52,38 +55,6 @@ import { cn } from '@/lib/cn';
  * Route note: TASK-003 delivers the screen. The router (TASK-008) mounts it at
  * `/design`; before that it is the application's temporary root view.
  */
-
-function GallerySection({
-  id,
-  title,
-  description,
-  children,
-}: {
-  id: string;
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section aria-labelledby={`${id}-title`} className="surface-panel p-5 sm:p-6">
-      <p className="metadata-rail">Primitives</p>
-      <h2 id={`${id}-title`} className="mt-2 text-lg font-semibold">
-        {title}
-      </h2>
-      <p className="mt-1 max-w-2xl text-sm text-ink-muted">{description}</p>
-      <div className="mt-5">{children}</div>
-    </section>
-  );
-}
-
-function Example({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="min-w-0">
-      <p className="mb-2 font-mono text-2xs tracking-wide text-ink-muted uppercase">{label}</p>
-      {children}
-    </div>
-  );
-}
 
 export function DesignGallery() {
   const [name, setName] = useState('');
@@ -525,6 +496,9 @@ export function DesignGallery() {
             </div>
           </GallerySection>
 
+          <OverlayDemos />
+          <FeedbackDemos />
+
           <GallerySection
             id="composition"
             title="Composed specimen"
@@ -614,8 +588,8 @@ export function DesignGallery() {
 
         <footer className="mt-10 flex flex-col gap-2 border-t border-line pt-5 text-xs text-ink-muted sm:flex-row sm:items-center sm:justify-between">
           <p>
-            Gallery only. Overlays, toasts, and empty/error states arrive in TASK-004; product
-            screens in TASK-008 onward.
+            Primitives and states only. Product screens begin in TASK-008; every overlay here is the
+            real component.
           </p>
           <p className="font-mono text-2xs">
             usage notes · <span className="text-ink-secondary">docs/ARCHITECTURE.md §11</span>

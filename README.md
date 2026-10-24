@@ -2,11 +2,13 @@
 
 **Advanced JSON Prompt Management Studio** — a local-first workspace for creating, organizing, validating, versioning, comparing, and optimizing structured JSON prompts.
 
-> **Status: TASK-003 complete — design-system primitives.**
+> **Status: TASK-004 complete — overlays and feedback.**
 > The repository contains the toolchain, the Prompt Observatory token system with dark and light
-> themes, and a complete primitive layer (buttons, form controls, tabs, tooltips, status, progress)
-> with a design gallery. No PromptForge product features are implemented yet. Each subsequent
-> feature is built in a separate, explicitly authorized task tracked in [`tasks.md`](./tasks.md).
+> themes, the primitive layer (buttons, form controls, tabs, tooltips, status, progress), and the
+> overlay/feedback layer (dialogs, confirmations, sheets, dropdown and context menus, toasts,
+> alerts, empty/error states, skeletons), all demonstrated in a design gallery. No PromptForge
+> product features are implemented yet. Each subsequent feature is built in a separate, explicitly
+> authorized task tracked in [`tasks.md`](./tasks.md).
 
 ---
 
@@ -106,14 +108,19 @@ components every later screen composes:
 - **Forms:** `Field` (label, hint, error, `aria-describedby`/`aria-invalid` wiring), `Input`,
   `Textarea`, `Select`, `Checkbox`, `Switch`, `RadioGroup`
 - **Structure:** `Surface`, `Card`, `Separator`, `Tabs`
-- **Feedback:** `Badge`, `StatusPill`, `ProgressBar`, `Spinner`, `Tooltip`, `Kbd`
+- **Feedback:** `Badge`, `StatusPill`, `ProgressBar`, `Spinner`, `Tooltip`, `Kbd`, `Alert`,
+  `InlineError`, `EmptyState`, `ErrorState`, `Skeleton`/`SkeletonText`, `AsyncBoundary`
+- **Overlays:** `Dialog`, `ConfirmDialog` (destructive variant with optional typed confirmation),
+  `Sheet` (right panel that becomes a bottom sheet under 640 px), `DropdownMenu`/`DropdownMenuItem`,
+  `ContextMenu`, and `ToastProvider`/`useToast` (queue, undo action, 8 s minimum for errors)
 
 Composite widgets delegate keyboard and screen-reader behavior to Radix UI while keeping bespoke,
 token-driven styling. Component tests cover roles, accessible names, keyboard interaction, error
 association, and loading announcements.
 
 The **design gallery** (`src/routes/design/DesignGallery.tsx`) renders every primitive in every
-state and is the visual reference for later tasks. It becomes the `/design` route in TASK-008 and
+state — including live dialog, confirmation, sheet, menu, toast, and state demos — and is the visual
+reference for later tasks. It becomes the `/design` route in TASK-008 and
 is the temporary application root until then.
 
 ## Data and privacy

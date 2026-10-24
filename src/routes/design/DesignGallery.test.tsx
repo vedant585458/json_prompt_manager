@@ -36,6 +36,7 @@ describe('Design gallery', () => {
   it('shows all button variants, sizes, and states', () => {
     renderGallery();
 
+    // Some labels also appear in overlay demos, so assert presence, not uniqueness.
     for (const name of [
       'Create prompt',
       'Import JSON',
@@ -50,7 +51,7 @@ describe('Design gallery', () => {
       'Disabled',
       'Archive',
     ]) {
-      expect(screen.getByRole('button', { name })).toBeInTheDocument();
+      expect(screen.getAllByRole('button', { name }).length).toBeGreaterThan(0);
     }
     const savingButton = screen.getByRole('button', { name: 'Saving' });
     expect(savingButton).toBeDisabled();

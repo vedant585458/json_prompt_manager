@@ -1,4 +1,5 @@
 import { TooltipProvider } from '@/components/ui';
+import { ToastProvider } from '@/app/providers/ToastProvider';
 import { DesignGallery } from '@/routes/design/DesignGallery';
 
 /**
@@ -11,7 +12,9 @@ import { DesignGallery } from '@/routes/design/DesignGallery';
 export function App() {
   return (
     <TooltipProvider>
-      <DesignGallery />
+      <ToastProvider>
+        <DesignGallery />
+      </ToastProvider>
     </TooltipProvider>
   );
 }

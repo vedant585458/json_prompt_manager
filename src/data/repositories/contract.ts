@@ -235,6 +235,72 @@ export function describeRepositoryContract(
         ).rejects.toBeInstanceOf(RecordNotFoundError);
       });
 
+      it('writes several prompts in one transaction', async () => {
+        const first = makePrompt('p1', { version: 1 });
+        const second = makePrompt('p2', { version: 1 });
+        await repos.prompts.create(first);
+        await repos.prompts.create(second);
+
+        const saved = await repos.prompts.updateMany([
+          { prompt: { ...first, title: 'First', version: 2 }, expectedVersion: 1 },
+          { prompt: { ...second, title: 'Second', version: 2 }, expectedVersion: 1 },
+        ]);
+
+        expect(saved.map((prompt) => prompt.title)).toEqual(['First', 'Second']);
+        await expect(repos.prompts.get('p1')).resolves.toMatchObject({
+          title: 'First',
+          version: 2,
+        });
+        await expect(repos.prompts.get('p2')).resolves.toMatchObject({
+          title: 'Second',
+          version: 2,
+        });
+      });
+
+      it('applies none of a batch when one write is stale', async () => {
+        const first = makePrompt('p1', { version: 1 });
+        const second = makePrompt('p2', { version: 3 });
+        await repos.prompts.create(first);
+        await repos.prompts.create(second);
+
+        await expect(
+          repos.prompts.updateMany([
+            { prompt: { ...first, title: 'First', version: 2 }, expectedVersion: 1 },
+            { prompt: { ...second, title: 'Second', version: 4 }, expectedVersion: 1 },
+          ]),
+        ).rejects.toBeInstanceOf(StaleWriteError);
+
+        await expect(repos.prompts.get('p1')).resolves.toMatchObject({
+          title: first.title,
+          version: 1,
+        });
+        await expect(repos.prompts.get('p2')).resolves.toMatchObject({
+          title: second.title,
+          version: 3,
+        });
+      });
+
+      it('rejects a batch that targets a missing prompt', async () => {
+        const first = makePrompt('p1', { version: 1 });
+        await repos.prompts.create(first);
+
+        await expect(
+          repos.prompts.updateMany([
+            { prompt: { ...first, title: 'First', version: 2 }, expectedVersion: 1 },
+            { prompt: makePrompt('ghost', { version: 2 }), expectedVersion: 1 },
+          ]),
+        ).rejects.toBeInstanceOf(RecordNotFoundError);
+
+        await expect(repos.prompts.get('p1')).resolves.toMatchObject({ version: 1 });
+      });
+
+      it('accepts an empty batch without touching storage', async () => {
+        await repos.prompts.create(makePrompt('p1'));
+
+        await expect(repos.prompts.updateMany([])).resolves.toEqual([]);
+        await expect(repos.prompts.list()).resolves.toHaveLength(1);
+      });
+
       it('deletes idempotently', async () => {
         await repos.prompts.create(makePrompt('p1'));
 
@@ -266,6 +332,28 @@ export function describeRepositoryContract(
         await expect(repos.revisions.listByPrompt('p2')).resolves.toHaveLength(1);
         await expect(repos.testCases.get('tc1')).resolves.toBeNull();
         await expect(repos.testCases.get('tc2')).resolves.not.toBeNull();
+      });
+
+      it('deletes several prompts and their dependents in one call', async () => {
+        await repos.prompts.create(makePrompt('p1'));
+        await repos.prompts.create(makePrompt('p2'));
+        await repos.prompts.create(makePrompt('p3'));
+        await repos.revisions.create(makeRevision('r1', 'p1', 1));
+        await repos.revisions.create(makeRevision('r2', 'p2', 1));
+        await repos.testCases.create(
+          createTestCase({ promptId: 'p2', name: 'Case' }, { now, newId: () => 'tc2' }),
+        );
+
+        await repos.prompts.deleteManyCascade(['p1', 'p2']);
+
+        await expect(repos.prompts.list()).resolves.toMatchObject([{ id: 'p3' }]);
+        await expect(repos.revisions.listByPrompt('p1')).resolves.toEqual([]);
+        await expect(repos.revisions.listByPrompt('p2')).resolves.toEqual([]);
+        await expect(repos.testCases.get('tc2')).resolves.toBeNull();
+        // Idempotent, including rows that never existed.
+        await expect(
+          repos.prompts.deleteManyCascade(['p1', 'never-there']),
+        ).resolves.toBeUndefined();
       });
 
       it('cascades idempotently, including for a prompt that never existed', async () => {

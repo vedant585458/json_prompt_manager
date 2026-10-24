@@ -35,6 +35,7 @@ import {
 } from '@/domain/factories';
 import {
   ACTIVITY_LOG_LIMIT,
+  applyTagEdit,
   capActivityLog,
   checkCollectionName,
   checkFolderMove,
@@ -42,6 +43,7 @@ import {
   checkNewFolder,
   hasErrors,
   nextRevisionNumber,
+  normalizeTag,
   normalizeTags,
   normalizeTitle,
 } from '@/domain/invariants';
@@ -105,6 +107,24 @@ export interface CollectionEdit {
   readonly description?: string;
 }
 
+/** What a bulk edit changed, with the previous values so it can be undone. */
+export interface BulkPromptResult {
+  readonly prompts: readonly Prompt[];
+  readonly previous: readonly Prompt[];
+}
+
+/** Everything needed to bring deleted prompts back, for undo. */
+export interface DeletedPrompts {
+  readonly prompts: readonly Prompt[];
+  readonly revisions: readonly PromptRevision[];
+  readonly testCases: readonly TestCase[];
+}
+
+/** How many stored prompts a tag operation rewrote. */
+export interface TagUpdateResult {
+  readonly updated: number;
+}
+
 export interface DataState {
   /** Whether writes survive a reload. Set by `attach`. */
   readonly mode: StorageMode;
@@ -140,6 +160,30 @@ export interface DataState {
   unarchivePrompt: (id: string) => Promise<Prompt>;
   /** Deletes the prompt, its revisions, and its test cases together. */
   deletePrompt: (id: string) => Promise<void>;
+  /** Flips favorite and reports the saved prompt; the write happens first. */
+  toggleFavorite: (id: string) => Promise<Prompt>;
+  /** Flips pin; pinned ordering itself belongs to the library selector. */
+  togglePin: (id: string) => Promise<Prompt>;
+
+  /** Writes one field to every prompt in `ids`, returning prior values for undo. */
+  setFavorite: (ids: readonly string[], favorite: boolean) => Promise<BulkPromptResult>;
+  setPinned: (ids: readonly string[], pinned: boolean) => Promise<BulkPromptResult>;
+  setArchived: (ids: readonly string[], archived: boolean) => Promise<BulkPromptResult>;
+  /** Adds and removes tags across `ids` in one pass (TASK-013). */
+  editTags: (
+    ids: readonly string[],
+    edit: { readonly add?: readonly string[]; readonly remove?: readonly string[] },
+  ) => Promise<BulkPromptResult>;
+  /** Restores the reversible fields of `previous`, leaving other edits intact. */
+  restorePrompts: (previous: readonly Prompt[]) => Promise<number>;
+  /** Renames a tag on every prompt that carries it; returns the affected count. */
+  renameTag: (from: string, to: string) => Promise<TagUpdateResult>;
+  /** Removes a tag from every prompt that carries it. */
+  deleteTag: (tag: string) => Promise<TagUpdateResult>;
+  /** Deletes several prompts, returning what was removed so it can be undone. */
+  deletePrompts: (ids: readonly string[]) => Promise<DeletedPrompts>;
+  /** Re-creates prompts, revisions, and test cases captured by `deletePrompts`. */
+  restoreDeletedPrompts: (snapshot: DeletedPrompts) => Promise<number>;
   /** Saves a manual snapshot revision for a prompt. */
   snapshotPrompt: (id: string, label?: string | null) => Promise<PromptRevision>;
 
@@ -349,6 +393,54 @@ export function createDataStore(options: DataStoreOptions = {}) {
       });
     }
 
+    /**
+     * Applies one edit to every prompt in `ids`.
+     *
+     * Prompts that vanished between selection and execution are skipped rather
+     * than recreated: the caller selected rows it could see, and a row that no
+     * longer exists has nothing to change. A failure anywhere re-reads storage,
+     * so a half-applied bulk edit can never be shown as if it succeeded.
+     */
+    async function bulkWrite(
+      ids: readonly string[],
+      derive: (prompt: Prompt) => PromptEdit,
+      activityType: ActivityType,
+      describe: (count: number) => string,
+    ): Promise<BulkPromptResult> {
+      return run(async (repos) => {
+        const wanted = new Set(ids);
+        const targets = get().prompts.filter((prompt) => wanted.has(prompt.id));
+        const updatedAt = dependencies.now().toISOString();
+
+        try {
+          // One transaction: a stale row or a storage failure leaves every
+          // prompt at its stored value instead of half-applying the batch.
+          const saved = await repos.prompts.updateMany(
+            targets.map((prompt) => ({
+              prompt: applyEdit(prompt, derive(prompt), updatedAt),
+              expectedVersion: prompt.version,
+            })),
+          );
+
+          set((current) => ({
+            prompts: saved.reduce((list, prompt) => upsertPrompt(list, prompt), current.prompts),
+          }));
+
+          const [only] = saved;
+          await recordActivity({
+            type: activityType,
+            summary: describe(saved.length),
+            ...(saved.length === 1 && only ? { promptId: only.id, promptTitle: only.title } : {}),
+          });
+
+          return { prompts: saved, previous: targets };
+        } catch (error) {
+          await get().hydrate();
+          throw error;
+        }
+      });
+    }
+
     return {
       mode: 'durable',
       status: 'idle',
@@ -377,7 +469,9 @@ export function createDataStore(options: DataStoreOptions = {}) {
       },
 
       hydrate: async () => {
-        set({ status: 'loading', error: null });
+        // Re-syncing an already-rendered screen must not blank it: the first
+        // load shows loading/aria-busy, later re-reads keep the current view.
+        set((state) => ({ status: state.status === 'ready' ? 'ready' : 'loading', error: null }));
         try {
           const repos = requireRepositories();
           const [
@@ -529,6 +623,234 @@ export function createDataStore(options: DataStoreOptions = {}) {
               : 'Deleted a prompt that no longer existed',
             ...(current ? { promptId: current.id, promptTitle: current.title } : {}),
           });
+        }),
+
+      toggleFavorite: (id) => {
+        const current = get().prompts.find((prompt) => prompt.id === id);
+        const favorite = !(current?.favorite ?? false);
+        return writePrompt(id, { favorite }, 'updated', (saved) =>
+          favorite ? `Favorited "${saved.title}"` : `Removed "${saved.title}" from favorites`,
+        );
+      },
+
+      togglePin: (id) => {
+        const current = get().prompts.find((prompt) => prompt.id === id);
+        const pinned = !(current?.pinned ?? false);
+        return writePrompt(id, { pinned }, 'updated', (saved) =>
+          pinned ? `Pinned "${saved.title}"` : `Unpinned "${saved.title}"`,
+        );
+      },
+
+      setFavorite: (ids, favorite) =>
+        bulkWrite(
+          ids,
+          () => ({ favorite }),
+          'updated',
+          (count) =>
+            favorite
+              ? `Favorited ${plural(count, 'prompt', 'prompts')}`
+              : `Removed ${plural(count, 'prompt', 'prompts')} from favorites`,
+        ),
+
+      setPinned: (ids, pinned) =>
+        bulkWrite(
+          ids,
+          () => ({ pinned }),
+          'updated',
+          (count) =>
+            pinned
+              ? `Pinned ${plural(count, 'prompt', 'prompts')}`
+              : `Unpinned ${plural(count, 'prompt', 'prompts')}`,
+        ),
+
+      setArchived: (ids, archived) =>
+        bulkWrite(
+          ids,
+          () => ({ archived }),
+          archived ? 'archived' : 'updated',
+          (count) =>
+            archived
+              ? `Archived ${plural(count, 'prompt', 'prompts')}`
+              : `Restored ${plural(count, 'prompt', 'prompts')} from the archive`,
+        ),
+
+      editTags: (ids, edit) =>
+        bulkWrite(
+          ids,
+          (prompt) => ({
+            tags: applyTagEdit(prompt.tags, {
+              add: edit.add ?? [],
+              remove: edit.remove ?? [],
+            }),
+          }),
+          'updated',
+          (count) => `Updated tags on ${plural(count, 'prompt', 'prompts')}`,
+        ),
+
+      restorePrompts: async (previous) =>
+        run(async (repos) => {
+          const live = get().prompts;
+          const updatedAt = dependencies.now().toISOString();
+
+          try {
+            const writes = previous.flatMap((snapshot) => {
+              const current = live.find((prompt) => prompt.id === snapshot.id);
+              // A prompt deleted since the bulk edit has nothing to restore; its
+              // own delete performed the irreversible part.
+              if (!current) return [];
+
+              return [
+                {
+                  prompt: applyEdit(
+                    current,
+                    {
+                      favorite: snapshot.favorite,
+                      pinned: snapshot.pinned,
+                      archived: snapshot.archived,
+                      tags: [...snapshot.tags],
+                    },
+                    updatedAt,
+                  ),
+                  expectedVersion: current.version,
+                },
+              ];
+            });
+
+            const saved = await repos.prompts.updateMany(writes);
+
+            set((state) => ({
+              prompts: saved.reduce((list, prompt) => upsertPrompt(list, prompt), state.prompts),
+            }));
+
+            await recordActivity({
+              type: 'updated',
+              summary: `Undid a bulk change on ${plural(saved.length, 'prompt', 'prompts')}`,
+            });
+            return saved.length;
+          } catch (error) {
+            await get().hydrate();
+            throw error;
+          }
+        }),
+
+      renameTag: async (from, to) => {
+        const source = normalizeTag(from);
+        const target = normalizeTag(to);
+
+        if (target.length === 0) {
+          throw new RuleViolationError([
+            {
+              path: 'tag',
+              message: 'Use letters, numbers, or dashes for the new tag name.',
+              severity: 'error',
+            },
+          ]);
+        }
+        if (source.length === 0 || source === target) return { updated: 0 };
+
+        const affected = get().prompts.filter((prompt) => prompt.tags.includes(source));
+        if (affected.length === 0) return { updated: 0 };
+
+        const result = await bulkWrite(
+          affected.map((prompt) => prompt.id),
+          // Rename in place so a prompt's tag order survives, then de-duplicate
+          // for the case where the target already existed (a merge).
+          (prompt) => ({
+            tags: normalizeTags(prompt.tags.map((tag) => (tag === source ? target : tag))),
+          }),
+          'updated',
+          (count) =>
+            `Renamed tag "#${source}" to "#${target}" on ${plural(count, 'prompt', 'prompts')}`,
+        );
+
+        return { updated: result.prompts.length };
+      },
+
+      deleteTag: async (tag) => {
+        const normalized = normalizeTag(tag);
+        if (normalized.length === 0) return { updated: 0 };
+
+        const affected = get().prompts.filter((prompt) => prompt.tags.includes(normalized));
+        if (affected.length === 0) return { updated: 0 };
+
+        const result = await bulkWrite(
+          affected.map((prompt) => prompt.id),
+          (prompt) => ({
+            tags: applyTagEdit(prompt.tags, { add: [], remove: [normalized] }),
+          }),
+          'updated',
+          (count) => `Removed tag "#${normalized}" from ${plural(count, 'prompt', 'prompts')}`,
+        );
+
+        return { updated: result.prompts.length };
+      },
+
+      deletePrompts: async (ids) => {
+        const wanted = new Set(ids);
+        const state = get();
+        const targets = state.prompts.filter((prompt) => wanted.has(prompt.id));
+        const snapshot: DeletedPrompts = {
+          prompts: targets,
+          revisions: state.revisions.filter((revision) => wanted.has(revision.promptId)),
+          testCases: state.testCases.filter((testCase) => wanted.has(testCase.promptId)),
+        };
+
+        return run(async (repos) => {
+          try {
+            // One transaction across the whole selection: a failure cannot
+            // leave half the list deleted without an undo affordance.
+            await repos.prompts.deleteManyCascade(targets.map((prompt) => prompt.id));
+          } catch (error) {
+            await get().hydrate();
+            throw error;
+          }
+
+          set((current) => ({
+            prompts: current.prompts.filter((prompt) => !wanted.has(prompt.id)),
+            revisions: current.revisions.filter((revision) => !wanted.has(revision.promptId)),
+            testCases: current.testCases.filter((testCase) => !wanted.has(testCase.promptId)),
+          }));
+
+          await recordActivity({
+            type: 'deleted',
+            summary: `Deleted ${plural(targets.length, 'prompt', 'prompts')}`,
+          });
+
+          return snapshot;
+        });
+      },
+
+      restoreDeletedPrompts: async (snapshot) =>
+        run(async (repos) => {
+          try {
+            const prompts: Prompt[] = [];
+            for (const prompt of snapshot.prompts) prompts.push(await repos.prompts.create(prompt));
+
+            const revisions: PromptRevision[] = [];
+            for (const revision of snapshot.revisions) {
+              revisions.push(await repos.revisions.create(revision));
+            }
+
+            const testCases: TestCase[] = [];
+            for (const testCase of snapshot.testCases) {
+              testCases.push(await repos.testCases.create(testCase));
+            }
+
+            set((state) => ({
+              prompts: prompts.reduce((list, prompt) => upsertPrompt(list, prompt), state.prompts),
+              revisions: [...revisions, ...state.revisions],
+              testCases: [...testCases, ...state.testCases],
+            }));
+
+            await recordActivity({
+              type: 'restored',
+              summary: `Restored ${plural(prompts.length, 'prompt', 'prompts')}`,
+            });
+            return prompts.length;
+          } catch (error) {
+            await get().hydrate();
+            throw error;
+          }
         }),
 
       snapshotPrompt: async (id, label = null) =>

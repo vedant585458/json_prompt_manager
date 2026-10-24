@@ -34,6 +34,7 @@ import type {
   DatabaseMeta,
   EntityRepository,
   PromptQuery,
+  PromptWrite,
   Repositories,
 } from '@/data/repositories/contracts';
 import {
@@ -205,6 +206,47 @@ async function createPromptRepository(db: Database) {
         return prompt;
       }),
 
+    updateMany: (writes: readonly PromptWrite[]) =>
+      withStorageErrors('prompts.updateMany', async () => {
+        if (writes.length === 0) return [];
+
+        writes.forEach((write) => assertStoredPrompt(write.prompt));
+
+        const transaction = db.transaction(STORE.prompts, 'readwrite');
+        const saved: Prompt[] = [];
+
+        const reject = async (error: Error): Promise<never> => {
+          transaction.abort();
+          await transaction.done.catch(() => undefined);
+          throw error;
+        };
+
+        for (const write of writes) {
+          const stored = await transaction.store.get(write.prompt.id);
+          if (!stored) {
+            return reject(new RecordNotFoundError(`No prompt with id "${write.prompt.id}".`));
+          }
+          if (stored.version !== write.expectedVersion) {
+            return reject(
+              new StaleWriteError(write.prompt.id, write.expectedVersion, stored.version),
+            );
+          }
+          if (write.prompt.version !== write.expectedVersion + 1) {
+            return reject(
+              new InvalidWriteError(
+                `Prompt ${write.prompt.id} must be saved with version ${write.expectedVersion + 1}, received ${write.prompt.version}.`,
+              ),
+            );
+          }
+
+          await transaction.store.put(toPromptRow(write.prompt));
+          saved.push(write.prompt);
+        }
+
+        await transaction.done;
+        return saved;
+      }),
+
     delete: (id: string) =>
       withStorageErrors('prompts.delete', async () => {
         await db.delete(STORE.prompts, id);
@@ -231,6 +273,36 @@ async function createPromptRepository(db: Database) {
           ...testCaseKeys.map((key) => testCaseStore.delete(key)),
           transaction.objectStore(STORE.prompts).delete(id),
         ]);
+        await transaction.done;
+      }),
+
+    deleteManyCascade: (ids: readonly string[]) =>
+      withStorageErrors('prompts.deleteManyCascade', async () => {
+        if (ids.length === 0) return;
+
+        // One transaction for every prompt in the batch, so a failed bulk
+        // delete cannot leave half the selection removed.
+        const transaction = db.transaction(
+          [STORE.prompts, STORE.revisions, STORE.testCases],
+          'readwrite',
+        );
+        const promptStore = transaction.objectStore(STORE.prompts);
+        const revisionStore = transaction.objectStore(STORE.revisions);
+        const testCaseStore = transaction.objectStore(STORE.testCases);
+
+        for (const id of ids) {
+          const [revisionKeys, testCaseKeys] = await Promise.all([
+            revisionStore.index('promptId').getAllKeys(id),
+            testCaseStore.index('promptId').getAllKeys(id),
+          ]);
+
+          await Promise.all([
+            ...revisionKeys.map((key) => revisionStore.delete(key)),
+            ...testCaseKeys.map((key) => testCaseStore.delete(key)),
+            promptStore.delete(id),
+          ]);
+        }
+
         await transaction.done;
       }),
   };

@@ -73,6 +73,27 @@ export function normalizeTags(rawTags: readonly string[]): string[] {
   return result;
 }
 
+/** One tag edit, expressed as additions and removals. */
+export interface TagEdit {
+  readonly add: readonly string[];
+  readonly remove: readonly string[];
+}
+
+/**
+ * Applies a tag edit to one prompt's tags.
+ *
+ * Removals win over additions, so a request that both adds and removes the same
+ * tag deletes it rather than leaving the result ambiguous. Existing order is
+ * preserved and new tags are appended, which keeps a prompt's tag list stable
+ * across repeated bulk edits (TASK-013).
+ */
+export function applyTagEdit(current: readonly string[], edit: TagEdit): string[] {
+  const remove = new Set(edit.remove.map(normalizeTag).filter((tag) => tag.length > 0));
+  const kept = current.filter((tag) => !remove.has(normalizeTag(tag)));
+  const additions = normalizeTags(edit.add).filter((tag) => !remove.has(tag));
+  return normalizeTags([...kept, ...additions]);
+}
+
 /** Case-insensitive membership check for an already-normalized tag list. */
 export function hasTag(tags: readonly string[], candidate: string): boolean {
   const normalized = normalizeTag(candidate);

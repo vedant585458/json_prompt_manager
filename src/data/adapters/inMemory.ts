@@ -123,6 +123,21 @@ export function createInMemoryRepositories(seed: InMemorySeed = {}): Repositorie
     seed.testCases,
   );
 
+  /** Removes each prompt with its dependents; callers validate first. */
+  async function deleteCascade(ids: readonly string[]): Promise<void> {
+    const testCases = await testCasesRepository.list();
+
+    for (const id of ids) {
+      for (const testCase of testCases) {
+        if (testCase.promptId === id) await testCasesRepository.delete(testCase.id);
+      }
+      for (const [revisionId, revision] of revisionRows) {
+        if (revision.promptId === id) revisionRows.delete(revisionId);
+      }
+      promptRows.delete(id);
+    }
+  }
+
   let closed = false;
   const assertOpen = (): void => {
     if (closed) {
@@ -180,6 +195,31 @@ export function createInMemoryRepositories(seed: InMemorySeed = {}): Repositorie
         return cloneRecord(prompt);
       },
 
+      updateMany: async (writes) => {
+        assertOpen();
+
+        // Validate every write before touching the map, which is what the
+        // IndexedDB adapter gets from aborting its transaction.
+        for (const write of writes) {
+          assertStoredPrompt(write.prompt);
+          const stored = promptRows.get(write.prompt.id);
+          if (!stored) {
+            throw new RecordNotFoundError(`No prompt with id "${write.prompt.id}".`);
+          }
+          if (stored.version !== write.expectedVersion) {
+            throw new StaleWriteError(write.prompt.id, write.expectedVersion, stored.version);
+          }
+          if (write.prompt.version !== write.expectedVersion + 1) {
+            throw new InvalidWriteError(
+              `Prompt ${write.prompt.id} must be saved with version ${write.expectedVersion + 1}, received ${write.prompt.version}.`,
+            );
+          }
+        }
+
+        for (const write of writes) promptRows.set(write.prompt.id, cloneRecord(write.prompt));
+        return writes.map((write) => cloneRecord(write.prompt));
+      },
+
       delete: async (id) => {
         assertOpen();
         promptRows.delete(id);
@@ -187,13 +227,12 @@ export function createInMemoryRepositories(seed: InMemorySeed = {}): Repositorie
 
       deleteCascade: async (id) => {
         assertOpen();
-        for (const testCase of await testCasesRepository.list()) {
-          if (testCase.promptId === id) await testCasesRepository.delete(testCase.id);
-        }
-        for (const [revisionId, revision] of revisionRows) {
-          if (revision.promptId === id) revisionRows.delete(revisionId);
-        }
-        promptRows.delete(id);
+        await deleteCascade([id]);
+      },
+
+      deleteManyCascade: async (ids) => {
+        assertOpen();
+        await deleteCascade(ids);
       },
     },
 

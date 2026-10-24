@@ -1,4 +1,4 @@
-import { FolderPlus, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { FolderPlus, MoreHorizontal, Pencil, Plus, Settings2, Trash2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 
 import {
@@ -39,6 +39,8 @@ export interface IngredientRailProps {
   readonly onNewCollection: () => void;
   readonly onEditCollection: (collection: Collection) => void;
   readonly onDeleteCollection: (collection: Collection) => void;
+  /** Opens the library-wide tag manager (TASK-013). */
+  readonly onManageTags?: () => void;
 }
 
 const VISIBLE_TAGS = 12;
@@ -132,6 +134,8 @@ function CollectionMenu({
   readonly collection: Collection;
   readonly onEditCollection: (collection: Collection) => void;
   readonly onDeleteCollection: (collection: Collection) => void;
+  /** Opens the library-wide tag manager (TASK-013). */
+  readonly onManageTags?: () => void;
 }) {
   return (
     <RailMenu label={`Actions for collection “${collection.name}”`}>
@@ -175,6 +179,7 @@ export function IngredientRail({
   onNewCollection,
   onEditCollection,
   onDeleteCollection,
+  onManageTags,
 }: IngredientRailProps) {
   const [showAllTags, setShowAllTags] = useState(false);
   const tree = flattenFolderTree(buildFolderTree(folders));
@@ -274,7 +279,14 @@ export function IngredientRail({
       </section>
 
       <section aria-label="Tags" className="rounded-lg border border-line bg-surface-1 p-2">
-        <h2 className="px-2.5 pt-1 pb-1.5 metadata-rail">Tags</h2>
+        <div className="flex items-center justify-between gap-1 pr-0.5">
+          <h2 className="px-2.5 pt-1 pb-1.5 metadata-rail">Tags</h2>
+          {onManageTags ? (
+            <IconButton label="Manage tags" size="sm" variant="ghost" onClick={onManageTags}>
+              <Settings2 size={14} />
+            </IconButton>
+          ) : null}
+        </div>
         <ul className="flex flex-wrap gap-1.5 p-1">
           {visibleTags.map((tag) => {
             const active = state.tags.includes(tag.tag);

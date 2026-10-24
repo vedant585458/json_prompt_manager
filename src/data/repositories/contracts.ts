@@ -43,6 +43,12 @@ export interface PromptQuery {
   readonly updatedBefore?: string;
 }
 
+/** One prompt write inside `updateMany`. */
+export interface PromptWrite {
+  readonly prompt: Prompt;
+  readonly expectedVersion: number;
+}
+
 /** CRUD shared by the simple, non-versioned entities. */
 export interface EntityRepository<T> {
   list: () => Promise<T[]>;
@@ -68,6 +74,14 @@ export interface PromptRepository {
    * - a stale base version rejects with `StaleWriteError` and changes nothing.
    */
   update: (prompt: Prompt, options: { readonly expectedVersion: number }) => Promise<Prompt>;
+  /**
+   * Persists several prompts in **one** transaction: all of them or none.
+   *
+   * Each write follows the same optimistic rules as `update`. A stale version,
+   * a missing record, or an invalid target version aborts the whole batch, so a
+   * bulk change can never land half-applied (TASK-013).
+   */
+  updateMany: (writes: readonly PromptWrite[]) => Promise<Prompt[]>;
   delete: (id: string) => Promise<void>;
   /**
    * Deletes a prompt and every record that references it (revisions and test
@@ -75,6 +89,12 @@ export interface PromptRepository {
    * is. Idempotent, like `delete`.
    */
   deleteCascade: (id: string) => Promise<void>;
+  /**
+   * Deletes several prompts and their dependents in one transaction: either
+   * every listed prompt is gone with its revisions and test cases, or nothing
+   * changed. Idempotent, like `deleteCascade` (TASK-013).
+   */
+  deleteManyCascade: (ids: readonly string[]) => Promise<void>;
 }
 
 export interface RevisionRepository {

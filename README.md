@@ -2,7 +2,7 @@
 
 **Advanced JSON Prompt Management Studio** — a local-first workspace for creating, organizing, validating, versioning, comparing, and optimizing structured JSON prompts.
 
-> **Status: TASK-012 complete — prompt CRUD, folders, and collections.**
+> **Status: TASK-013 complete — favorites, pins, archive, tags, and bulk actions.**
 > The repository contains the toolchain, the Prompt Observatory token system with dark and light
 > themes, the primitive layer, the overlay/feedback layer demonstrated in a design gallery, the typed
 > domain model, the persistence layer (repository interfaces, IndexedDB with migrations, an in-memory
@@ -16,9 +16,10 @@
 > URL-synced search across titles, descriptions, tags, and JSON, tag/folder/collection/status/validation
 > /date filters, three sorts, pinned section, grid and list views, and per-card selection — plus the
 > full prompt lifecycle (create from a template or blank, edit metadata, duplicate, archive with undo,
-> delete with a confirmed cascade) and folder/collection management with cycle guards. Every declared
-> route is reachable; screens not yet built say so instead of showing mock controls. Each subsequent
-> feature is built in a separate, explicitly authorized task tracked in [`tasks.md`](./tasks.md).
+> delete with a confirmed cascade), folder/collection management with cycle guards, and multi-select
+> bulk actions with an honest undo. Every declared route is reachable; screens not yet built say so
+> instead of showing mock controls. Each subsequent feature is built in a separate, explicitly
+> authorized task tracked in [`tasks.md`](./tasks.md).
 
 ---
 
@@ -138,8 +139,9 @@ address bar is the only filter state — reload, back/forward, and in-app links 
   facts. The choice is remembered (`promptforge.library.view`) and a `?view=` link can override it.
 - **Pinned.** Pinned prompts render in their own section above the results and are never duplicated in
   the main list; counts count each prompt once.
-- **Selection.** Every card and row has a checkbox and the bar reports the count; bulk actions are
-  TASK-013, and the bar says so rather than offering buttons that do nothing.
+- **Selection.** Every card and row has a checkbox; Shift-click extends a range, `Select all shown`
+  selects exactly the current filter, and the sticky bulk bar reports the count and the scope. See
+  [Favorites, pins, archive, and bulk actions](#favorites-pins-archive-and-bulk-actions).
 - **Actions.** Each card and row has a `⋯` menu (edit details, duplicate, archive/restore, delete) and
   the header has "New prompt"; both open dialogs rather than navigating to empty screens.
 - **Honesty rules.** "Will not parse" is `parseDocument()` refusing the stored document — never a claim
@@ -161,7 +163,8 @@ card changes only after the store confirms the write.
   of reach here — it belongs to the editor (TASK-014).
 - **Duplicate.** Copies the document and metadata with fresh IDs and a `(copy)`, `(copy 2)`, … title, so
   editing one never touches the other. The activity log records it.
-- **Archive.** Archived prompts leave the working views and the toast offers **Undo**.
+- **Archive.** Archived prompts leave the working views, the archive scope (`?archived=1` or the rail
+  toggle) shows only them with its own empty state, and both the single and bulk toasts offer **Undo**.
 - **Delete.** Confirmation names the prompt and lists the snapshots and test cases that disappear with
   it. Deletion is one IndexedDB transaction over prompts, revisions, and test cases — a failure leaves
   every row in place and the dialog open with an error.
@@ -173,6 +176,29 @@ card changes only after the store confirms the write.
   deleting one clears the membership and never deletes a prompt.
 - **Palette and links.** `prompt.new` and `folder.new` open the same dialogs as `/library?new=prompt`
   and `/library?new=folder`, so a command, a link, and a click share one path.
+
+## Favorites, pins, archive, and bulk actions
+
+Library rows and cards carry a selection checkbox next to their link, and an actions menu with edit,
+duplicate, favorite, pin, archive/restore, and delete. Favorites and pins are write-through: the toggle
+persists, rolls back visually if storage refuses, and shows up on the dashboard. Pinned prompts collect
+in their own section, sorted A→Z.
+
+- **Archive** is a scope, not a delete: `?archived=1` (or the rail toggle) shows only archived prompts,
+  with its own empty state and a `Back to the library` link. Archived prompts are excluded from the
+  dashboard's recents, favorites, and health counts, and can be restored individually or in bulk.
+- **Tags** come from a census of the library. The tag manager renames or removes a tag across every
+  prompt in one transaction and states the affected count first; the bulk tag dialog adds or removes
+  tags on a selection.
+- **Selection** is route state: `Select all shown` selects exactly the current filter, the sticky bar
+  states the scope (`All 3 prompts shown`, `2 prompts selected`), and any filter, sort, or scope change
+  clears it — a hidden row can never be modified by a later action. Shift-click extends a range.
+- **Undo** restores a snapshot of the affected rows (favorite/pinned/archived/tags) without discarding
+  later edits; a bulk delete's Undo re-creates the prompts with their revisions and test cases. A failed
+  undo says so instead of claiming success.
+
+Every bulk write is one repository transaction (`prompts.updateMany`, `prompts.deleteManyCascade`), so a
+selection is never half-changed.
 
 ## Design system
 

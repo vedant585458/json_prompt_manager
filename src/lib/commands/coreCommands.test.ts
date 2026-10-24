@@ -93,6 +93,34 @@ describe('core command catalogue', () => {
   });
 });
 
+describe('TASK-013 commands', () => {
+  it('opens the favorites and archive filters', () => {
+    const navigate = vi.fn();
+
+    run('library.favorites', { navigate });
+    run('library.archived', { navigate });
+
+    expect(navigate).toHaveBeenNthCalledWith(1, '/library?favorites=1');
+    expect(navigate).toHaveBeenNthCalledWith(2, '/library?archived=1');
+  });
+
+  it('only offers the favorite toggle while a prompt is open', () => {
+    const command = byId.get('prompt.toggle-favorite');
+    if (!command) throw new Error('Missing prompt.toggle-favorite');
+
+    expect(isCommandAvailable(command, createTestContext({ pathname: '/prompts/abc' }))).toBe(true);
+    expect(isCommandAvailable(command, createTestContext({ pathname: '/library' }))).toBe(false);
+    expect(isCommandAvailable(command, createTestContext({ pathname: '/prompts' }))).toBe(false);
+
+    const togglePromptFavorite = vi.fn();
+    run('prompt.toggle-favorite', {
+      pathname: '/prompts/abc',
+      togglePromptFavorite,
+    });
+    expect(togglePromptFavorite).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('core command behaviour', () => {
   it('navigates through the router callback', () => {
     const navigate = vi.fn();

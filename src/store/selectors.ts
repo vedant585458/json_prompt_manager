@@ -171,6 +171,20 @@ export function createLibrarySelector(): (
   };
 }
 
+/**
+ * Pinned prompts, A→Z.
+ *
+ * `Prompt` has no `pinnedAt`, so "most recently pinned" cannot be derived
+ * without inventing a field and migrating stored records. Ordering by title is
+ * stable, explainable, and matches the rail's A→Z ordering (TASK-013).
+ */
+export function sortPinnedByTitle(prompts: readonly Prompt[]): Prompt[] {
+  return [...prompts].sort((left, right) => {
+    const byTitle = left.title.toLowerCase().localeCompare(right.title.toLowerCase());
+    return byTitle !== 0 ? byTitle : left.id.localeCompare(right.id);
+  });
+}
+
 export function selectPromptById(prompts: readonly Prompt[], id: string | null): Prompt | null {
   if (id === null) return null;
   return prompts.find((prompt) => prompt.id === id) ?? null;

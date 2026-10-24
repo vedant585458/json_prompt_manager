@@ -155,9 +155,15 @@ describe('router', () => {
     expect(screen.getByRole('button', { name: 'Expand navigation' })).toBeInTheDocument();
   });
 
-  it('shows the requested prompt id on the workspace route', async () => {
+  it('says when the requested prompt is not in the library', async () => {
     await openAt('/prompts/abc-123', 'Prompt workspace');
-    expect(screen.getByText('abc-123')).toBeInTheDocument();
+
+    expect(screen.getByText('This prompt is not in your library')).toBeInTheDocument();
+    expect(screen.getByText(/abc-123/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Go to the library' })).toHaveAttribute(
+      'href',
+      '/library',
+    );
   });
 
   it('renders a breadcrumb trail that links ancestors, not the current page', async () => {

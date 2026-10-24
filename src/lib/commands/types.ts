@@ -63,6 +63,11 @@ export interface CommandContext {
   setHelpOpen: (open: boolean) => void;
   /** Focuses the library's search field; no-op when the library is unmounted. */
   focusLibrarySearch: () => void;
+  /**
+   * Toggles favorite on the prompt open in the workspace. No-op when no prompt
+   * workspace is mounted (TASK-013).
+   */
+  togglePromptFavorite: () => void;
 }
 
 export interface CommandDefinition {

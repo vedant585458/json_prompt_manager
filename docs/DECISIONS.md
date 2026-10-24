@@ -66,10 +66,10 @@ Status values: **Accepted** (in force), **Planned** (agreed, not yet built), **S
 | ADR-62 | One pure search module serves filtering, counts, and highlighting         | Accepted   | TASK-011     |
 | ADR-63 | Pinned prompts are a separate section, not a separate result set          | Accepted   | TASK-011     |
 | ADR-64 | Selection and view preference are presentation state, never prompt data   | Accepted   | TASK-011     |
-| ADR-65 | Container mutations report the changes they actually made                  | Accepted   | TASK-012     |
-| ADR-66 | Prompt deletion is one cascading transaction, not three calls              | Accepted   | TASK-012     |
-| ADR-67 | Deleting a folder or collection never deletes a prompt                     | Accepted   | TASK-012     |
-| ADR-68 | Dialogs are URL-addressable and metadata-only                              | Accepted   | TASK-012     |
+| ADR-65 | Container mutations report the changes they actually made                 | Accepted   | TASK-012     |
+| ADR-66 | Prompt deletion is one cascading transaction, not three calls             | Accepted   | TASK-012     |
+| ADR-67 | Deleting a folder or collection never deletes a prompt                    | Accepted   | TASK-012     |
+| ADR-68 | Dialogs are URL-addressable and metadata-only                             | Accepted   | TASK-012     |
 
 ---
 
@@ -1407,6 +1407,84 @@ Run `npm run check:contrast` to reproduce. Thresholds: 4.5:1 for text, 3:1 for U
 
 ---
 
+## ADR-69 — Selection is route state; only writes are store state
+
+**Status:** Accepted (TASK-013)
+
+**Context.** Bulk actions need a set of targets that the user can see and change, and that must never
+apply to a row they cannot see. Storing the selection in `uiStore` would have made it survive
+navigation and leak across screens; storing it in `dataStore` would have mixed presentation state into
+the persisted data model.
+
+**Decision.** The selection is a `Set<string>` in `LibraryRoute`, derived from and cleared by the URL:
+any change to the search, filters, sort, scope, folder, or archive toggle clears it. `Select all shown`
+selects exactly the ids the current query rendered and reports that scope in the bar. A row that leaves
+the view is not in the set, so it cannot be modified by a later action.
+
+**Consequences.** Bulk actions can only ever touch visible, selected rows. The trade-off is that
+selection is lost on an accidental filter change; that is preferable to silently acting on hidden
+records, and it is stated in the UI ("All N prompts shown").
+
+## ADR-70 — Bulk writes are one all-or-nothing transaction
+
+**Status:** Accepted (TASK-013)
+
+**Context.** Favoriting, tagging, archiving, and deleting a selection each touch many prompt rows. The
+first version of the store looped over the selection and awaited `prompts.update` per row, so a failure
+half-way left the library partly changed and the toast could not honestly describe the result.
+
+**Decision.** The repository contract gained two batch operations, implemented by both adapters and
+proven by the shared contract suite:
+
+- `prompts.updateMany(writes)` — validates each `expectedVersion` and the exact +1 version step, aborts
+  the IndexedDB transaction on the first stale/missing/invalid write, and resolves with the saved rows.
+- `prompts.deleteManyCascade(ids)` — removes every listed prompt with its revisions and test cases inside
+  one transaction.
+
+The store's `bulkWrite()` helper composes the updated rows, calls `updateMany`, then re-reads storage.
+Only after that does it touch in-memory state.
+
+**Consequences.** A bulk action either lands completely or not at all, and the toast can report the rows
+the store actually returned. Cost: a very large selection is one longer transaction instead of many
+short ones — acceptable at the library sizes this app targets, and it keeps the version checks in one
+place.
+
+## ADR-71 — Undo restores a snapshot of the reversible fields
+
+**Status:** Accepted (TASK-013)
+
+**Context.** Archive, restore, favorite, unpin, and tag edits are reversible; deletion is not. An inverse
+operation (e.g. "unfavorite the same ids") would overwrite changes made after the bulk action, and a
+"reload the old rows" approach would discard edits the user made in between.
+
+**Decision.** Every reversible bulk action returns `{ prompts, previous }`, where `previous` holds the
+affected rows _before_ the write. Undo passes those snapshots to `restorePrompts`, which writes only
+`favorite`, `pinned`, `archived`, and `tags`, keeps the current title/description/content, and advances
+the version like any other write. Undo for a bulk delete uses the full `{ prompts, revisions, testCases }`
+snapshot returned by `deletePrompts` and re-creates those records.
+
+Both paths are wrapped: a failure shows `That change could not be undone` (or `Those prompts could not be
+restored`) with the storage message, and nothing is claimed.
+
+**Consequences.** Undo is honest under concurrent edits and never invents success. It cannot resurrect a
+row deleted in another tab — the store skips it, which is documented in the code and the report.
+
+## ADR-72 — Tag rename happens in place, and removals win over additions
+
+**Status:** Accepted (TASK-013)
+
+**Context.** Two tag operations interact: renaming a tag across the library (possibly merging into an
+existing tag) and editing tags on a selection (adding and removing at once). Rebuilding a tag list from a
+set reordered tags and produced surprising duplicates when a rename merged into an existing tag.
+
+**Decision.** `normalizeTags` is the single tag rule (trim, enforce display case, de-duplicate preserving
+first occurrence). `renameTag` maps existing tags in place, then normalizes and de-duplicates, so order
+survives and a merge collapses. `applyTagEdit` applies the removal set first and filters additions
+through it, so an id that is both added and removed ends up removed.
+
+**Consequences.** Tag order is stable across a rename, and the "add and remove the same tag" case has one
+predictable answer instead of two.
+
 ## Verification log — TASK-002
 
 | Check            | Command                                 | Result (2026-10-24)                                                                                      |
@@ -1561,7 +1639,7 @@ and `deleteCollection` returns `{ promptsDetached }`, derived from the entities 
 rewrote. Callers render those numbers in the success toast and the confirmation's copy; nothing in the
 UI recomputes a count it could get from the mutation.
 
-**Consequences.** The dialogs need the counts *before* the write (to state the consequence), which is
+**Consequences.** The dialogs need the counts _before_ the write (to state the consequence), which is
 why `countFolderContents` and `countCollectionMembers` are pure helpers over the same store slices, and
 why the toast uses the returned values instead. If hydration races a deletion, the toast is still true
 about what the store wrote.
@@ -1629,28 +1707,28 @@ draft.
 
 ### Test inventory (75 new cases; whole suite 733 across 57 files)
 
-| Area | File | Cases | Covers |
-| --- | --- | --- | --- |
-| Domain errors | `src/domain/errors.test.ts` | 5 | one message per field, `issueFor` for unknown paths, name/message preservation |
-| Domain rules | `src/domain/invariants.test.ts` | +3 | collection name uniqueness and length, new-folder sibling scope and `parentId` default |
-| Domain search | `src/domain/search.test.ts` | +1 | 500 prompts matched five times, slowest keystroke < 100 ms |
-| Repository contract | `src/data/**` suites | +13 | `deleteCascade` success, missing id, dependent rows removed, atomicity in both adapters |
-| Store | `src/store/dataStore.test.ts` | +15 | duplicate independence and `(copy)` naming, folder create/rename/move/delete with prompts and subfolders, collection CRUD, failure paths leave state unchanged |
-| Organization | `src/features/organization/organization.test.ts` | 17 | indented folder options with subtree exclusion, counts, labels, move issues, tag input round-trip |
-| Query | `src/routes/library/libraryQuery.test.ts` | +2 | `?new=` round-trip, unknown dialog ignored |
-| Library integration | `src/routes/library/LibraryRoute.test.tsx` | +18 | create from template → editor, missing title, edit details, duplicate, archive + Undo, delete cascade counts, failed delete, folder create + duplicate error, rename/re-parent, cycle-safe parent list, folder delete moves prompts, failed folder delete, collection delete clears membership, collection create, both `?new=` dialogs, 320-prompt search, Enter-to-open |
-| Commands | `src/lib/commands/coreCommands.test.ts` | +1 | `prompt.new`/`folder.new` navigate to `/library?new=…` |
+| Area                | File                                             | Cases | Covers                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------- | ------------------------------------------------ | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Domain errors       | `src/domain/errors.test.ts`                      | 5     | one message per field, `issueFor` for unknown paths, name/message preservation                                                                                                                                                                                                                                                                                            |
+| Domain rules        | `src/domain/invariants.test.ts`                  | +3    | collection name uniqueness and length, new-folder sibling scope and `parentId` default                                                                                                                                                                                                                                                                                    |
+| Domain search       | `src/domain/search.test.ts`                      | +1    | 500 prompts matched five times, slowest keystroke < 100 ms                                                                                                                                                                                                                                                                                                                |
+| Repository contract | `src/data/**` suites                             | +13   | `deleteCascade` success, missing id, dependent rows removed, atomicity in both adapters                                                                                                                                                                                                                                                                                   |
+| Store               | `src/store/dataStore.test.ts`                    | +15   | duplicate independence and `(copy)` naming, folder create/rename/move/delete with prompts and subfolders, collection CRUD, failure paths leave state unchanged                                                                                                                                                                                                            |
+| Organization        | `src/features/organization/organization.test.ts` | 17    | indented folder options with subtree exclusion, counts, labels, move issues, tag input round-trip                                                                                                                                                                                                                                                                         |
+| Query               | `src/routes/library/libraryQuery.test.ts`        | +2    | `?new=` round-trip, unknown dialog ignored                                                                                                                                                                                                                                                                                                                                |
+| Library integration | `src/routes/library/LibraryRoute.test.tsx`       | +18   | create from template → editor, missing title, edit details, duplicate, archive + Undo, delete cascade counts, failed delete, folder create + duplicate error, rename/re-parent, cycle-safe parent list, folder delete moves prompts, failed folder delete, collection delete clears membership, collection create, both `?new=` dialogs, 320-prompt search, Enter-to-open |
+| Commands            | `src/lib/commands/coreCommands.test.ts`          | +1    | `prompt.new`/`folder.new` navigate to `/library?new=…`                                                                                                                                                                                                                                                                                                                    |
 
 ### Gates
 
-| Command | Result |
-| --- | --- |
-| `npx tsc --noEmit` | exit 0 |
-| `npx eslint .` | exit 0, 0 warnings |
-| `npx vitest run` | **57 files / 733 tests passed** |
-| `npx prettier --check "src/**/*.{ts,tsx,css}"` | clean |
-| `npm run check:contrast` | 52 pairings pass in both themes |
-| `npm run build` | exit 0 — CSS 51.10 kB (12.60 kB gzip), JS 707.54 kB (213.11 kB gzip) |
+| Command                                        | Result                                                               |
+| ---------------------------------------------- | -------------------------------------------------------------------- |
+| `npx tsc --noEmit`                             | exit 0                                                               |
+| `npx eslint .`                                 | exit 0, 0 warnings                                                   |
+| `npx vitest run`                               | **57 files / 733 tests passed**                                      |
+| `npx prettier --check "src/**/*.{ts,tsx,css}"` | clean                                                                |
+| `npm run check:contrast`                       | 52 pairings pass in both themes                                      |
+| `npm run build`                                | exit 0 — CSS 51.10 kB (12.60 kB gzip), JS 707.54 kB (213.11 kB gzip) |
 
 ### Known limitations and honesty notes
 
@@ -1675,3 +1753,64 @@ draft.
 - Container-delete copy was corrected to agree with counts ("1 prompt moves to Work", "1 prompt keeps
   its place") — the plural-only helper produced ungrammatical sentences for a single item.
 - `src/test/setup.ts` gained the `ResizeObserver` no-op described above.
+
+---
+
+## Verification log — TASK-013
+
+**Executed 2026-10-24, after explicit authorization ("Start Task 013").**
+
+### Test inventory (58 new cases; whole suite 791 across 59 files)
+
+| Area                | File                                                                                              | Cases        | Covers                                                                                                                                                                                                                                                                                                                                                            |
+| ------------------- | ------------------------------------------------------------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repository contract | `src/data/repositories/indexedDb.contract.test.ts`, `src/data/adapters/inMemory.contract.test.ts` | +10 (5 each) | `updateMany` writes a batch and returns the saved rows; a stale write applies none of the batch; a missing prompt rejects and changes nothing; an empty batch is a no-op; `deleteManyCascade` removes prompts with revisions and test cases and is idempotent — the same suite runs against both adapters                                                         |
+| Store               | `src/store/dataStore.test.ts`                                                                     | +14          | favorite/pin toggles persist, bulk favorite/archive/tag edits with snapshots, `renameTag`/`deleteTag` report real counts, undo restores only the reversible fields, all-or-nothing bulk write, failed bulk write and failed bulk delete leave storage untouched, failed undo and failed delete-restore surface the error and keep the change                      |
+| Library integration | `src/routes/library/LibraryRoute.test.tsx`                                                        | +17          | menu favorite/pin/archive with persistence, pinned section A→Z, archive scope, archive empty state, bulk restore, bulk favorite/archive/delete with Undo, select-all scope under `?tag=finance`, Shift range + clearing on filter change, bulk tag dialog, failed bulk write keeps the selection, failed undo, failed delete-restore, keyboard-only bulk favorite |
+| Domain rules        | `src/domain/invariants.test.ts`                                                                   | +3           | `applyTagEdit` additions, removals, and removals winning over additions                                                                                                                                                                                                                                                                                           |
+| Selectors           | `src/store/selectors.test.ts`                                                                     | +2           | `sortPinnedByTitle` ordering and tie-break                                                                                                                                                                                                                                                                                                                        |
+| Bulk helpers        | `src/features/bulk/bulkActions.test.ts`                                                           | 6 (new file) | `rangeIds` in both directions, `tagCensus` ordering, `countPrompts`, `isEmptyTagEdit`                                                                                                                                                                                                                                                                             |
+| Editor route        | `src/routes/editor/EditorRoute.test.tsx`                                                          | 4 (new file) | header metadata, favorite/pin write-through, archive + Undo, missing-prompt empty state                                                                                                                                                                                                                                                                           |
+| Commands            | `src/lib/commands/coreCommands.test.ts`                                                           | +2           | `library.favorites`/`library.archived` and the editor-only `prompt.toggle-favorite` availability                                                                                                                                                                                                                                                                  |
+
+### Gates
+
+| Command                                        | Result                                                               |
+| ---------------------------------------------- | -------------------------------------------------------------------- |
+| `npx tsc --noEmit`                             | exit 0                                                               |
+| `npx eslint .`                                 | exit 0, 0 warnings                                                   |
+| `npx vitest run`                               | **59 files / 791 tests passed, 0 failures**                          |
+| `npx vitest run --coverage`                    | thresholds pass for `src/domain`, `src/data`, `src/store`            |
+| `npx prettier --check "src/**/*.{ts,tsx,css}"` | clean                                                                |
+| `npm run check:contrast`                       | 52 pairings pass in both themes                                      |
+| `npm run build`                                | exit 0 — CSS 51.21 kB (12.65 kB gzip), JS 733.01 kB (218.78 kB gzip) |
+
+### Known limitations and honesty notes
+
+- No browser binary exists in this environment, so there was **no** visual pass at 360/390/1440 px, no
+  pointer-driven layout inspection, and no manual keyboard walkthrough. Keystroke and focus paths are
+  covered by scripted jsdom tests; no screenshot is claimed.
+- Bulk delete's Undo is an in-memory snapshot held by the toast. It is honest in-session and does not
+  survive a reload; the confirmation copy states that nothing is guaranteed to survive.
+- A failed bulk write cannot be "rolled back" in the UI if the transaction itself partially committed —
+  instead the store re-reads storage and displays exactly what is stored, and the toast says the change
+  was not saved. The transaction guarantee is tested at the repository contract level.
+- Undo skips a prompt that another tab deleted after the bulk action; the toast reports the rows the
+  store actually restored.
+- The single-chunk build advisory (733.01 kB / 218.78 kB gzip) is accepted; route splitting remains
+  unauthorized.
+
+### Deliberate deviations recorded for TASK-013
+
+- Bulk semantics moved into the repository contract (`updateMany`, `deleteManyCascade`) instead of
+  staying composed in the store, so "all or nothing" is a storage guarantee rather than a convention
+  (ADR-70). This added two methods to `Repositories.prompts`; both adapters implement them and the
+  shared contract suite proves parity.
+- `hydrate` no longer resets `status` to `loading` on a re-sync. Bulk actions re-read storage to adopt
+  what was written; resetting the status blanked the library (and the selection) mid-interaction.
+- Pinned ordering uses title A→Z (`sortPinnedByTitle`) rather than pin recency: the task allowed either,
+  and title order does not reshuffle when a prompt is favorited or edited.
+- `renameTag` rewrites tags in place and de-duplicates after normalizing, instead of rebuilding a set.
+  This keeps tag order stable, which the tag tests assert.
+- Tag removal from the manager requires a confirmation that names the affected count; tag rename shows
+  the count but does not require confirmation because it is reversible by renaming back.

@@ -7,7 +7,8 @@ import {
   PromptActionsMenu,
   type PromptActionHandlers,
 } from '@/components/prompts/PromptActionsMenu';
-import { Badge, Checkbox } from '@/components/ui';
+import { Badge } from '@/components/ui';
+import { SelectionCheckbox, type SelectionToggle } from '@/components/library/SelectionCheckbox';
 import { formatRelativeTime } from '@/lib/dates';
 import type { PromptMatch } from '@/domain/search';
 import type { Prompt } from '@/domain/types';
@@ -19,7 +20,7 @@ export interface PromptRowProps {
   readonly match?: PromptMatch | undefined;
   readonly now: Date;
   readonly selected: boolean;
-  readonly onToggleSelected: (id: string) => void;
+  readonly onToggleSelected: SelectionToggle;
   readonly actions: PromptActionHandlers;
 }
 
@@ -43,12 +44,11 @@ export function PromptRow({
 }: PromptRowProps) {
   return (
     <li className="flex min-w-0 items-start gap-3 px-3 py-2.5 transition-colors duration-[var(--pf-duration-fast)] hover:bg-surface-2 sm:px-4">
-      <Checkbox
-        id={`select-${prompt.id}`}
-        name={`select-${prompt.id}`}
+      <SelectionCheckbox
+        promptId={prompt.id}
+        title={prompt.title}
         checked={selected}
-        onCheckedChange={() => onToggleSelected(prompt.id)}
-        label={<span className="sr-only">Select “{prompt.title}”</span>}
+        onToggle={(options) => onToggleSelected(prompt.id, options)}
         className="mt-0.5 shrink-0"
       />
 

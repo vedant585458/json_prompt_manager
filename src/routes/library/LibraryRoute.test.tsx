@@ -123,6 +123,20 @@ async function openLibrary(seed: LibrarySeed = {}) {
   return harness;
 }
 
+/** Tabs until `target` has focus, failing loudly if it is not reachable. */
+async function tabTo(user: ReturnType<typeof userEvent.setup>, target: HTMLElement): Promise<void> {
+  for (let step = 0; step < 80; step += 1) {
+    if (document.activeElement === target) return;
+    await user.tab();
+  }
+
+  throw new Error(
+    `Tab never reached ${target.getAttribute('aria-label') ?? target.textContent}. Focus is on ${
+      document.activeElement?.textContent ?? 'nothing'
+    }.`,
+  );
+}
+
 function list(name: string): HTMLElement {
   return screen.getByRole('list', { name });
 }
@@ -568,15 +582,15 @@ describe('library selection and keyboard', () => {
     makePrompt({ id: 'beta', title: 'Beta prompt' }),
   ];
 
-  it('keeps the selection for the bulk actions in TASK-013', async () => {
+  it('keeps a selection until it is cleared', async () => {
     const user = userEvent.setup();
     await openLibrary({ prompts });
 
     await user.click(screen.getByRole('checkbox', { name: 'Select “Alpha prompt”' }));
 
-    expect(screen.getByText('1 selected')).toBeVisible();
+    expect(screen.getByText('1 prompt selected')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Clear selection' }));
-    expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
+    expect(screen.queryByText('1 prompt selected')).not.toBeInTheDocument();
   });
 
   it('selects every visible prompt at once', async () => {
@@ -585,7 +599,7 @@ describe('library selection and keyboard', () => {
 
     await user.click(screen.getByRole('checkbox', { name: 'Select all shown' }));
 
-    expect(screen.getByText('2 selected')).toBeVisible();
+    expect(screen.getByText('2 prompts selected')).toBeVisible();
 
     await user.click(screen.getByRole('checkbox', { name: 'Select all shown' }));
     expect(screen.queryByText(/selected/)).not.toBeInTheDocument();
@@ -990,5 +1004,366 @@ describe('library organization (TASK-012)', () => {
     renderLibrary({ prompts: [], path: '/library?new=prompt' });
 
     expect(await screen.findByRole('dialog', { name: 'New prompt' })).toBeVisible();
+  });
+});
+
+describe('library favorites, pins, and archive (TASK-013)', () => {
+  it('favorites a prompt from its menu and persists the change', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({
+      prompts: [makePrompt({ id: 'alpha', title: 'Alpha prompt' })],
+    });
+
+    await openPromptActions('Alpha prompt');
+    await user.click(await screen.findByRole('menuitem', { name: 'Add to favorites' }));
+
+    expect(await screen.findByText('Added to favorites')).toBeVisible();
+    await expect(repositories.prompts.get('alpha')).resolves.toMatchObject({ favorite: true });
+    // The card's indicator is text, not colour alone, so it is also the proof
+    // that the library reflects the change without a reload.
+    expect(within(list('Matching prompts, card view')).getByText('Favorite')).toBeInTheDocument();
+  });
+
+  it('pins a prompt into the pinned section, ordered A→Z', async () => {
+    const user = userEvent.setup();
+    await openLibrary({
+      prompts: [
+        makePrompt({ id: 'zebra', title: 'Zebra prompt', pinned: true }),
+        makePrompt({ id: 'alpha', title: 'Alpha prompt', updatedAt: '2026-10-01T09:00:00.000Z' }),
+      ],
+    });
+
+    const pinnedList = within(list('Pinned prompts, card view')).getAllByRole('listitem');
+    expect(pinnedList).toHaveLength(1);
+    expect(pinnedList[0]).toHaveTextContent('Zebra prompt');
+
+    await openPromptActions('Alpha prompt');
+    await user.click(await screen.findByRole('menuitem', { name: 'Pin prompt' }));
+
+    await waitFor(() =>
+      expect(within(list('Pinned prompts, card view')).getAllByRole('listitem')).toHaveLength(2),
+    );
+    const afterPin = within(list('Pinned prompts, card view')).getAllByRole('listitem');
+    expect(afterPin[0]).toHaveTextContent('Alpha prompt');
+  });
+
+  it('archives a prompt from the menu and can restore it', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({
+      prompts: [makePrompt({ id: 'alpha', title: 'Alpha prompt' })],
+    });
+
+    await openPromptActions('Alpha prompt');
+    await user.click(await screen.findByRole('menuitem', { name: 'Archive' }));
+
+    expect(await screen.findByText('Prompt archived')).toBeVisible();
+    await expect(repositories.prompts.get('alpha')).resolves.toMatchObject({ archived: true });
+    await waitFor(() =>
+      expect(screen.queryByRole('link', { name: /Alpha prompt/ })).not.toBeInTheDocument(),
+    );
+  });
+
+  it('says the archive is empty when nothing is archived', async () => {
+    await openLibrary({
+      prompts: [makePrompt({ id: 'alpha', title: 'Alpha prompt' })],
+      path: '/library?archived=1',
+    });
+
+    expect(await screen.findByText('Your archive is empty')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Back to the library' })).toBeVisible();
+  });
+
+  it('shows archived prompts in the archive scope and restores them in bulk', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({
+      prompts: [makePrompt({ id: 'alpha', title: 'Alpha prompt', archived: true })],
+      path: '/library?archived=1',
+    });
+
+    expect(screen.getByRole('link', { name: /Alpha prompt/ })).toBeVisible();
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select all shown' }));
+    await user.click(screen.getByRole('button', { name: 'Restore' }));
+
+    expect(await screen.findByText('Prompts restored')).toBeVisible();
+    await expect(repositories.prompts.get('alpha')).resolves.toMatchObject({ archived: false });
+    expect(await screen.findByText('Your archive is empty')).toBeVisible();
+  });
+});
+
+describe('library bulk actions (TASK-013)', () => {
+  const prompts = [
+    makePrompt({
+      id: 'alpha',
+      title: 'Alpha prompt',
+      tags: ['finance'],
+      updatedAt: '2026-10-03T09:00:00.000Z',
+    }),
+    makePrompt({
+      id: 'beta',
+      title: 'Beta prompt',
+      tags: ['support'],
+      updatedAt: '2026-10-02T09:00:00.000Z',
+    }),
+    makePrompt({
+      id: 'gamma',
+      title: 'Gamma prompt',
+      tags: ['finance'],
+      updatedAt: '2026-10-01T09:00:00.000Z',
+    }),
+  ];
+
+  it('reports the real count and undoes a bulk favorite', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({ prompts });
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select “Alpha prompt”' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select “Beta prompt”' }));
+    expect(screen.getByText('2 prompts selected')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Favorite' }));
+
+    expect(await screen.findByText('Added to favorites')).toBeVisible();
+    await expect(repositories.prompts.get('alpha')).resolves.toMatchObject({ favorite: true });
+    await expect(repositories.prompts.get('beta')).resolves.toMatchObject({ favorite: true });
+    await expect(repositories.prompts.get('gamma')).resolves.toMatchObject({ favorite: false });
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+    await waitFor(async () =>
+      expect(await repositories.prompts.get('alpha')).toMatchObject({ favorite: false }),
+    );
+    await expect(repositories.prompts.get('beta')).resolves.toMatchObject({ favorite: false });
+  });
+
+  it('archives a selection and restores it with undo', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({ prompts });
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select all shown' }));
+    await user.click(screen.getByRole('button', { name: 'Archive' }));
+
+    expect(await screen.findByText('Prompts archived')).toBeVisible();
+    await waitFor(async () => {
+      const stored = await repositories.prompts.list();
+      expect(stored.every((prompt) => prompt.archived)).toBe(true);
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+    await waitFor(async () => {
+      const stored = await repositories.prompts.list();
+      expect(stored.every((prompt) => !prompt.archived)).toBe(true);
+    });
+    expect(await screen.findByRole('link', { name: /Alpha prompt/ })).toBeVisible();
+  });
+
+  it('deletes the selection after confirmation and brings it back with undo', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({
+      prompts: [makePrompt({ id: 'alpha', title: 'Alpha prompt' })],
+      revisions: [makeRevision('rev-1', 'alpha')],
+      testCases: [makeTestCase('case-1', 'alpha')],
+    });
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select “Alpha prompt”' }));
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+    const confirm = await screen.findByRole('dialog', { name: 'Delete 1 prompt?' });
+    expect(within(confirm).getByText(/permanently/)).toBeVisible();
+    await user.click(within(confirm).getByRole('button', { name: 'Delete prompts' }));
+
+    expect(await screen.findByText('Prompts deleted')).toBeVisible();
+    await expect(repositories.prompts.get('alpha')).resolves.toBeNull();
+    await expect(repositories.revisions.listByPrompt('alpha')).resolves.toEqual([]);
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+    await waitFor(async () => expect(await repositories.prompts.get('alpha')).not.toBeNull());
+    await expect(repositories.revisions.listByPrompt('alpha')).resolves.toHaveLength(1);
+    await expect(repositories.testCases.get('case-1')).resolves.not.toBeNull();
+    expect(await screen.findByRole('link', { name: /Alpha prompt/ })).toBeVisible();
+  });
+
+  it('selects only the filtered prompts and states the scope', async () => {
+    const user = userEvent.setup();
+    const { router } = await openLibrary({ prompts });
+
+    await user.click(screen.getByRole('button', { name: /#finance/ }));
+    await waitFor(() => expect(router.state.location.search).toBe('?tag=finance'));
+
+    await user.click(await screen.findByRole('checkbox', { name: 'Select all shown' }));
+
+    expect(screen.getByText('2 prompts selected')).toBeVisible();
+    expect(screen.getByText('All 2 prompts shown')).toBeVisible();
+  });
+
+  it('extends the selection with Shift and clears it when filters change', async () => {
+    const user = userEvent.setup();
+    const { router } = await openLibrary({ prompts, path: '/library?sort=title' });
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select “Alpha prompt”' }));
+    await user.keyboard('{Shift>}');
+    await user.click(screen.getByRole('checkbox', { name: 'Select “Gamma prompt”' }));
+    await user.keyboard('{/Shift}');
+
+    expect(screen.getByText('3 prompts selected')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: /#finance/ }));
+    await waitFor(() => expect(router.state.location.search).toContain('tag=finance'));
+    expect(screen.queryByRole('region', { name: 'Bulk actions' })).not.toBeInTheDocument();
+  });
+
+  it('adds a tag to the selection through the bulk tag dialog', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({ prompts });
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select “Alpha prompt”' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Select “Beta prompt”' }));
+    await user.click(screen.getByRole('button', { name: 'Tags…' }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Edit tags' });
+    await user.type(within(dialog).getByLabelText('Add tags'), 'priority');
+    await user.click(within(dialog).getByRole('button', { name: 'Apply tags' }));
+
+    expect(await screen.findByText('Tags updated')).toBeVisible();
+    await waitFor(async () =>
+      expect(await repositories.prompts.get('alpha')).toMatchObject({
+        tags: ['finance', 'priority'],
+      }),
+    );
+    await expect(repositories.prompts.get('beta')).resolves.toMatchObject({
+      tags: ['support', 'priority'],
+    });
+    await expect(repositories.prompts.get('gamma')).resolves.toMatchObject({ tags: ['finance'] });
+  });
+
+  it('reports a failed bulk write and keeps the selection', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({ prompts });
+
+    repositories.prompts.updateMany = async () => {
+      throw new Error('The database is locked.');
+    };
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select all shown' }));
+    await user.click(screen.getByRole('button', { name: 'Favorite' }));
+
+    expect(await screen.findByText('That change was not saved')).toBeVisible();
+    expect(screen.getByText('3 prompts selected')).toBeVisible();
+
+    const stored = await repositories.prompts.list();
+    expect(stored.every((prompt) => !prompt.favorite)).toBe(true);
+  });
+
+  it('reports an undo that storage refuses instead of claiming success', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({ prompts });
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select all shown' }));
+    await user.click(screen.getByRole('button', { name: 'Favorite' }));
+    expect(await screen.findByText('Added to favorites')).toBeVisible();
+
+    repositories.prompts.updateMany = async () => {
+      throw new Error('The database is locked.');
+    };
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+    expect(await screen.findByText('That change could not be undone')).toBeVisible();
+    // The favorites are still stored: a failed undo changes nothing.
+    const stored = await repositories.prompts.list();
+    expect(stored.every((prompt) => prompt.favorite)).toBe(true);
+  });
+
+  it('reports a delete that cannot be given back', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({ prompts });
+
+    await user.click(screen.getByRole('checkbox', { name: 'Select “Alpha prompt”' }));
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Delete 1 prompt?' });
+    await user.click(within(dialog).getByRole('button', { name: 'Delete prompts' }));
+
+    expect(await screen.findByText('Prompts deleted')).toBeVisible();
+
+    repositories.prompts.create = async () => {
+      throw new Error('The database is locked.');
+    };
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+    expect(await screen.findByText('Those prompts could not be restored')).toBeVisible();
+    await expect(repositories.prompts.get('alpha')).resolves.toBeNull();
+  });
+
+  it('favorites a selection with the keyboard only', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({ prompts });
+
+    screen.getByRole('searchbox', { name: /search/i }).focus();
+
+    const checkbox = screen.getByRole('checkbox', { name: 'Select “Alpha prompt”' });
+    await tabTo(user, checkbox);
+    await user.keyboard(' ');
+    expect(screen.getByText('1 prompt selected')).toBeVisible();
+
+    const favorite = screen.getByRole('button', { name: 'Favorite' });
+    await tabTo(user, favorite);
+    await user.keyboard('{Enter}');
+
+    expect(await screen.findByText('Added to favorites')).toBeVisible();
+    await expect(repositories.prompts.get('alpha')).resolves.toMatchObject({ favorite: true });
+    await expect(repositories.prompts.get('beta')).resolves.toMatchObject({ favorite: false });
+  });
+});
+
+describe('library tag management (TASK-013)', () => {
+  const prompts = [
+    makePrompt({ id: 'alpha', title: 'Alpha prompt', tags: ['invoice', 'finance'] }),
+    makePrompt({ id: 'beta', title: 'Beta prompt', tags: ['invoice'] }),
+    makePrompt({ id: 'gamma', title: 'Gamma prompt', tags: [] }),
+  ];
+
+  it('renames a tag everywhere from the tag manager', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({ prompts });
+
+    await user.click(screen.getByRole('button', { name: 'Manage tags' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Manage tags' });
+    expect(within(dialog).getByText('#invoice')).toBeVisible();
+
+    await user.click(within(dialog).getAllByRole('button', { name: 'Rename' })[0] as HTMLElement);
+    const input = within(dialog).getByLabelText('Rename #invoice');
+    await user.clear(input);
+    await user.type(input, 'billing');
+    await user.click(within(dialog).getByRole('button', { name: 'Save tag' }));
+
+    expect(await screen.findByText('Tag renamed')).toBeVisible();
+    await waitFor(async () =>
+      expect(await repositories.prompts.get('alpha')).toMatchObject({
+        tags: ['billing', 'finance'],
+      }),
+    );
+    await expect(repositories.prompts.get('beta')).resolves.toMatchObject({ tags: ['billing'] });
+  });
+
+  it('removes a tag from every prompt without deleting the prompts', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({ prompts });
+
+    await user.click(screen.getByRole('button', { name: 'Manage tags' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Manage tags' });
+
+    await user.click(within(dialog).getAllByRole('button', { name: 'Delete' })[0] as HTMLElement);
+    expect(within(dialog).getByText(/Remove #invoice from 2 prompts/)).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: 'Remove tag' }));
+
+    expect(await screen.findByText('Tag removed')).toBeVisible();
+    await waitFor(async () =>
+      expect(await repositories.prompts.get('beta')).toMatchObject({ tags: [] }),
+    );
+    await expect(repositories.prompts.get('alpha')).resolves.toMatchObject({
+      tags: ['finance'],
+    });
+    expect(await repositories.prompts.list()).toHaveLength(3);
   });
 });

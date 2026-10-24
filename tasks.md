@@ -594,7 +594,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-010 — Dashboard with real library data — High — deps: 008, 009
 - [x] TASK-011 — Prompt library browsing, search, filters, and views — High — deps: 008
 - [x] TASK-012 — Prompt CRUD, folders, and collections — High — deps: 011
-- [ ] TASK-013 — Tags, favorites, pins, archive, and bulk actions — Medium — deps: 012
+- [x] TASK-013 — Tags, favorites, pins, archive, and bulk actions — Medium — deps: 012
 - [ ] TASK-014 — JSON editor workspace (raw + tree views) — High — deps: 012
 - [ ] TASK-015 — Save pipeline, autosave, and recovery — High — deps: 014
 - [ ] TASK-016 — Validation engine and validation studio — High — deps: 015
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 12 of 31 tasks complete. TASK-001 through TASK-012 were completed on 2026-10-24.
+**Progress:** 13 of 31 tasks complete. TASK-001 through TASK-013 were completed on 2026-10-24.
 
 ---
 
@@ -1082,7 +1082,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-013 — Tags, favorites, pins, archive, and bulk actions
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** Medium
 - **Dependencies:** TASK-012
 - **Objective:** Complete library organization and multi-select operations with undo for reversible bulk changes.
@@ -1102,6 +1102,22 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Integration tests for favorite/pin/archive persistence, bulk archive + undo, tag rename propagation, select-all-scope behavior; failure-path test for undo; keyboard-only bulk pass; typecheck/lint/tests/build.
 - **Deliverables:** tag/favorite/pin/archive components, selection store slice, bulk action bar, tag management dialogs, undo helpers, tests.
 - **Out of scope:** Editor content authoring (TASK-014), permanent tag analytics, import/export.
+
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Domain (`src/domain/`):** `invariants.ts` gained `TagEdit`/`applyTagEdit` (removals applied first and winning over additions, additions normalized and de-duplicated) plus `normalizeTag`/`normalizeTags`, the single definition of how a tag is spelled. No tag rule lives in a component.
+  - **Repository contract (`src/data/`):** bulk semantics were lifted out of the store, where they were a per-row loop that could half-apply. `Repositories.prompts` now declares `updateMany(writes)` and `deleteManyCascade(ids)`; the IndexedDB adapter runs each as one `readwrite` transaction that aborts on the first stale, missing, or version-invalid write, and the in-memory adapter validates the whole batch before touching its maps. Both adapters' shared contract suites prove identical behaviour (TASK-013 review question: *is bulk adapter-level?* — yes, and the contract now covers it).
+  - **Store (`src/store/dataStore.ts`):** `toggleFavorite`, `togglePin`, `setFavorite`, `setPinned`, `setArchived`, `editTags`, `restorePrompts`, `renameTag`, `deleteTag`, `deletePrompts`, `restoreDeletedPrompts`, all composed over one `bulkWrite()` helper (write → `updateMany` → re-read storage → adopt what came back). `renameTag` renames in place and de-duplicates, so tag order survives a rename and merging two tags collapses instead of repeating. `hydrate` keeps `status: 'ready'` on a re-sync so a bulk write cannot blank the screen to a skeleton mid-interaction.
+  - **Selectors (`src/store/selectors.ts`, `src/store/dashboard.ts`):** `sortPinnedByTitle` (title A→Z, then id) and `selectTagCounts` for the tag census; archived rows are excluded from every dashboard count, from recents/pinned/favorites, and from the attention list (`selectDashboardData` filters them before computing anything, and `selectCounts` subtracts them from the status totals).
+  - **Bulk helpers (`src/features/bulk/bulkActions.ts`):** pure `rangeIds` (Shift-click range over the rendered order), `tagCensus`, `countPrompts`, `isEmptyTagEdit` — no React, no store.
+  - **Components:** `BulkActionBar` (sticky, `role="region"` labelled "Bulk actions", live count, states the filter scope when the selection came from `Select all shown`, favorite/unfavorite/tag/archive/restore/delete/clear), `SelectionCheckbox` (per-row checkbox with Shift range and an `aria-label` naming the prompt), `BulkTagDialog` (add/remove tags on a selection, suggestions from the census), `TagManagerDialog` (rename/remove a tag across the library, with the affected prompt count shown before either action and a confirmation for removal), `PromptSummaryCard` (the editor's metadata header with favorite/pin/archive). `PromptCard`/`PromptRow`/`PromptGrid`/`PromptList` thread the checkbox, handlers, and pinned ordering; `PromptActionsMenu` gained favorite and pin; `PromptFormDialog` suggests existing tags; `IngredientRail` gained `Manage tags`.
+  - **Editor route (`src/routes/editor/EditorRoute.tsx`):** real loading skeleton, error and missing-prompt empty states, `PromptSummaryCard`, favorite/pin/archive handlers with write-through toasts (archive offers Undo) and a palette toggle registered while mounted. Content authoring remains TASK-014.
+  - **Library route (`src/routes/library/LibraryRoute.tsx`):** selection as route-owned state (cleared by any filter, sort, scope, folder, or search change), bulk run/undo wiring, the tag manager and bulk-tag dialogs, and an archive empty state with `Back to the library`. Toasts report returned rows (`2 prompts updated`), failures keep the selection and say `That change was not saved`, and failed undo says `That change could not be undone` rather than claiming success.
+  - **Commands (`src/lib/commands/`):** `CommandContext.togglePromptFavorite`, an injectable `registerPromptFavoriteToggle`/`togglePromptFavorite` pair (`promptActions.ts`), and palette commands `prompt.toggle-favorite` (editor only), `library.favorites`, `library.archived`.
+  - **Tests added (58 new cases; whole suite 791 across 59 files):** `src/data/**` contract suites +10 (`updateMany` writes a batch, applies nothing when one write is stale, rejects a missing prompt, accepts an empty batch; `deleteManyCascade` removes prompts with revisions and test cases and is idempotent — proven in both adapters), `src/store/dataStore.test.ts` +14 (favorite/pin persistence, bulk favorite/archive/tag/delete with snapshots, `renameTag`/`deleteTag` counts, undo restoring only reversible fields, all-or-nothing bulk write, failed undo and failed delete-restore leave storage unchanged), `src/routes/library/LibraryRoute.test.tsx` +17 (menu favorite/pin/archive, archive scope + empty state + bulk restore, bulk favorite/archive/delete with Undo, select-all scope under `?tag=finance`, Shift range and clearing on filter change, bulk tag dialog, failed bulk write, failed undo, failed delete-restore, keyboard-only bulk favorite), `src/domain/invariants.test.ts` +3 (`applyTagEdit`), `src/store/selectors.test.ts` +2 (`sortPinnedByTitle`), `src/lib/commands/coreCommands.test.ts` +2 (new palette commands), new `src/features/bulk/bulkActions.test.ts` (6), new `src/routes/editor/EditorRoute.test.tsx` (4).
+  - **Validation executed:** `npx tsc --noEmit` exit 0; `npx eslint .` exit 0 with 0 warnings; `npx vitest run` — **59 files / 791 tests passed, 0 failures**; `npx prettier --check "src/**/*.{ts,tsx,css}"` clean; `npm run check:contrast` — 52 pairings pass in both themes; `npm run build` exit 0 — CSS 51.21 kB (12.65 kB gzip), JS 733.01 kB (218.78 kB gzip), same accepted >500 kB advisory as TASK-012. `npx vitest run --coverage` also passed its `src/domain`, `src/data`, and `src/store` thresholds.
+  - **Not performed (stated honestly):** no browser binary exists in this environment, so there was no visual pass at 360/390/1440 px, no pointer-driven layout inspection, and no manual keyboard walkthrough. Keyboard paths — including a keyboard-only bulk favorite tabbed from the search field to a checkbox and then to the bar — are covered by scripted jsdom tests and code review only. No screenshot is claimed.
+  - **Deviations recorded:** `updateMany`/`deleteManyCascade` were added to the repository contract rather than leaving bulk composition in the store alone (ADR-70); the store's `hydrate` no longer resets `status` to `loading` on re-sync, because a bulk write re-reads storage and would otherwise blank the library mid-selection; bulk delete's Undo restores from an in-memory snapshot and is deliberately not persisted across reloads (the confirmation copy says so); `sortPinnedByTitle` was added instead of reusing the updated-desc sort, because the task allowed pin recency *or* title and title ordering is stable across favorite/pin toggles.
+  - **Docs:** `docs/DECISIONS.md` gained ADR-69…ADR-72 and a TASK-013 verification log; `docs/ARCHITECTURE.md` gained a "Favorites, pins, archive, and bulk actions" section plus updated library/persistence notes; `README.md` and `tasks.md` updated.
 
 ---
 

@@ -1,9 +1,12 @@
-import { Plus } from 'lucide-react';
+import { Archive, Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
+import { BulkActionBar } from '@/components/library/BulkActionBar';
+import { BulkTagDialog, type BulkTagValues } from '@/components/library/BulkTagDialog';
 import { FilterBar } from '@/components/library/FilterBar';
 import { IngredientRail } from '@/components/library/IngredientRail';
+import { TagManagerDialog } from '@/components/library/TagManagerDialog';
 import { PromptGrid } from '@/components/library/PromptGrid';
 import { PromptList } from '@/components/library/PromptList';
 import type { PromptActionHandlers } from '@/components/prompts/PromptActionsMenu';
@@ -12,12 +15,14 @@ import { PromptFormDialog, type PromptFormValues } from '@/components/prompts/Pr
 import {
   Button,
   Checkbox,
+  ConfirmDialog,
   EmptyState,
   ErrorState,
   SkeletonCard,
   buttonVariants,
   useToast,
 } from '@/components/ui';
+import { countPrompts, rangeIds, tagCensus } from '@/features/bulk/bulkActions';
 import { DeleteContainerDialog } from '@/features/organization/DeleteContainerDialog';
 import {
   CollectionDialog,
@@ -41,6 +46,7 @@ import { findDocumentProblems } from '@/store/dashboard';
 import {
   createLibrarySelector,
   selectTagCounts,
+  sortPinnedByTitle,
   type LibraryQuery,
   type TagCount,
 } from '@/store/selectors';
@@ -92,6 +98,16 @@ export function LibraryRoute() {
   const archivePrompt = store((state) => state.archivePrompt);
   const unarchivePrompt = store((state) => state.unarchivePrompt);
   const deletePrompt = store((state) => state.deletePrompt);
+  const toggleFavorite = store((state) => state.toggleFavorite);
+  const togglePin = store((state) => state.togglePin);
+  const setFavorite = store((state) => state.setFavorite);
+  const setArchived = store((state) => state.setArchived);
+  const editTags = store((state) => state.editTags);
+  const restorePrompts = store((state) => state.restorePrompts);
+  const deletePrompts = store((state) => state.deletePrompts);
+  const restoreDeletedPrompts = store((state) => state.restoreDeletedPrompts);
+  const renameTag = store((state) => state.renameTag);
+  const deleteTag = store((state) => state.deleteTag);
   const addFolder = store((state) => state.addFolder);
   const updateFolder = store((state) => state.updateFolder);
   const deleteFolder = store((state) => state.deleteFolder);
@@ -121,6 +137,10 @@ export function LibraryRoute() {
   } | null>(null);
   const [deletingCollection, setDeletingCollection] = useState<Collection | null>(null);
   const [pending, setPending] = useState(false);
+  const [bulkTagOpen, setBulkTagOpen] = useState(false);
+  const [tagManagerOpen, setTagManagerOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const selectionAnchor = useRef<string | null>(null);
 
   const [searchParams, setSearchParams] = useSearchParams();
   const search = searchParams.toString();
@@ -172,7 +192,9 @@ export function LibraryRoute() {
   );
 
   const results = select(prompts, query);
-  const pinned = results.filter((prompt) => prompt.pinned);
+  // Pin recency is not stored, so pinned prompts are ordered A→Z like the rail
+  // (ADR-69). The visible order is also what a Shift range selects.
+  const pinned = sortPinnedByTitle(results.filter((prompt) => prompt.pinned));
   const others = results.filter((prompt) => !prompt.pinned);
 
   const matches = useMemo<ReadonlyMap<string, PromptMatch>>(() => {
@@ -207,7 +229,39 @@ export function LibraryRoute() {
 
   const selected = useMemo(() => new Set(selectedPromptIds), [selectedPromptIds]);
   const visibleIds = results.map((prompt) => prompt.id);
+  const visibleOrder = [...pinned, ...others].map((prompt) => prompt.id);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+
+  const libraryTags = useMemo(() => tagCensus(prompts), [prompts]);
+  const selectionTags = useMemo(
+    () => tagCensus(prompts.filter((prompt) => selected.has(prompt.id))),
+    [prompts, selected],
+  );
+  const tagSuggestions = useMemo(() => libraryTags.map((entry) => entry.tag), [libraryTags]);
+
+  /**
+   * Selection follows the URL: any filter, search, sort, dialog, or route change
+   * drops the selection, so a bulk action can never reach rows the user can no
+   * longer see (ADR-70).
+   */
+  useEffect(() => {
+    clearSelection();
+    selectionAnchor.current = null;
+  }, [search, clearSelection]);
+
+  const handleToggleSelected = useCallback(
+    (id: string, options?: { readonly range?: boolean }) => {
+      const anchor = selectionAnchor.current;
+      if (options?.range && anchor && anchor !== id) {
+        const range = rangeIds(visibleOrder, anchor, id);
+        setSelection([...new Set([...useUiStore.getState().selectedPromptIds, ...range])]);
+      } else {
+        toggleSelection(id);
+      }
+      selectionAnchor.current = id;
+    },
+    [visibleOrder, setSelection, toggleSelection],
+  );
 
   const update = useCallback(
     (patch: Partial<LibraryState>) => {
@@ -241,6 +295,8 @@ export function LibraryRoute() {
       onEdit: setEditingPrompt,
       onDuplicate: (prompt) => void handleDuplicate(prompt),
       onToggleArchive: (prompt) => void handleToggleArchive(prompt),
+      onToggleFavorite: (prompt) => void handleToggleFavorite(prompt),
+      onTogglePin: (prompt) => void handleTogglePin(prompt),
       onDelete: setDeletingPrompt,
     }),
     // The handlers are recreated with the component; behaviour is identical.
@@ -431,6 +487,174 @@ export function LibraryRoute() {
     }
   }
 
+  async function handleToggleFavorite(prompt: Prompt) {
+    try {
+      const saved = await toggleFavorite(prompt.id);
+      toast.success({
+        title: saved.favorite ? 'Added to favorites' : 'Removed from favorites',
+        description: prompt.title,
+      });
+    } catch (error) {
+      toast.error({
+        title: 'The favorite was not changed',
+        description: describeDataError(error),
+      });
+    }
+  }
+
+  async function handleTogglePin(prompt: Prompt) {
+    try {
+      const saved = await togglePin(prompt.id);
+      toast.success({
+        title: saved.pinned ? 'Pinned' : 'Unpinned',
+        description: prompt.title,
+      });
+    } catch (error) {
+      toast.error({ title: 'The pin was not changed', description: describeDataError(error) });
+    }
+  }
+
+  /* ------------------------------- bulk actions ---------------------------- */
+
+  async function undoBulkChange(previous: readonly Prompt[]) {
+    try {
+      const restored = await restorePrompts(previous);
+      toast.success({
+        title: 'Bulk change undone',
+        description: `${countPrompts(restored)} restored`,
+      });
+    } catch (error) {
+      toast.error({
+        title: 'That change could not be undone',
+        description: describeDataError(error),
+      });
+    }
+  }
+
+  /**
+   * Runs one bulk write and offers Undo with the exact rows that changed.
+   *
+   * The toast reports what the store returned, not what the selection looked
+   * like: a row deleted in another tab is skipped by the store and must not be
+   * counted as updated. Failures are re-thrown so a dialog can show them inline.
+   */
+  async function applyBulk(
+    task: () => Promise<{
+      readonly prompts: readonly Prompt[];
+      readonly previous: readonly Prompt[];
+    }>,
+    title: string,
+  ): Promise<void> {
+    try {
+      const result = await task();
+      clearSelection();
+      toast.success({
+        title,
+        description: `${countPrompts(result.prompts.length)} updated`,
+        action: {
+          label: 'Undo',
+          onClick: () => {
+            void undoBulkChange(result.previous);
+          },
+        },
+      });
+    } catch (error) {
+      toast.error({
+        title: 'That change was not saved',
+        description: describeDataError(error),
+      });
+      throw error;
+    }
+  }
+
+  function handleBulkFavorite() {
+    void applyBulk(() => setFavorite(selectedPromptIds, true), 'Added to favorites').catch(
+      () => undefined,
+    );
+  }
+
+  function handleBulkUnfavorite() {
+    void applyBulk(() => setFavorite(selectedPromptIds, false), 'Removed from favorites').catch(
+      () => undefined,
+    );
+  }
+
+  function handleBulkArchive() {
+    void applyBulk(() => setArchived(selectedPromptIds, true), 'Prompts archived').catch(
+      () => undefined,
+    );
+  }
+
+  function handleBulkRestore() {
+    void applyBulk(() => setArchived(selectedPromptIds, false), 'Prompts restored').catch(
+      () => undefined,
+    );
+  }
+
+  async function submitBulkTags(values: BulkTagValues) {
+    await applyBulk(() => editTags(selectedPromptIds, values), 'Tags updated');
+  }
+
+  async function confirmBulkDelete() {
+    const ids = [...selectedPromptIds];
+    setPending(true);
+    try {
+      const snapshot = await deletePrompts(ids);
+      setBulkDeleteOpen(false);
+      clearSelection();
+      toast.success({
+        title: 'Prompts deleted',
+        description: countPrompts(snapshot.prompts.length),
+        action: {
+          label: 'Undo',
+          onClick: () => {
+            void (async () => {
+              try {
+                const restored = await restoreDeletedPrompts(snapshot);
+                toast.success({
+                  title: 'Prompts restored',
+                  description: `${countPrompts(restored)} brought back`,
+                });
+              } catch (error) {
+                toast.error({
+                  title: 'Those prompts could not be restored',
+                  description: describeDataError(error),
+                });
+              }
+            })();
+          },
+        },
+      });
+    } catch (error) {
+      toast.error({
+        title: 'The prompts were not deleted',
+        description: describeDataError(error),
+      });
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function handleRenameTag(from: string, to: string) {
+    const result = await renameTag(from, to);
+    if (result.updated === 0) {
+      toast.info({ title: 'No prompts carry that tag', description: 'Nothing was changed.' });
+      return;
+    }
+    toast.success({ title: 'Tag renamed', description: `${countPrompts(result.updated)} updated` });
+  }
+
+  async function handleDeleteTag(tag: string) {
+    const result = await deleteTag(tag);
+    toast.success({
+      title: 'Tag removed',
+      description:
+        result.updated === 0
+          ? 'No prompts carried that tag.'
+          : `${countPrompts(result.updated)} updated`,
+    });
+  }
+
   const selectAllVisible = useCallback(() => {
     if (allVisibleSelected) {
       const visible = new Set(visibleIds);
@@ -463,6 +687,7 @@ export function LibraryRoute() {
       : (collections.find((collection) => collection.id === state.collection)?.name ?? null);
 
   const libraryEmpty = prompts.length === 0;
+  const archivedTotal = prompts.filter((prompt) => prompt.archived).length;
   const filtersActive = hasActiveFilters(state);
 
   const emptyState = libraryEmpty ? (
@@ -479,6 +704,33 @@ export function LibraryRoute() {
         <Link to="/templates" className={cn(buttonVariants({ variant: 'secondary' }))}>
           Browse templates
         </Link>
+      }
+    />
+  ) : state.archived && archivedTotal === 0 ? (
+    <EmptyState
+      title="Your archive is empty"
+      description="Archiving a prompt keeps it out of the working library without deleting it. Nothing is archived yet."
+      icon={Archive}
+      action={
+        <Button variant="primary" onClick={() => update({ archived: false })}>
+          Back to the library
+        </Button>
+      }
+    />
+  ) : state.archived ? (
+    <EmptyState
+      title="No archived prompts match"
+      description="Nothing in the archive matches these filters. Clearing them shows every archived prompt again."
+      icon={Archive}
+      action={
+        <Button variant="primary" onClick={clearAll}>
+          Clear filters
+        </Button>
+      }
+      secondaryAction={
+        <Button variant="secondary" onClick={() => update({ archived: false })}>
+          Back to the library
+        </Button>
       }
     />
   ) : (
@@ -542,7 +794,7 @@ export function LibraryRoute() {
         query={state.q}
         now={now}
         selectedIds={selected}
-        onToggleSelected={toggleSelection}
+        onToggleSelected={handleToggleSelected}
         empty={emptyState}
         label="Matching prompts"
         actions={promptActions}
@@ -555,7 +807,7 @@ export function LibraryRoute() {
         query={state.q}
         now={now}
         selectedIds={selected}
-        onToggleSelected={toggleSelection}
+        onToggleSelected={handleToggleSelected}
         empty={emptyState}
         label="Matching prompts"
         actions={promptActions}
@@ -593,6 +845,7 @@ export function LibraryRoute() {
             onNewCollection={() => setCollectionDialog({ mode: 'create', collection: null })}
             onEditCollection={(collection) => setCollectionDialog({ mode: 'edit', collection })}
             onDeleteCollection={setDeletingCollection}
+            onManageTags={() => setTagManagerOpen(true)}
           />
         </div>
 
@@ -611,18 +864,21 @@ export function LibraryRoute() {
           />
 
           {selectedPromptIds.length > 0 ? (
-            <div
-              role="status"
-              className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-secondary"
-            >
-              <span className="font-medium text-ink">{selectedPromptIds.length} selected</span>
-              <span className="text-ink-muted">
-                Bulk actions arrive with TASK-013; selection is kept for it.
-              </span>
-              <Button variant="ghost" size="sm" onClick={clearSelection} className="ml-auto h-7">
-                Clear selection
-              </Button>
-            </div>
+            <BulkActionBar
+              selectedCount={selectedPromptIds.length}
+              visibleCount={results.length}
+              allVisibleSelected={allVisibleSelected}
+              archivedScope={state.archived}
+              busy={pending}
+              onSelectAll={selectAllVisible}
+              onClear={clearSelection}
+              onFavorite={handleBulkFavorite}
+              onUnfavorite={handleBulkUnfavorite}
+              onEditTags={() => setBulkTagOpen(true)}
+              onArchive={handleBulkArchive}
+              onRestore={handleBulkRestore}
+              onDelete={() => setBulkDeleteOpen(true)}
+            />
           ) : null}
 
           {results.length === 0 ? (
@@ -668,7 +924,7 @@ export function LibraryRoute() {
                       query={state.q}
                       now={now}
                       selectedIds={selected}
-                      onToggleSelected={toggleSelection}
+                      onToggleSelected={handleToggleSelected}
                       empty={null}
                       label="Pinned prompts"
                       actions={promptActions}
@@ -681,7 +937,7 @@ export function LibraryRoute() {
                       query={state.q}
                       now={now}
                       selectedIds={selected}
-                      onToggleSelected={toggleSelection}
+                      onToggleSelected={handleToggleSelected}
                       empty={null}
                       label="Pinned prompts"
                       actions={promptActions}
@@ -718,6 +974,7 @@ export function LibraryRoute() {
         collections={collections}
         templates={templates}
         schemas={schemas}
+        tagSuggestions={tagSuggestions}
         onOpenChange={(open) => {
           if (open) return;
           if (editingPrompt) setEditingPrompt(null);
@@ -797,6 +1054,36 @@ export function LibraryRoute() {
           onConfirm={() => void confirmDeleteCollection()}
         />
       ) : null}
+
+      <BulkTagDialog
+        open={bulkTagOpen && selectedPromptIds.length > 0}
+        count={selectedPromptIds.length}
+        selectionTags={selectionTags}
+        suggestions={tagSuggestions}
+        onOpenChange={setBulkTagOpen}
+        onSubmit={submitBulkTags}
+      />
+
+      <TagManagerDialog
+        open={tagManagerOpen}
+        tags={libraryTags}
+        onOpenChange={setTagManagerOpen}
+        onRename={handleRenameTag}
+        onDelete={handleDeleteTag}
+      />
+
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        onOpenChange={(open) => {
+          if (!pending) setBulkDeleteOpen(open);
+        }}
+        title={`Delete ${countPrompts(selectedPromptIds.length)}?`}
+        description="The selected prompts are removed from this browser permanently, together with their saved snapshots and test cases. Undo is offered after the deletion, but nothing is guaranteed to survive a reload."
+        confirmLabel="Delete prompts"
+        tone="destructive"
+        pending={pending}
+        onConfirm={() => void confirmBulkDelete()}
+      />
     </div>
   );
 }

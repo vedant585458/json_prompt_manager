@@ -218,21 +218,21 @@ The library is a view over stored prompts: nothing is cached, nothing is mutated
 only filter state (ADR-61). Search, filtering, and sorting run through `src/store/selectors.ts`; the
 matching rules themselves live in `src/domain/search.ts` (ADR-62).
 
-| Piece                                        | Responsibility                                                                                                                                                                  |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/routes/library/libraryQuery.ts`         | URL ⇄ `LibraryState` contract: `readLibraryState`, `writeLibraryState`, `SEARCH_MAX_LENGTH`, `SEARCH_DEBOUNCE_MS`, option lists, `toggleTag`, `editedAfter`, `hasActiveFilters` |
-| `src/domain/search.ts`                       | `parseSearchQuery`, `matchPrompt`, `searchPrompts`, `highlightSegments` — the only definition of a match (ADR-62)                                                               |
-| `src/lib/folderTree.ts`                      | `buildFolderTree`, `flattenFolderTree`, `folderSubtreeIds`: nesting for the rail and subtree filtering, with cycle rejection                                                    |
-| `src/lib/viewPreference.ts`                  | Validated `localStorage` grid/list preference (ADR-64)                                                                                                                          |
-| `src/components/library/IngredientRail.tsx`  | Folder tree, collections, and tag multi-select with counts scoped to the archive scope, plus per-row `⋯` menus and `+` create buttons (TASK-012)                               |
-| `src/components/library/FilterBar.tsx`       | Debounced search, removable filter chips, clear-all, sort / status / validation / date selects, archived and favorites toggles, result count                                    |
-| `src/components/library/PromptBadges.tsx`    | Status pill and the "Parses / Will not parse" badge shared by both views                                                                                                        |
-| `src/components/library/HighlightedText.tsx` | Renders `highlightSegments` output as `<mark>` runs — no user text is ever treated as markup                                                                                    |
-| `src/components/library/PromptCard.tsx`      | Artifact card (grid): title, description, tags, status, parsability, pin/favorite markers, relative edit time, JSON excerpt when the document matched, action menu             |
-| `src/components/library/PromptRow.tsx`       | Dense row (list) showing the same facts with a stable column rhythm, including the action menu                                                                                  |
-| `src/components/library/PromptGrid.tsx`      | Responsive grid + empty slot, labelled for the a11y tree                                                                                                                        |
-| `src/components/library/PromptList.tsx`      | Table-like list + empty slot, labelled for the a11y tree                                                                                                                        |
-| `src/routes/library/LibraryRoute.tsx`        | Derives the query from the URL, renders pinned and matching sections, the selection bar, and the loading/empty/error states, and owns the prompt/folder/collection lifecycle   |
+| Piece                                        | Responsibility                                                                                                                                                                         |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/routes/library/libraryQuery.ts`         | URL ⇄ `LibraryState` contract: `readLibraryState`, `writeLibraryState`, `SEARCH_MAX_LENGTH`, `SEARCH_DEBOUNCE_MS`, option lists, `toggleTag`, `editedAfter`, `hasActiveFilters`        |
+| `src/domain/search.ts`                       | `parseSearchQuery`, `matchPrompt`, `searchPrompts`, `highlightSegments` — the only definition of a match (ADR-62)                                                                      |
+| `src/lib/folderTree.ts`                      | `buildFolderTree`, `flattenFolderTree`, `folderSubtreeIds`: nesting for the rail and subtree filtering, with cycle rejection                                                           |
+| `src/lib/viewPreference.ts`                  | Validated `localStorage` grid/list preference (ADR-64)                                                                                                                                 |
+| `src/components/library/IngredientRail.tsx`  | Folder tree, collections, and tag multi-select with counts scoped to the archive scope, per-row `⋯` menus, `+` create buttons (TASK-012), and `Manage tags` (TASK-013)                 |
+| `src/components/library/FilterBar.tsx`       | Debounced search, removable filter chips, clear-all, sort / status / validation / date selects, archived and favorites toggles, result count                                           |
+| `src/components/library/PromptBadges.tsx`    | Status pill and the "Parses / Will not parse" badge shared by both views                                                                                                               |
+| `src/components/library/HighlightedText.tsx` | Renders `highlightSegments` output as `<mark>` runs — no user text is ever treated as markup                                                                                           |
+| `src/components/library/PromptCard.tsx`      | Artifact card (grid): selection checkbox, title, description, tags, status, parsability, pin/favorite markers, relative edit time, JSON excerpt when the document matched, action menu |
+| `src/components/library/PromptRow.tsx`       | Dense row (list) showing the same facts with a stable column rhythm, including the action menu                                                                                         |
+| `src/components/library/PromptGrid.tsx`      | Responsive grid + empty slot, labelled for the a11y tree                                                                                                                               |
+| `src/components/library/PromptList.tsx`      | Table-like list + empty slot, labelled for the a11y tree                                                                                                                               |
+| `src/routes/library/LibraryRoute.tsx`        | Derives the query from the URL, renders pinned and matching sections, the selection bar, and the loading/empty/error states, and owns the prompt/folder/collection lifecycle           |
 
 **Rules the screen follows.**
 
@@ -245,8 +245,9 @@ matching rules themselves live in `src/domain/search.ts` (ADR-62).
   link overrides it for that navigation (ADR-64).
 - Archived prompts are excluded unless the archive toggle is on; every rail count describes the current
   archive scope, not the current search.
-- The selection checkbox is a sibling of the card link (never nested inside it), the selection bar counts
-  the set, and it says that bulk actions arrive in TASK-013.
+- The selection checkbox is a sibling of the card link (never nested inside it). Selecting shows the
+  sticky bulk bar, which counts the set, states the current filter when the selection came from
+  `Select all shown`, and owns favorite/unfavorite/tag/archive/restore/delete (ADR-69).
 - Empty states distinguish "this library has no prompts" (offers composer and templates) from "nothing
   matches these filters" (offers clear-filters).
 - Loading renders skeleton cards with `aria-busy`; a failed read renders `ErrorState` with a retry that
@@ -261,25 +262,25 @@ mount the real shell, store, and seeded in-memory repositories together (ADR-59)
 Creating, editing, duplicating, archiving, and deleting prompts — plus folders and collections — happens
 in the library. The route owns the intent; the store owns the write; the domain owns the rules.
 
-| Piece                                        | Responsibility                                                                                                                                                            |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/domain/errors.ts`                       | `RuleViolationError` carries one message per field (`issueFor(path)`), so a rule explains itself under the offending control instead of in a generic banner                 |
-| `src/domain/invariants.ts`                   | `checkNewFolder`, `checkCollectionName`, plus the existing depth/cycle/name rules `checkFolderMove` and `wouldCreateFolderCycle`                                            |
-| `src/store/dataStore.ts`                     | `duplicatePrompt`, `movePrompt`, `addFolder`, `updateFolder`, `deleteFolder`, `addCollection`, `updateCollection`, `deleteCollection` — every write goes through `run()` + `writePrompt` and records activity |
-| `src/features/organization/organization.ts`  | Pure helpers: `folderOptions` (indented labels, subtree excluded), `countFolderContents`, `countCollectionMembers`, `parentFolderLabel`, `folderLabel`, `folderMoveIssues`, `formatTagInput`/`parseTagInput`, `sortedCollections` |
-| `src/features/organization/FolderDialog.tsx` | Create/rename/move a folder; the parent list cannot express a cycle, and the rule still runs on submit                                                                     |
-| `src/features/organization/CollectionDialog.tsx` | Create/rename a collection with a description                                                                                                                         |
-| `src/features/organization/DeleteContainerDialog.tsx` | Confirms container deletion with the exact destination and counts, and states that no prompt is deleted                                                           |
-| `src/components/prompts/PromptFormDialog.tsx`| Create/edit prompt metadata; create also picks a template or a blank document. Never edits the document body                                                               |
-| `src/components/prompts/PromptActionsMenu.tsx`| One dropdown per prompt: edit details, duplicate, archive/restore, delete                                                                                                 |
-| `src/components/prompts/DeletePromptDialog.tsx`| Names the prompt and itemises the snapshots and test cases that go with it                                                                                               |
-| `src/routes/library/libraryQuery.ts`         | `LIBRARY_DIALOGS` and the `?new=` parameter, so palette commands and links open the same dialog (ADR-68)                                                                  |
+| Piece                                                 | Responsibility                                                                                                                                                                                                                    |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/errors.ts`                                | `RuleViolationError` carries one message per field (`issueFor(path)`), so a rule explains itself under the offending control instead of in a generic banner                                                                       |
+| `src/domain/invariants.ts`                            | `checkNewFolder`, `checkCollectionName`, plus the existing depth/cycle/name rules `checkFolderMove` and `wouldCreateFolderCycle`                                                                                                  |
+| `src/store/dataStore.ts`                              | `duplicatePrompt`, `movePrompt`, `addFolder`, `updateFolder`, `deleteFolder`, `addCollection`, `updateCollection`, `deleteCollection` — every write goes through `run()` + `writePrompt` and records activity                     |
+| `src/features/organization/organization.ts`           | Pure helpers: `folderOptions` (indented labels, subtree excluded), `countFolderContents`, `countCollectionMembers`, `parentFolderLabel`, `folderLabel`, `folderMoveIssues`, `formatTagInput`/`parseTagInput`, `sortedCollections` |
+| `src/features/organization/FolderDialog.tsx`          | Create/rename/move a folder; the parent list cannot express a cycle, and the rule still runs on submit                                                                                                                            |
+| `src/features/organization/CollectionDialog.tsx`      | Create/rename a collection with a description                                                                                                                                                                                     |
+| `src/features/organization/DeleteContainerDialog.tsx` | Confirms container deletion with the exact destination and counts, and states that no prompt is deleted                                                                                                                           |
+| `src/components/prompts/PromptFormDialog.tsx`         | Create/edit prompt metadata; create also picks a template or a blank document. Never edits the document body                                                                                                                      |
+| `src/components/prompts/PromptActionsMenu.tsx`        | One dropdown per prompt: edit details, duplicate, archive/restore, delete                                                                                                                                                         |
+| `src/components/prompts/DeletePromptDialog.tsx`       | Names the prompt and itemises the snapshots and test cases that go with it                                                                                                                                                        |
+| `src/routes/library/libraryQuery.ts`                  | `LIBRARY_DIALOGS` and the `?new=` parameter, so palette commands and links open the same dialog (ADR-68)                                                                                                                          |
 
 **Rules the screen follows.**
 
 - Deleting a prompt calls `prompts.deleteCascade(id)` once: prompt, revisions, and test cases disappear
   in a single IndexedDB transaction, or nothing does (ADR-66).
-- Deleting a folder re-parents its prompts and subfolders to the *removed folder's* parent — never
+- Deleting a folder re-parents its prompts and subfolders to the _removed folder's_ parent — never
   `null` unless the folder was already at the top level — so the tree keeps its shape and no prompt is
   deleted (ADR-67).
 - Deleting a collection clears membership only; prompt rows are rewritten without the collection id and
@@ -293,6 +294,48 @@ in the library. The route owns the intent; the store owns the write; the domain 
 - A create navigates to `/prompts/:id` only after the store confirms the write, so the editor always
   opens on stored data.
 - Empty rails say so and open the create dialog; they never fake a filter.
+
+## Favorites, pins, archive, and bulk actions (TASK-013)
+
+Selection is UI state; every other change is a stored write. The route holds the selection (a
+`Set<string>` of ids in `LibraryRoute`), the store owns the transaction, and the domain owns the rules.
+
+| Piece                                          | Responsibility                                                                                                                                                                                                            |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/invariants.ts`                     | `applyTagEdit` (removals win over additions, both normalized and de-duplicated), `normalizeTags`, `normalizeTag` — the only tag rules                                                                                     |
+| `src/store/dataStore.ts`                       | `toggleFavorite`, `togglePin`, `setFavorite`, `setPinned`, `setArchived`, `editTags`, `restorePrompts`, `renameTag`, `deleteTag`, `deletePrompts`, `restoreDeletedPrompts`; all batched writes go through one `bulkWrite` |
+| `src/store/selectors.ts`                       | `sortPinnedByTitle` and the library query's `archived` scope; dashboard counts and recents exclude archived rows                                                                                                          |
+| `src/features/bulk/bulkActions.ts`             | `rangeIds` (Shift-click range over the rendered order), `tagCensus`, `countPrompts`, `isEmptyTagEdit` — pure helpers, no React                                                                                            |
+| `src/components/library/BulkActionBar.tsx`     | Sticky, labelled `role="region"` bar: count (live), favorite, unfavorite, tag, archive, restore, delete, clear selection                                                                                                  |
+| `src/components/library/SelectionCheckbox.tsx` | Per-prompt checkbox that also handles Shift-click ranges, labelled with the prompt title                                                                                                                                  |
+| `src/components/library/TagManagerDialog.tsx`  | Rename/remove a tag across the library, with the affected prompt count shown before either action                                                                                                                         |
+| `src/components/library/BulkTagDialog.tsx`     | Add/remove tags on the selection, suggestions from the existing census                                                                                                                                                    |
+| `src/components/prompts/PromptSummaryCard.tsx` | Metadata header on the editor route (tags, folder, collection, status) with favorite/pin/archive controls                                                                                                                 |
+| `src/lib/commands/promptActions.ts`            | `registerPromptFavoriteToggle` / `togglePromptFavorite`: the palette command needs the editor, so it registers while that screen is mounted                                                                               |
+
+**Rules the screen follows.**
+
+- **One transaction per bulk action.** `prompts.updateMany` writes every row or none; a stale version,
+  a missing record, or a storage failure aborts the batch (ADR-70). The store then re-reads storage
+  and adopts what is actually stored, so a partial write can never be displayed as success.
+- **Undo is a snapshot, not an inverse.** A reversible bulk action returns `{ prompts, previous }`; the
+  toast's Undo passes those rows back to `restorePrompts`, which writes the reversible fields
+  (`favorite`, `pinned`, `archived`, `tags`) and nothing else, so later edits survive. A failed restore
+  reports `That change could not be undone` and changes nothing (ADR-71).
+- **Deleting is confirmed and reversible only in-session.** The confirmation names the count, the
+  delete cascades in one transaction, and Undo re-creates prompts, revisions, and test cases from the
+  snapshot it returned. The copy says so.
+- **Selection never leaks past a filter.** `Select all shown` selects the currently rendered ids and
+  the bar states the filter (`All 3 prompts shown`). Changing a filter, sort, scope, or folder clears
+  the selection, and a row that leaves the view can never be modified by a later bar action.
+- **Tag renames are in place.** `renameTag` maps existing tags, normalizes, and de-duplicates, so tag
+  order survives and a merge into an existing tag collapses instead of repeating (ADR-72).
+- **Feedback is written, not assumed.** Toasts report the rows the store returned (`2 prompts updated`),
+  and a failure keeps the selection intact with `That change was not saved`.
+
+Palette commands added here: `prompt.toggle-favorite` (available on the editor route only), and
+`library.favorites` / `library.archived`, which switch the library scope through the same URL contract
+the rail uses.
 
 ## Commands and keyboard
 
@@ -356,7 +399,11 @@ mapped at the repository boundary, and a per-prompt write queue.
   themselves in `meta`, and abort the whole upgrade on failure.
 - **Prompt deletion cascades in one transaction.** `prompts.deleteCascade(id)` removes the prompt, its
   revisions, and its test cases inside a single `readwrite` transaction; a failure leaves every row in
-  place (ADR-66).
+  place (ADR-66). `prompts.deleteManyCascade(ids)` is the same guarantee for a bulk selection.
+- **Bulk updates are one transaction.** `prompts.updateMany(writes)` validates every `expectedVersion`
+  and version step before writing, aborts on the first violation, and resolves with the saved rows;
+  both the IndexedDB and in-memory adapters implement it and the shared contract suite proves they
+  behave identically (ADR-70).
 - **Failures are typed.** `QuotaExceededError`, `StorageUnavailableError`, `CorruptDataError`,
   `DuplicateRecordError`, `RecordNotFoundError`, `InvalidWriteError`, `StaleWriteError`, and
   `MigrationError` let the UI choose a recovery path instead of parsing messages.

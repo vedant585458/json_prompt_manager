@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ACTIVITY_LOG_LIMIT,
+  applyTagEdit,
   AUTOSAVE_DELAY,
   MAX_FOLDER_DEPTH,
   MAX_TAG_LENGTH,
@@ -434,5 +435,21 @@ describe('checkNewFolder', () => {
     const deepest = `f${MAX_FOLDER_DEPTH - 1}`;
     const issues = checkNewFolder(chain, 'Too deep', deepest);
     expect(issues[0]?.message).toMatch(new RegExp(`at most ${MAX_FOLDER_DEPTH} levels`));
+  });
+});
+
+describe('applyTagEdit', () => {
+  it('normalizes additions, keeps order, and de-duplicates', () => {
+    expect(
+      applyTagEdit(['finance', 'support'], { add: [' Priority ', 'finance'], remove: [] }),
+    ).toEqual(['finance', 'support', 'priority']);
+  });
+
+  it('removes before adding, so a tag in both lists is removed', () => {
+    expect(applyTagEdit(['a', 'b'], { add: ['b'], remove: ['b'] })).toEqual(['a']);
+  });
+
+  it('drops empty values rather than storing them', () => {
+    expect(applyTagEdit([], { add: ['   ', '--'], remove: [''] })).toEqual([]);
   });
 });

@@ -14,6 +14,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 import { useTheme } from '@/app/providers/theme-context';
 import { focusLibrarySearch } from '@/lib/commands/librarySearchFocus';
+import { togglePromptFavorite } from '@/lib/commands/promptActions';
 import { isWithinOverlay } from '@/lib/overlay';
 import {
   commandRegistry,
@@ -63,6 +64,9 @@ export function useCommandEnvironment(): CommandEnvironment {
       setHelpOpen: (open) => useUiStore.getState().setHelpOpen(open),
       focusLibrarySearch: () => {
         focusLibrarySearch();
+      },
+      togglePromptFavorite: () => {
+        togglePromptFavorite();
       },
     };
   }, [navigate, pathname, platform, setPreference]);

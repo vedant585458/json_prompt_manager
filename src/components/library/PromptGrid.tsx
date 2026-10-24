@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { PromptCard } from '@/components/library/PromptCard';
+import type { SelectionToggle } from '@/components/library/SelectionCheckbox';
 import type { PromptActionHandlers } from '@/components/prompts/PromptActionsMenu';
 import type { PromptMatch } from '@/domain/search';
 import type { Prompt } from '@/domain/types';
@@ -12,7 +13,7 @@ export interface PromptGridProps {
   readonly query: string;
   readonly now: Date;
   readonly selectedIds: ReadonlySet<string>;
-  readonly onToggleSelected: (id: string) => void;
+  readonly onToggleSelected: SelectionToggle;
   /** Rendered in place of the grid when there is nothing to show. */
   readonly empty: ReactNode;
   /** Distinguishes the pinned list from the main results in the a11y tree. */

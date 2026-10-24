@@ -1,4 +1,15 @@
-import { Archive, ArchiveRestore, Copy, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import {
+  Archive,
+  ArchiveRestore,
+  Copy,
+  MoreHorizontal,
+  Pencil,
+  Pin,
+  PinOff,
+  Star,
+  StarOff,
+  Trash2,
+} from 'lucide-react';
 
 import {
   DropdownMenu,
@@ -10,11 +21,13 @@ import {
 } from '@/components/ui';
 import type { Prompt } from '@/domain/types';
 
-/** The four per-prompt operations the library wires to the store. */
+/** The per-prompt operations the library and the prompt header wire to the store. */
 export interface PromptActionHandlers {
   readonly onEdit: (prompt: Prompt) => void;
   readonly onDuplicate: (prompt: Prompt) => void;
   readonly onToggleArchive: (prompt: Prompt) => void;
+  readonly onToggleFavorite: (prompt: Prompt) => void;
+  readonly onTogglePin: (prompt: Prompt) => void;
   readonly onDelete: (prompt: Prompt) => void;
 }
 
@@ -35,6 +48,8 @@ export function PromptActionsMenu({
   onEdit,
   onDuplicate,
   onToggleArchive,
+  onToggleFavorite,
+  onTogglePin,
   onDelete,
   align = 'end',
 }: PromptActionsMenuProps) {
@@ -51,6 +66,23 @@ export function PromptActionsMenu({
         </IconButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align={align}>
+        <DropdownMenuItem onSelect={() => onToggleFavorite(prompt)}>
+          {prompt.favorite ? (
+            <Star aria-hidden="true" size={14} fill="currentColor" />
+          ) : (
+            <StarOff aria-hidden="true" size={14} />
+          )}
+          {prompt.favorite ? 'Remove from favorites' : 'Add to favorites'}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onTogglePin(prompt)}>
+          {prompt.pinned ? (
+            <PinOff aria-hidden="true" size={14} />
+          ) : (
+            <Pin aria-hidden="true" size={14} />
+          )}
+          {prompt.pinned ? 'Unpin prompt' : 'Pin prompt'}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => onEdit(prompt)}>
           <Pencil aria-hidden="true" size={14} />
           Edit details

@@ -7,7 +7,8 @@ import {
   PromptActionsMenu,
   type PromptActionHandlers,
 } from '@/components/prompts/PromptActionsMenu';
-import { Badge, Checkbox } from '@/components/ui';
+import { Badge } from '@/components/ui';
+import { SelectionCheckbox, type SelectionToggle } from '@/components/library/SelectionCheckbox';
 import { formatRelativeTime } from '@/lib/dates';
 import type { PromptMatch } from '@/domain/search';
 import type { Prompt } from '@/domain/types';
@@ -19,7 +20,7 @@ export interface PromptCardProps {
   readonly match?: PromptMatch | undefined;
   readonly now: Date;
   readonly selected: boolean;
-  readonly onToggleSelected: (id: string) => void;
+  readonly onToggleSelected: SelectionToggle;
   readonly actions: PromptActionHandlers;
 }
 
@@ -49,12 +50,11 @@ export function PromptCard({
     <li className="relative min-w-0">
       <div className="absolute top-2.5 right-2.5 z-10 flex items-center gap-0.5">
         <PromptActionsMenu prompt={prompt} {...actions} />
-        <Checkbox
-          id={`select-${prompt.id}`}
-          name={`select-${prompt.id}`}
+        <SelectionCheckbox
+          promptId={prompt.id}
+          title={prompt.title}
           checked={selected}
-          onCheckedChange={() => onToggleSelected(prompt.id)}
-          label={<span className="sr-only">Select “{prompt.title}”</span>}
+          onToggle={(options) => onToggleSelected(prompt.id, options)}
         />
       </div>
 

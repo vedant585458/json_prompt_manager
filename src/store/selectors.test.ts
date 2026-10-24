@@ -5,6 +5,7 @@ import {
   selectCounts,
   selectDashboard,
   selectLibrary,
+  sortPinnedByTitle,
   selectPromptById,
   selectTagCounts,
 } from '@/store/selectors';
@@ -308,5 +309,27 @@ describe('library filters added in TASK-011', () => {
         (p) => p.id,
       ),
     ).toEqual(['first']);
+  });
+});
+
+describe('sortPinnedByTitle', () => {
+  it('orders pinned prompts A→Z regardless of edit time', () => {
+    const zebra = promptOn(6, { title: 'zebra', pinned: true });
+    const apple = promptOn(1, { title: 'Apple', pinned: true });
+
+    expect(sortPinnedByTitle([zebra, apple]).map((entry) => entry.title)).toEqual([
+      'Apple',
+      'zebra',
+    ]);
+  });
+
+  it('breaks ties by id and does not mutate the input', () => {
+    const input = [
+      promptOn(9, { title: 'Same', pinned: true }),
+      promptOn(8, { title: 'Same', pinned: true }),
+    ];
+
+    expect(sortPinnedByTitle(input).map((entry) => entry.id)).toEqual(['p08', 'p09']);
+    expect(input.map((entry) => entry.id)).toEqual(['p09', 'p08']);
   });
 });

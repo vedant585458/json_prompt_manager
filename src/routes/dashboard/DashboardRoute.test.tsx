@@ -214,9 +214,7 @@ describe('dashboard lists', () => {
     await user.click(within(rows[0] as HTMLElement).getByText('Newer prompt'));
 
     await waitFor(() => expect(router.state.location.pathname).toBe(`/prompts/${newer.id}`));
-    expect(
-      await screen.findByRole('heading', { level: 1, name: 'Prompt workspace' }),
-    ).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Newer prompt' })).toBeVisible();
   });
 
   it('shows pinned prompts and favorites as separate lists', async () => {

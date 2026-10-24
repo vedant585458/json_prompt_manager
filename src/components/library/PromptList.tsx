@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 
+import type { SelectionToggle } from '@/components/library/SelectionCheckbox';
 import { PromptRow } from '@/components/library/PromptRow';
 import type { PromptActionHandlers } from '@/components/prompts/PromptActionsMenu';
 import type { PromptMatch } from '@/domain/search';
@@ -12,7 +13,7 @@ export interface PromptListProps {
   readonly query: string;
   readonly now: Date;
   readonly selectedIds: ReadonlySet<string>;
-  readonly onToggleSelected: (id: string) => void;
+  readonly onToggleSelected: SelectionToggle;
   readonly empty: ReactNode;
   /** Distinguishes the pinned list from the main results in the a11y tree. */
   readonly label?: string;

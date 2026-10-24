@@ -41,6 +41,8 @@ export interface PromptFormDialogProps {
   readonly collections: readonly Collection[];
   readonly templates: readonly PromptTemplate[];
   readonly schemas: readonly PromptSchema[];
+  /** Existing tags offered as one-click suggestions (TASK-013). */
+  readonly tagSuggestions?: readonly string[];
   readonly onOpenChange: (open: boolean) => void;
   readonly onSubmit: (values: PromptFormValues) => Promise<void>;
 }
@@ -75,6 +77,7 @@ export function PromptFormDialog({
   collections,
   templates,
   schemas,
+  tagSuggestions = [],
   onOpenChange,
   onSubmit,
 }: PromptFormDialogProps) {
@@ -284,6 +287,26 @@ export function PromptFormDialog({
               />
             )}
           </Field>
+
+          {tagSuggestions.filter((tag) => !tags.includes(tag)).length > 0 ? (
+            <div className="-mt-1 flex flex-wrap gap-1.5">
+              {tagSuggestions
+                .filter((tag) => !tags.includes(tag))
+                .slice(0, 8)
+                .map((tag) => (
+                  <Button
+                    key={tag}
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 font-mono text-2xs"
+                    onClick={() => setTagInput(formatTagInput([...tags, tag]))}
+                  >
+                    + {tag}
+                  </Button>
+                ))}
+            </div>
+          ) : null}
 
           {tags.length > 0 ? (
             <p className="-mt-1 flex flex-wrap gap-1.5 text-2xs text-ink-muted">

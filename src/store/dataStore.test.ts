@@ -726,3 +726,284 @@ describe('dataStore organization', () => {
     await repositories.close();
   });
 });
+
+describe('dataStore favorites, pins, and bulk writes (TASK-013)', () => {
+  async function seedThree(repos: Repositories) {
+    await repos.prompts.create(promptEntity('p1', 'Alpha', { tags: ['finance', 'support'] }));
+    await repos.prompts.create(promptEntity('p2', 'Bravo', { tags: ['support'] }));
+    await repos.prompts.create(promptEntity('p3', 'Charlie', { tags: [] }));
+  }
+
+  it('flips favorite and pin, writing through to storage', async () => {
+    const { repositories, store } = await createHarness(seedThree);
+
+    const favorited = await store.getState().toggleFavorite('p1');
+    const pinned = await store.getState().togglePin('p1');
+
+    expect(favorited.favorite).toBe(true);
+    expect(pinned.pinned).toBe(true);
+    await expect(repositories.prompts.get('p1')).resolves.toMatchObject({
+      favorite: true,
+      pinned: true,
+    });
+    expect(store.getState().activity.map((event) => event.summary)).toEqual([
+      'Pinned "Alpha"',
+      'Favorited "Alpha"',
+    ]);
+
+    const unfavorited = await store.getState().toggleFavorite('p1');
+    expect(unfavorited.favorite).toBe(false);
+    await expect(repositories.prompts.get('p1')).resolves.toMatchObject({ favorite: false });
+
+    await repositories.close();
+  });
+
+  it('rejects a toggle for a prompt that no longer exists', async () => {
+    const { repositories, store } = await createHarness(seedThree);
+
+    await expect(store.getState().toggleFavorite('missing')).rejects.toBeInstanceOf(
+      RecordNotFoundError,
+    );
+
+    await repositories.close();
+  });
+
+  it('applies a favorite to exactly the selected prompts and reports prior values', async () => {
+    const { repositories, store } = await createHarness(seedThree);
+
+    const result = await store.getState().setFavorite(['p1', 'p3'], true);
+
+    expect(result.prompts.map((prompt) => prompt.id).sort()).toEqual(['p1', 'p3']);
+    expect(result.previous.map((prompt) => prompt.favorite)).toEqual([false, false]);
+    expect(
+      store
+        .getState()
+        .prompts.filter((prompt) => prompt.favorite)
+        .map((prompt) => prompt.id)
+        .sort(),
+    ).toEqual(['p1', 'p3']);
+    await expect(repositories.prompts.get('p2')).resolves.toMatchObject({ favorite: false });
+    expect(store.getState().activity[0]?.summary).toBe('Favorited 2 prompts');
+
+    await repositories.close();
+  });
+
+  it('archives and restores a selection', async () => {
+    const { repositories, store } = await createHarness(seedThree);
+
+    const archived = await store.getState().setArchived(['p2'], true);
+    expect(archived.prompts[0]).toMatchObject({ id: 'p2', archived: true });
+    expect(store.getState().activity[0]?.summary).toBe('Archived 1 prompt');
+
+    const restored = await store.getState().setArchived(['p2'], false);
+    expect(restored.prompts[0]).toMatchObject({ id: 'p2', archived: false });
+    expect(store.getState().activity[0]?.summary).toBe('Restored 1 prompt from the archive');
+
+    await repositories.close();
+  });
+
+  it('adds and removes tags in one pass', async () => {
+    const { repositories, store } = await createHarness(seedThree);
+
+    await store.getState().editTags(['p1', 'p3'], { add: [' Priority ', 'finance'] });
+    await expect(repositories.prompts.get('p3')).resolves.toMatchObject({
+      tags: ['priority', 'finance'],
+    });
+    await expect(repositories.prompts.get('p1')).resolves.toMatchObject({
+      tags: ['finance', 'support', 'priority'],
+    });
+
+    await store.getState().editTags(['p1', 'p2'], { remove: ['support'] });
+    await expect(repositories.prompts.get('p1')).resolves.toMatchObject({
+      tags: ['finance', 'priority'],
+    });
+    await expect(repositories.prompts.get('p2')).resolves.toMatchObject({ tags: [] });
+
+    await repositories.close();
+  });
+
+  it('renames a tag everywhere and merges it into an existing one', async () => {
+    const { repositories, store } = await createHarness(async (repos) => {
+      await repos.prompts.create(promptEntity('p1', 'Alpha', { tags: ['invoice', 'finance'] }));
+      await repos.prompts.create(promptEntity('p2', 'Bravo', { tags: ['invoice'] }));
+      await repos.prompts.create(promptEntity('p3', 'Charlie', { tags: ['finance'] }));
+    });
+
+    const result = await store.getState().renameTag('invoice', ' Finance ');
+    expect(result).toEqual({ updated: 2 });
+
+    const p1 = await repositories.prompts.get('p1');
+    const p2 = await repositories.prompts.get('p2');
+    expect(p1?.tags).toEqual(['finance']);
+    expect(p2?.tags).toEqual(['finance']);
+    expect(store.getState().activity[0]?.summary).toBe(
+      'Renamed tag "#invoice" to "#finance" on 2 prompts',
+    );
+
+    await repositories.close();
+  });
+
+  it('rejects renaming a tag to nothing', async () => {
+    const { repositories, store } = await createHarness(seedThree);
+
+    await expect(store.getState().renameTag('support', '   ')).rejects.toBeInstanceOf(
+      RuleViolationError,
+    );
+
+    await repositories.close();
+  });
+
+  it('deletes a tag from every prompt that carries it', async () => {
+    const { repositories, store } = await createHarness(seedThree);
+
+    const result = await store.getState().deleteTag('support');
+    expect(result).toEqual({ updated: 2 });
+    expect(store.getState().prompts.find((prompt) => prompt.id === 'p1')?.tags).toEqual([
+      'finance',
+    ]);
+    expect(store.getState().activity[0]?.summary).toBe('Removed tag "#support" from 2 prompts');
+
+    await repositories.close();
+  });
+
+  it('restores the reversible fields without touching later edits', async () => {
+    const { repositories, store } = await createHarness(seedThree);
+
+    const previous = await store.getState().setArchived(['p1', 'p2'], true);
+    await store.getState().editPrompt('p1', { title: 'Alpha renamed' });
+
+    const restored = await store.getState().restorePrompts(previous.previous);
+    expect(restored).toBe(2);
+
+    const p1 = await repositories.prompts.get('p1');
+    expect(p1).toMatchObject({ title: 'Alpha renamed', archived: false, favorite: false });
+    await expect(repositories.prompts.get('p2')).resolves.toMatchObject({ archived: false });
+
+    await repositories.close();
+  });
+
+  it('deletes a selection with its revisions and test cases, and brings it back', async () => {
+    const { repositories, store } = await createHarness(async (repos) => {
+      const prompt = promptEntity('p1', 'Alpha');
+      await repos.prompts.create(prompt);
+      await repos.prompts.create(promptEntity('p2', 'Bravo'));
+      await repos.revisions.create(
+        createRevision(
+          prompt,
+          { revisionNumber: 1, kind: 'manual' },
+          {
+            now: seededNow,
+            newId: () => 'rev-1',
+          },
+        ),
+      );
+      await repos.testCases.create(
+        createTestCase(
+          { promptId: 'p1', name: 'Case one' },
+          { now: seededNow, newId: () => 'case-1' },
+        ),
+      );
+    });
+
+    const target = store.getState().prompts.find((prompt) => prompt.id === 'p1');
+    expect(target).toBeDefined();
+
+    const deleted = await store.getState().deletePrompts(['p1']);
+    expect(deleted.prompts.map((prompt) => prompt.id)).toEqual(['p1']);
+    expect(deleted.revisions).toHaveLength(1);
+    expect(deleted.testCases).toHaveLength(1);
+    await expect(repositories.prompts.get('p1')).resolves.toBeNull();
+    await expect(repositories.revisions.listByPrompt('p1')).resolves.toEqual([]);
+    expect(store.getState().testCases).toEqual([]);
+    expect(store.getState().activity[0]?.summary).toBe('Deleted 1 prompt');
+
+    const restored = await store.getState().restoreDeletedPrompts(deleted);
+    expect(restored).toBe(1);
+    await expect(repositories.prompts.get('p1')).resolves.toMatchObject({ title: 'Alpha' });
+    await expect(repositories.revisions.listByPrompt('p1')).resolves.toHaveLength(1);
+    expect(store.getState().testCases).toHaveLength(1);
+    expect(store.getState().activity[0]?.summary).toBe('Restored 1 prompt');
+
+    await repositories.close();
+  });
+
+  it('leaves every row unchanged when a bulk write fails', async () => {
+    const { repositories, store } = await createHarness(seedThree);
+
+    repositories.prompts.updateMany = async () => {
+      throw new StorageUnavailableError('The database is locked.');
+    };
+
+    await expect(store.getState().setFavorite(['p1', 'p2', 'p3'], true)).rejects.toThrow(
+      'The database is locked.',
+    );
+
+    expect(store.getState().prompts.every((prompt) => !prompt.favorite)).toBe(true);
+    expect(store.getState().error).toBe('The database is locked.');
+    expect(store.getState().activity).toEqual([]);
+
+    const stored = await repositories.prompts.list();
+    expect(stored.every((prompt) => !prompt.favorite)).toBe(true);
+
+    await repositories.close();
+  });
+
+  it('keeps a failed bulk delete visible and undoable in storage', async () => {
+    const { repositories, store } = await createHarness(seedThree);
+
+    repositories.prompts.deleteManyCascade = async () => {
+      throw new StorageUnavailableError('The database is locked.');
+    };
+
+    await expect(store.getState().deletePrompts(['p1', 'p2'])).rejects.toThrow(
+      'The database is locked.',
+    );
+
+    expect(store.getState().prompts).toHaveLength(3);
+    await expect(repositories.prompts.get('p1')).resolves.not.toBeNull();
+    expect(store.getState().activity).toEqual([]);
+
+    await repositories.close();
+  });
+
+  it('surfaces a failed undo without losing the change it was undoing', async () => {
+    const { repositories, store } = await createHarness(seedThree);
+
+    const change = await store.getState().setArchived(['p1', 'p2'], true);
+    repositories.prompts.updateMany = async () => {
+      throw new StorageUnavailableError('The database is locked.');
+    };
+
+    await expect(store.getState().restorePrompts(change.previous)).rejects.toThrow(
+      'The database is locked.',
+    );
+
+    // The archive is intact, so Undo stays meaningful: retrying after the
+    // storage recovers restores both rows.
+    const stored = await repositories.prompts.list();
+    expect(stored.filter((prompt) => prompt.archived).map((prompt) => prompt.id)).toEqual([
+      'p1',
+      'p2',
+    ]);
+    expect(store.getState().prompts.filter((prompt) => prompt.archived)).toHaveLength(2);
+
+    await repositories.close();
+  });
+
+  it('surfaces a failed restore of deleted prompts', async () => {
+    const { repositories, store } = await createHarness(seedThree);
+
+    const deleted = await store.getState().deletePrompts(['p3']);
+    repositories.prompts.create = async () => {
+      throw new StorageUnavailableError('The database is locked.');
+    };
+
+    await expect(store.getState().restoreDeletedPrompts(deleted)).rejects.toThrow(
+      'The database is locked.',
+    );
+    await expect(repositories.prompts.get('p3')).resolves.toBeNull();
+    expect(store.getState().prompts).toHaveLength(2);
+
+    await repositories.close();
+  });
+});

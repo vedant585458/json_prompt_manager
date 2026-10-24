@@ -16,6 +16,10 @@ export interface UiState {
   /** Right-hand panel in the editor workspace. */
   readonly rightPanel: RightPanel;
   readonly paletteOpen: boolean;
+  /** Keyboard shortcut help overlay (TASK-009). */
+  readonly helpOpen: boolean;
+  /** Command ids used most recently, newest first; palette ordering only. */
+  readonly recentCommandIds: readonly string[];
   /** Prompt currently open in the editor, or null for the library. */
   readonly selectedPromptId: string | null;
   /** Multi-selection for bulk actions (TASK-013). */
@@ -26,6 +30,10 @@ export interface UiState {
   setRightPanel: (panel: RightPanel) => void;
   setPaletteOpen: (open: boolean) => void;
   togglePalette: () => void;
+  setHelpOpen: (open: boolean) => void;
+  /** Records a command activation, keeping at most five distinct ids. */
+  pushRecentCommand: (id: string) => void;
+  clearRecentCommands: () => void;
   selectPrompt: (id: string | null) => void;
   setSelection: (ids: readonly string[]) => void;
   toggleSelection: (id: string) => void;
@@ -38,6 +46,8 @@ export interface InitialUiState {
   readonly sidebarOpen?: boolean;
   readonly rightPanel?: RightPanel;
   readonly paletteOpen?: boolean;
+  readonly helpOpen?: boolean;
+  readonly recentCommandIds?: readonly string[];
   readonly selectedPromptId?: string | null;
   readonly selectedPromptIds?: readonly string[];
 }
@@ -48,6 +58,8 @@ export function createUiStore(initial: InitialUiState = {}) {
     sidebarOpen: initial.sidebarOpen ?? true,
     rightPanel: initial.rightPanel ?? 'none',
     paletteOpen: initial.paletteOpen ?? false,
+    helpOpen: initial.helpOpen ?? false,
+    recentCommandIds: [...(initial.recentCommandIds ?? [])],
     selectedPromptId: initial.selectedPromptId ?? null,
     selectedPromptIds: [...(initial.selectedPromptIds ?? [])],
 
@@ -56,6 +68,15 @@ export function createUiStore(initial: InitialUiState = {}) {
     setRightPanel: (panel) => set({ rightPanel: panel }),
     setPaletteOpen: (open) => set({ paletteOpen: open }),
     togglePalette: () => set((state) => ({ paletteOpen: !state.paletteOpen })),
+    setHelpOpen: (open) => set({ helpOpen: open }),
+    pushRecentCommand: (id) =>
+      set((state) => ({
+        recentCommandIds: [
+          id,
+          ...state.recentCommandIds.filter((existing) => existing !== id),
+        ].slice(0, 5),
+      })),
+    clearRecentCommands: () => set({ recentCommandIds: [] }),
     selectPrompt: (id) => set({ selectedPromptId: id }),
 
     setSelection: (ids) => set({ selectedPromptIds: [...ids] }),

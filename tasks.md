@@ -590,7 +590,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-006 — Persistence foundation with repositories and migrations — High — deps: 005
 - [x] TASK-007 — Seed data, application store, and first-run foundation — High — deps: 004, 006
 - [x] TASK-008 — Application shell, routing, and responsive navigation — High — deps: 004, 007
-- [ ] TASK-009 — Keyboard shortcut registry and command palette — High — deps: 008
+- [x] TASK-009 — Keyboard shortcut registry and command palette — High — deps: 008
 - [ ] TASK-010 — Dashboard with real library data — High — deps: 008, 009
 - [ ] TASK-011 — Prompt library browsing, search, filters, and views — High — deps: 008
 - [ ] TASK-012 — Prompt CRUD, folders, and collections — High — deps: 011
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 8 of 31 tasks complete. TASK-001 through TASK-008 were completed on 2026-10-24.
+**Progress:** 9 of 31 tasks complete. TASK-001 through TASK-009 were completed on 2026-10-24.
 
 ---
 
@@ -924,7 +924,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-009 — Keyboard shortcut registry and command palette
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-008
 - **Objective:** Provide a centralized shortcut system and a fast, keyboard-accessible command palette that later tasks extend without duplicated logic.
@@ -943,6 +943,20 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Tests for registry dedupe, filtering, open/close, navigation command execution, typing guard; keyboard-only manual test; typecheck/lint/tests/build.
 - **Deliverables:** `src/lib/commands/{registry,types,useCommand}.ts`, `src/components/command-palette/*`, `src/components/layout/ShortcutHelpDialog.tsx`, tests.
 - **Out of scope:** Save/format/validate commands (added by owning tasks), search history.
+
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Registry (`src/lib/commands/registry.ts`):** `createCommandRegistry()` stores declarative commands and validates each one eagerly — non-empty namespaced id, known group, parseable shortcut — throwing on a duplicate id or a shortcut already bound to another command. Batch registration rolls back on failure, unregistering is identity-safe (a stale disposer cannot remove a re-registered command), and `list()` returns a stable ordered snapshot plus a subscription for `useSyncExternalStore`. `ensureCoreCommands()` registers the current set once per session so a remount cannot duplicate it.
+  - **Shortcuts (`src/lib/commands/shortcuts.ts`):** `Mod+K`, `Shift+?`, and two-step sequences such as `G L` are parsed once per definition and validated at registration. Matching is pure and platform-aware (`Mod` = ⌘ on Apple, Ctrl elsewhere; exact modifier state; Shift ignored only for punctuation that encodes it). The stateful matcher supports sequences, multiple commands sharing a first chord, a 1.5 s expiry, mismatch clearing, and single-chord precedence.
+  - **Binding (`src/lib/commands/useCommand.ts`):** `useCommandEnvironment()` builds a context from live state (route, typing focus, palette/help state, theme, rail, dev build, platform), `useShortcutListener()` owns the single global keydown listener, `useCommands()` subscribes to the registry, and `useCommand(id)` runs a command with the current context (returning false for unknown or unavailable commands) for future toolbars.
+  - **Guard rails:** the listener ignores auto-repeat, composed and consumed events, anything inside an overlay, everything while the palette or help is open, and — except `allowInInput` commands, currently only the palette's `Mod+K` — everything typed into an input, textarea, select, or contenteditable.
+  - **Palette (`src/components/command-palette/CommandPalette.tsx`):** Radix dialog with a combobox search field, `role="listbox"` of grouped fuzzy-ranked options, `aria-activedescendant` navigation (focus never leaves the field), shortcut hints per row, a "Recent" group, a real empty state, a live command count, and full-screen behaviour below 640 px. Enter or a click runs the highlighted command after closing the palette, then focus returns to the opener. Duplicate activation is blocked by a per-open ref and the shared `commandRunner`'s in-flight set.
+  - **Help (`src/components/layout/ShortcutHelpDialog.tsx`):** opens with `?` or the top-bar keyboard button and lists every available command that has a shortcut, grouped exactly as the palette groups them — generated from the registry, never hand-written.
+  - **Initial commands only:** open palette (`Mod+K`), shortcut help (`?`), toggle theme (`Mod+Shift+L`), toggle rail (`Mod+B`), navigation to every real route (`G D`, `G L`, `G C`, `G T`, `G V`, `G H`, `G S`), and the design gallery in development builds. The top bar's disabled search placeholder from TASK-008 is replaced by the working palette trigger with a platform-aware key hint; a keyboard button opens the help overlay.
+  - **Deviation, recorded deliberately:** the spec's "focus library search (when on library)" command is **not** registered, because the library has no search field until TASK-011 and the acceptance rule forbids listing a command that cannot do anything. TASK-011 registers it together with the field.
+  - **Tests added (75 new cases; whole suite 526 across 46 files):** shortcuts 20 (parsing, platform/modifier matrix, punctuation Shift, display tokens, typing targets, sequences, shared prefixes, expiry, mismatch), registry 11 (duplicates, conflicts, validation, disposal, rollback, subscription, availability, runner guards), filter 11 (fuzzy scoring, ranking, availability, grouping, recents), core commands 10 (catalogue, no unimplemented commands, bindings, dev gate, delegation), `useCommand` 3, palette 14 (Mod+K open/close, focus, groups, filtering, arrows, Enter, Escape + focus return, empty state, double activation, recents, typing guard, sequences, theme toggle, auto-repeat), help 6 (generated list, registry additions, omissions, triggers, Escape, palette priority). `src/test/renderApp.tsx` now resets the UI and preference stores so singleton state cannot leak between tests, and `src/test/commandContext.ts` provides a complete context stub.
+  - **Validation executed:** `npm run typecheck` exit 0; `npm run lint` exit 0 with **0 warnings**; `npm run test:run` — **46 files / 526 tests passed**; `npm run format:check` clean; `npm run build` exit 0; `npm run check:contrast` 52 pairings pass; dev server `GET /` returns HTTP 200.
+  - **Not performed (stated honestly):** the requested keyboard-only manual test was not run — this workspace has no browser or input device. Keyboard behaviour is covered by jsdom tests dispatching real key events; no screenshot or visual verification is claimed.
+  - **Docs:** `docs/ARCHITECTURE.md` gained a "Commands and keyboard" section (registry contract, matching rules, dispatch guards, palette patterns, extensibility contract) and updated project structure; `docs/DECISIONS.md` gained ADR-52…ADR-55, index rows, and a TASK-009 verification log with limitations; `README.md` and `tasks.md` updated.
 
 ---
 

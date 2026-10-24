@@ -53,6 +53,10 @@ Status values: **Accepted** (in force), **Planned** (agreed, not yet built), **S
 | ADR-49 | Route focus moves to `main`; drawer navigation skips focus restoration  | Accepted   | TASK-008     |
 | ADR-50 | Unbuilt destinations are scaffolds, not mock-ups                        | Accepted   | TASK-008     |
 | ADR-51 | Settings expose only preferences whose features exist                   | Accepted   | TASK-008     |
+| ADR-52 | One command registry rejects duplicate ids and shortcut conflicts       | Accepted   | TASK-009     |
+| ADR-53 | Shortcut matching is pure, platform-aware, and sequence-capable         | Accepted   | TASK-009     |
+| ADR-54 | Palette keeps focus in the search field and guards double execution     | Accepted   | TASK-009     |
+| ADR-55 | The shortcut reference is generated from the registry                   | Accepted   | TASK-009     |
 
 ---
 
@@ -898,6 +902,77 @@ motion are named in copy as arriving with the editor (TASK-014) rather than sile
 
 ---
 
+## ADR-52 — One command registry rejects duplicate ids and shortcut conflicts
+
+**Context.** Shortcuts accumulate across features: navigation here, save and format in TASK-015,
+validation in TASK-016. Two commands bound to the same chord means one of them silently never runs,
+and a duplicated id makes the palette ambiguous.
+
+**Decision.** `createCommandRegistry()` validates every definition at registration — non-empty
+namespaced id, known group, valid shortcut syntax — and throws on a duplicate id or a shortcut
+already bound to another command. A batch registration rolls back on failure. `ensureCoreCommands()`
+registers the core set once per session so a remount (StrictMode, HMR, tests) cannot double-register.
+
+**Consequences.** Conflicts surface at development time with the two ids in the message. A feature
+cannot quietly claim a chord; it must pick another or rename. The strictness is deliberate: the
+alternative is a shortcut that works only sometimes.
+
+---
+
+## ADR-53 — Shortcut matching is pure, platform-aware, and sequence-capable
+
+**Context.** `Mod` means ⌘ on macOS and Ctrl elsewhere, layouts encode Shift inside punctuation
+(`?`), and the task calls for optional `G`-then-`L` sequences. Browsers expose none of this
+uniformly, and DOM-level tests cannot exercise a real keyboard matrix.
+
+**Decision.** `src/lib/commands/shortcuts.ts` parses `Mod+K` / `Shift+?` / `G L` strings into chords,
+matches them against a `KeyStroke`-shaped object plus an explicit platform, and provides a small
+stateful matcher for sequences. Modifier state must match exactly. Shift is ignored only for
+non-alphanumeric single characters. Multiple commands may share a first chord (`G`); the second key
+picks the candidate, a mismatch or 1.5 s timeout clears the prefix, and a completed single chord wins
+over a pending prefix.
+
+**Consequences.** Every rule is unit-testable without a browser, and the UI only builds a `KeyStroke`
+from the event. Behaviour is deliberately conservative: `Ctrl+Shift+K` does not fire `Ctrl+K`, and a
+sequence never fires from a partially typed one.
+
+---
+
+## ADR-54 — Palette keeps focus in the search field and guards double execution
+
+**Context.** A command palette is used at speed: typing, arrowing, and hitting Enter. Moving DOM
+focus onto each option breaks typing, and Radix's default list behaviour would focus the first
+option. Running a command twice (two keydowns, a double click) is a real hazard once commands have
+side effects.
+
+**Decision.** The palette is a Radix dialog containing a combobox input and a `role="listbox"`; DOM
+focus stays in the input and the arrow keys move `aria-activedescendant` between options, which is
+the pattern assistive technology expects. Running a command closes the palette first (so focus
+returns to the opener) and is guarded twice: a per-open ref inside the palette and the shared
+`commandRunner`'s in-flight set. Auto-repeated keydown events are ignored by the global listener.
+
+**Consequences.** Typing, arrowing, and Enter compose predictably, and a command with a slow or
+asynchronous body cannot be started twice. The palette closes before the command runs, so a command
+that fails cannot leave a stale modal open over the page.
+
+---
+
+## ADR-55 — The shortcut reference is generated from the registry
+
+**Context.** Hand-maintained shortcut lists go stale the first time a feature lands. The task also
+requires that every shortcut be documented in the help overlay.
+
+**Decision.** `ShortcutHelpDialog` renders `commandRegistry.list()` filtered to commands that
+currently have a shortcut and are available, grouped by the same `COMMAND_GROUPS` the palette uses.
+The palette renders its hints from the same parsed shortcuts. Core commands are the only commands
+registered, so unimplemented actions (save, format, validate) appear nowhere.
+
+**Consequences.** A shortcut cannot be documented without being bound, and cannot be bound without
+appearing in the help overlay. A command that is unavailable in the current context (`when` returns
+false) disappears from both surfaces.
+
+---
+
 ## Verification log — TASK-005
 
 | Check              | Command                                               | Result (2026-10-24)                                                                        |
@@ -1048,6 +1123,49 @@ motion are named in copy as arriving with the editor (TASK-014) rather than sile
 - Code is not split by route yet: one JS chunk is 592 kB (183 kB gzip), which trips Vite's 500 kB
   advisory. Splitting belongs to the performance pass (`src/routes` lazy loading), not this task.
 - The mobile drawer is exercised in jsdom only; its visual slide-over behaviour is untested visually.
+
+---
+
+## Verification log — TASK-009
+
+| Check         | Command                                                        | Result (2026-10-24)                                     |
+| ------------- | -------------------------------------------------------------- | ------------------------------------------------------- |
+| Types         | `npm run typecheck`                                            | exit 0                                                  |
+| Lint          | `npm run lint`                                                 | exit 0, **0 warnings**                                  |
+| Tests         | `npm run test:run`                                             | 46 files / 526 tests passed                             |
+| Command tests | `npm run test:run -- src/lib/commands`                         | 5 files / 55 tests passed                               |
+| Palette tests | `npm run test:run -- src/components/command-palette`           | 14 tests passed                                         |
+| Help tests    | `npm run test:run -- src/components/layout/ShortcutHelpDialog` | 6 tests passed                                          |
+| Formatting    | `npm run format:check`                                         | clean                                                   |
+| Build         | `npm run build`                                                | exit 0 (single-chunk advisory unchanged from TASK-008)  |
+| Contrast      | `npm run check:contrast`                                       | 52 pairings pass                                        |
+| Dev server    | `GET http://127.0.0.1:5173/`                                   | HTTP 200                                                |
+| Keyboard pass | manual, browser                                                | **not performed** — no browser binary in this workspace |
+
+### Test inventory added in this task
+
+| File                                                     | Cases | Focus                                                                                                                                                                           |
+| -------------------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/lib/commands/shortcuts.test.ts`                     | 20    | parsing, modifier/platform matrix, punctuation Shift, display tokens, typing targets, sequence matcher                                                                          |
+| `src/lib/commands/registry.test.ts`                      | 11    | duplicate id/shortcut rejection, validation, disposal, batch rollback, subscriptions, availability, runner guards                                                               |
+| `src/lib/commands/filter.test.ts`                        | 11    | fuzzy scoring, availability filtering, ranking, grouping, recents                                                                                                               |
+| `src/lib/commands/coreCommands.test.ts`                  | 10    | catalogue completeness, no unimplemented commands, bindings, dev gate, run delegation                                                                                           |
+| `src/lib/commands/useCommand.test.tsx`                   | 3     | hook runs with live context, unknown id, unavailable command                                                                                                                    |
+| `src/components/command-palette/CommandPalette.test.tsx` | 14    | Mod+K open/close, focus, grouping, filtering, arrows, Enter, Escape + focus return, empty state, double activation, recents, typing guard, sequences, theme toggle, auto-repeat |
+| `src/components/layout/ShortcutHelpDialog.test.tsx`      | 6     | generated list, registry additions, unavailable/unscheduled commands omitted, top-bar trigger, Escape, palette priority                                                         |
+
+### Known limitations at this stage
+
+- **No manual keyboard-only pass was performed** — there is no browser or input device in this
+  environment. Keyboard behaviour is covered by jsdom tests that dispatch real key events through
+  `user-event`, not by human interaction.
+- **"Focus library search" is not registered.** The library has no search field until TASK-011, and
+  listing a command that cannot do anything would violate the availability rule. It will be
+  registered by TASK-011 together with the field.
+- Two-step sequences are limited to two chords by design; deeper chains would need a clearer UI.
+- Recent commands are session-only (deliberately not persisted); "search history" is out of scope.
+- The palette is rendered inside the shell, so it is unavailable on the standalone route-error
+  screen — that screen intentionally owns no application chrome.
 
 ---
 

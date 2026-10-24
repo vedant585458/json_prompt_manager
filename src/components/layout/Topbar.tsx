@@ -1,11 +1,20 @@
-import { Menu, Search } from 'lucide-react';
+import { Keyboard, Menu, Search } from 'lucide-react';
+import { useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 
 import { Breadcrumbs } from '@/components/layout/Breadcrumbs';
 import { routeLabel } from '@/components/layout/navigation';
 import { StorageModeBadge } from '@/components/layout/StorageModeBadge';
 import { ThemeToggle } from '@/components/theme/ThemeToggle';
-import { Button, IconButton } from '@/components/ui';
+import { Button, IconButton, Kbd } from '@/components/ui';
+import { PALETTE_SHORTCUT } from '@/lib/commands/coreCommands';
+import {
+  ariaKeyshortcuts,
+  detectPlatform,
+  parseShortcut,
+  shortcutTokens,
+} from '@/lib/commands/shortcuts';
+import { useUiStore } from '@/store/uiStore';
 
 export interface TopbarProps {
   readonly onOpenNav: () => void;
@@ -23,6 +32,14 @@ export interface TopbarProps {
 export function Topbar({ onOpenNav, navOpen }: TopbarProps) {
   const { pathname } = useLocation();
   const label = routeLabel(pathname) ?? 'Not found';
+
+  const setPaletteOpen = useUiStore((state) => state.setPaletteOpen);
+  const setHelpOpen = useUiStore((state) => state.setHelpOpen);
+  const paletteShortcut = useMemo(() => parseShortcut(PALETTE_SHORTCUT), []);
+  const paletteKeys = useMemo(
+    () => shortcutTokens(paletteShortcut, detectPlatform())[0] ?? [],
+    [paletteShortcut],
+  );
 
   return (
     <header className="sticky top-0 z-sticky flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface-1 px-3 sm:gap-3 sm:px-4">
@@ -42,18 +59,24 @@ export function Topbar({ onOpenNav, navOpen }: TopbarProps) {
         <Button
           variant="secondary"
           size="sm"
-          disabled
-          aria-describedby="search-unavailable"
-          title="Search and the command palette arrive in TASK-009."
-          className="hidden gap-2 md:inline-flex"
+          aria-label="Search commands"
+          aria-keyshortcuts={ariaKeyshortcuts(paletteShortcut)}
+          onClick={() => setPaletteOpen(true)}
+          title="Search commands"
+          className="gap-2"
         >
           <Search aria-hidden="true" size={14} />
-          Search
+          <span className="hidden md:inline">Search commands</span>
+          <span className="hidden items-center gap-1 md:flex" aria-hidden="true">
+            {paletteKeys.map((key) => (
+              <Kbd key={key}>{key}</Kbd>
+            ))}
+          </span>
         </Button>
-        <span id="search-unavailable" className="sr-only">
-          Search is not available yet: the command palette ships in TASK-009. Nothing on this screen
-          can be searched.
-        </span>
+
+        <IconButton label="Keyboard shortcuts" onClick={() => setHelpOpen(true)}>
+          <Keyboard size={16} />
+        </IconButton>
 
         <StorageModeBadge className="hidden sm:inline-flex" />
         <ThemeToggle className="hidden sm:inline-flex" />

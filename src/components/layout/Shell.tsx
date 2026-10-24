@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 
+import { CommandLayer } from '@/components/command-palette/CommandLayer';
 import { MobileNav } from '@/components/layout/MobileNav';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { SkipLink } from '@/components/layout/SkipLink';
@@ -60,6 +61,8 @@ export function Shell() {
           <Outlet />
         </main>
       </div>
+
+      <CommandLayer />
 
       <MobileNav
         open={mobileNavOpen}

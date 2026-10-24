@@ -175,14 +175,18 @@ describe('router', () => {
     expect(within(breadcrumb).queryByRole('link', { name: 'Prompt' })).toBeNull();
   });
 
-  it('does not present the unavailable search as a working control', async () => {
+  it('exposes a working command palette trigger with a platform-aware hint', async () => {
+    const user = userEvent.setup();
     await openAt('/', 'Dashboard');
 
-    const search = screen.getByRole('button', { name: 'Search' });
-    expect(search).toBeDisabled();
-    expect(search).toHaveAttribute('aria-describedby', 'search-unavailable');
-    expect(screen.getByText(/command palette ships in TASK-009/i)).toBeInTheDocument();
-    expect(screen.queryByText('⌘K')).toBeNull();
+    const trigger = screen.getByRole('button', { name: 'Search commands' });
+    expect(trigger).toBeEnabled();
+    // jsdom reports a non-Apple platform, so Mod renders as Control.
+    expect(trigger).toHaveAttribute('aria-keyshortcuts', 'Control+K');
+    expect(screen.getByText('Ctrl')).toBeInTheDocument();
+
+    await user.click(trigger);
+    expect(await screen.findByRole('dialog', { name: 'Command palette' })).toBeInTheDocument();
   });
 
   it('states the storage mode in words, not colour alone', async () => {

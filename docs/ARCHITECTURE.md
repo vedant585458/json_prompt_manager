@@ -2,7 +2,7 @@
 
 **Advanced JSON Prompt Management Studio** — a local-first workspace for creating, organizing, validating, versioning, comparing, and optimizing structured JSON prompts.
 
-> **Status: TASK-008 complete — application shell, routing, and responsive navigation.**
+> **Status: TASK-009 complete — command registry, command palette, and shortcut help.**
 > The repository contains the toolchain, the Prompt Observatory token system with dark and light
 > themes, the primitive layer (buttons, form controls, tabs, tooltips, status, progress), the
 > overlay/feedback layer (dialogs, confirmations, sheets, dropdown and context menus, toasts,
@@ -75,7 +75,7 @@ architecture; features are still implemented only when their task is authorized.
 src/
   app/            application root, providers, boot sequence, error boundary
   routes/         route-level screens
-  components/     ui primitives, layout, and domain components
+  components/     ui primitives, layout, command palette, and domain components
   features/       feature modules (save pipeline, revisions, diff, lab, ...)
   domain/         pure TypeScript domain logic and types (no React, no storage)
   data/           repository interfaces, IndexedDB + in-memory adapters, migrations,
@@ -83,6 +83,7 @@ src/
   store/          Zustand stores (data, preferences, interface) and pure selectors
   hooks/          reusable hooks
   lib/            small framework-agnostic utilities
+    commands/     command registry, shortcut parsing/matching, core commands, React bindings
   styles/         tokens and global styles
   test/           test setup and shared fixtures
 docs/             architecture, data model, persistence, testing, limits
@@ -166,9 +167,10 @@ renders even if the shell itself throws.
   overlay returns focus to the menu button; closing it _because the user picked a destination_ does
   not, because the new screen's landmark should win (`Sheet.restoreFocusOnClose`).
 - **`document.title` is per route** (`<Screen> · PromptForge`), driven by the same navigation model.
-- **No phantom controls.** The command palette does not exist until TASK-009, so the top bar shows a
-  visibly disabled search control with a written explanation and no ⌘K hint. Scaffolded routes list
-  what will be built and offer no controls that would appear to work.
+- **No phantom controls.** The top bar's search trigger opens the real command palette and shows the
+  platform's own shortcut (`⌘K` or `Ctrl K`); the adjacent button opens the generated shortcut
+  reference. Scaffolded routes list what will be built and offer no controls that would appear to
+  work, and the palette never lists a command that is not registered.
 - **Settings are real.** Theme, editor density, and autosave write through `preferencesStore` and the
   settings repository immediately and report the outcome — including the honest "session only"
   message when storage is ephemeral. Fields whose features do not exist yet (indentation, reduced
@@ -180,6 +182,53 @@ AppProviders (theme → tooltips → toasts → error boundary)
   └─ DataBootstrap          // skeletons until storage is resolved, seeded, hydrated
        └─ RouterProvider    // createBrowserRouter(routes); tests inject a memory router
 ```
+
+## Commands and keyboard
+
+Everything a shortcut can do is declared once, in `src/lib/commands/`:
+
+```ts
+{
+  id: 'navigation.library',        // namespaced, unique (duplicates throw)
+  title: 'Go to Library',
+  group: 'Navigation',             // palette section + help overlay grouping
+  keywords: ['prompts', 'browse'], // extra search terms
+  shortcut: 'G L',                 // `Mod+K`, `Shift+?`, or a two-step sequence
+  when: (context) => context.dev,  // availability, evaluated from live state
+  run: (context) => context.navigate('/library'),
+}
+```
+
+- **One registry.** `createCommandRegistry()` stores the definitions, rejects duplicate ids **and**
+  duplicate shortcuts at registration, and exposes a stable, ordered snapshot. The palette, the
+  global key listener, and the help overlay all read that same list, so a shortcut cannot be
+  documented in one place and bound in another. `ensureCoreCommands()` registers the current set once
+  per session.
+- **Pure matching.** `parseShortcut` validates definitions; `eventMatchesChord` maps `Mod` to ⌘ on
+  Apple platforms and Ctrl elsewhere and requires exact modifier state (so `Ctrl+Shift+K` never fires
+  `Ctrl+K`). Shift is ignored only for punctuation that already encodes it (`?`). The stateful
+  `createShortcutMatcher` handles two-step sequences: several commands may share a first chord, the
+  pending step expires after 1.5 s, a mismatch clears it, and a completed single chord always wins
+  over a pending prefix.
+- **Dispatch rules.** One `keydown` listener on `document`. It ignores auto-repeat, composed and
+  already-consumed events, overlays (they own their keys), everything while the palette or help is
+  open, and — except commands marked `allowInInput`, currently only the palette's own `Mod+K` —
+  everything typed into an input, textarea, select, or contenteditable.
+- **The palette** is a Radix dialog with a combobox input and a `role="listbox"` of grouped,
+  fuzzy-ranked options. Focus never leaves the search field; the arrow keys move
+  `aria-activedescendant` instead, Enter runs the highlighted command, Escape closes, and focus
+  returns to whatever opened it. On phones the dialog becomes a full-screen sheet. Recently used
+  commands lead the list on an empty query (session-only, in `uiStore`).
+- **No double execution.** The palette closes before running and guards with a local ref, and the
+  shared `commandRunner` refuses to start a command whose id is already in flight — so a repeated
+  keydown, a double click, or two shortcuts for the same command cannot fire it twice.
+- **Help is generated.** `ShortcutHelpDialog` renders the registry's shortcuts grouped exactly as the
+  palette groups them; there is no hand-written shortcut table. Commands without shortcuts are still
+  searchable in the palette and simply do not appear in the reference.
+- **Contract for later tasks.** A feature registers its commands while its screen is mounted and
+  returns the disposer from the effect. `when` decides availability from the live context (route,
+  selection, theme, typing state, development build). Commands that are not implemented must not be
+  registered — the palette's list is the honest list of what the app can do.
 
 ## Persistence
 

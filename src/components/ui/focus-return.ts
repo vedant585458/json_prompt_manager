@@ -12,8 +12,13 @@
  * focus returns to the last element focused outside any overlay instead.
  */
 
-/** Marks an overlay surface so the focus tracker can ignore its contents. */
-export const OVERLAY_ATTRIBUTE = 'data-pf-overlay';
+import { OVERLAY_ATTRIBUTE } from '@/lib/overlay';
+
+/**
+ * Marks an overlay surface so the focus tracker can ignore its contents.
+ * Defined in `lib` because the command dispatcher uses the same marker.
+ */
+export { OVERLAY_ATTRIBUTE };
 
 let lastExternalFocus: Element | null = null;
 

@@ -2,7 +2,7 @@
 
 **Advanced JSON Prompt Management Studio** — a local-first workspace for creating, organizing, validating, versioning, comparing, and optimizing structured JSON prompts.
 
-> **Status: TASK-008 complete — application shell, routing, and responsive navigation.**
+> **Status: TASK-009 complete — command registry, command palette, and shortcut help.**
 > The repository contains the toolchain, the Prompt Observatory token system with dark and light
 > themes, the primitive layer, the overlay/feedback layer demonstrated in a design gallery, the typed
 > domain model, the persistence layer (repository interfaces, IndexedDB with migrations, an in-memory
@@ -10,10 +10,12 @@
 > labelled ephemeral fallback, versioned first-run seeding, data/preferences/UI stores, pure
 > selectors, a hydrating bootstrap, and an error boundary — plus the application shell: route table,
 > collapsible rail, drawer navigation, breadcrumbs, skip link, route focus/title/scroll behaviour,
-> recovery screens, and a working settings screen for theme, density, and autosave. Every declared
-> route is reachable; screens not yet built say so instead of showing mock controls. Each subsequent
-> feature is built in a separate, explicitly authorized task tracked in
-> [`tasks.md`](./tasks.md).
+> recovery screens, and a working settings screen for theme, density, and autosave), and the command
+> system (a declarative registry that rejects duplicate shortcuts, platform-aware single and two-step
+> key bindings, a fuzzy-searchable command palette at `⌘K` / `Ctrl K`, and a shortcut reference
+> generated from the same registry). Every declared route is reachable; screens not yet built say so
+> instead of showing mock controls. Each subsequent feature is built in a separate, explicitly
+> authorized task tracked in [`tasks.md`](./tasks.md).
 
 ---
 
@@ -51,17 +53,18 @@ All of the above must pass before a task can be marked complete in `tasks.md`.
 
 ## Technology stack
 
-| Area        | Choice                                                                    |
-| ----------- | ------------------------------------------------------------------------- |
-| UI          | React 19, TypeScript (strict), Vite                                       |
-| Styling     | Tailwind CSS v4 via `@tailwindcss/vite`                                   |
-| State       | Zustand (introduced with the data layer)                                  |
-| Routing     | react-router-dom 7 (`createBrowserRouter`, memory router in tests)        |
-| Persistence | IndexedDB through repository interfaces (`idb`), in-memory parity adapter |
-| Editor      | CodeMirror 6 — planned TASK-014                                           |
-| Validation  | Ajv (JSON Schema) — planned TASK-016                                      |
-| Testing     | Vitest, Testing Library, `jest-dom`, `fake-indexeddb`, jsdom              |
-| Quality     | ESLint (flat config), Prettier                                            |
+| Area        | Choice                                                                      |
+| ----------- | --------------------------------------------------------------------------- |
+| UI          | React 19, TypeScript (strict), Vite                                         |
+| Styling     | Tailwind CSS v4 via `@tailwindcss/vite`                                     |
+| State       | Zustand (introduced with the data layer)                                    |
+| Routing     | react-router-dom 7 (`createBrowserRouter`, memory router in tests)          |
+| Commands    | Custom registry + palette (`src/lib/commands`), Radix dialog, no extra deps |
+| Persistence | IndexedDB through repository interfaces (`idb`), in-memory parity adapter   |
+| Editor      | CodeMirror 6 — planned TASK-014                                             |
+| Validation  | Ajv (JSON Schema) — planned TASK-016                                        |
+| Testing     | Vitest, Testing Library, `jest-dom`, `fake-indexeddb`, jsdom                |
+| Quality     | ESLint (flat config), Prettier                                              |
 
 Dependencies for later tasks are already pinned in `package.json` where they define the
 architecture; features are still implemented only when their task is authorized.
@@ -72,7 +75,9 @@ architecture; features are still implemented only when their task is authorized.
 src/
   app/            application root, providers, router (grows in later tasks)
   routes/         route-level screens (shell scaffolds + settings + design gallery)
-  components/layout/  shell, rail, drawer, breadcrumbs, top bar, route chrome
+  components/layout/  shell, rail, drawer, breadcrumbs, top bar, route chrome, shortcut help
+  components/command-palette/  palette dialog and the command layer mounted by the shell
+  lib/commands/   registry, shortcut parsing/matching, core commands, React bindings
   components/     ui primitives, layout, and domain components
   features/       feature modules (save pipeline, revisions, diff, lab, ...)
   domain/         pure TypeScript domain logic and types (no React, no storage)

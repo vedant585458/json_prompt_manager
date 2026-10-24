@@ -88,6 +88,8 @@ interface Harness {
   readonly result: { current: ReturnType<typeof useSavePipeline> };
   readonly rerender: () => void;
   readonly unmount: () => void;
+  /** Mutable gate the test can flip before a rerender. */
+  readonly control: { blockedReason: string | null };
 }
 
 interface HarnessOptions {
@@ -97,6 +99,7 @@ interface HarnessOptions {
   readonly repositories?: Repositories;
   readonly storage?: Storage;
   readonly prompt?: Prompt;
+  readonly blockedReason?: string | null;
 }
 
 const DRAFT_TEXT = (() => {
@@ -125,6 +128,7 @@ async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
   const broadcaster = createFakeBroadcaster();
   const storage = options.storage ?? createMemoryStorage();
   const queue = createWriteQueue();
+  const control = { blockedReason: options.blockedReason ?? null };
 
   const view = renderHook(() =>
     useSavePipeline({
@@ -136,6 +140,7 @@ async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
       broadcaster,
       recoveryDelayMs: 10,
       parseDebounceMs: 5,
+      blockedReason: control.blockedReason,
     }),
   );
 
@@ -153,6 +158,7 @@ async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
     result: view.result,
     rerender: view.rerender,
     unmount: view.unmount,
+    control,
   };
 }
 
@@ -523,5 +529,31 @@ describe('useSavePipeline — ephemeral mode and other tabs', () => {
       harness.result.current.dismissRemote();
     });
     expect(harness.result.current.remote).toBeNull();
+  });
+});
+
+describe('a caller-held write gate (TASK-017)', () => {
+  it('holds autosave and manual saves back, then writes once the reason clears', async () => {
+    const harness = await createHarness({
+      autosaveDelayMs: 20,
+      blockedReason: 'Fix the duplicate variable first.',
+    });
+
+    await edit(harness, DRAFT_TEXT);
+    expect(harness.result.current.state).toBe('dirty');
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(harness.store.getState().prompts[0]?.version).toBe(1);
+    expect(await save(harness)).toBe(false);
+    expect(harness.store.getState().prompts[0]?.version).toBe(1);
+    expect(harness.result.current.state).toBe('dirty');
+
+    harness.control.blockedReason = null;
+    harness.rerender();
+
+    await waitFor(() => expect(harness.store.getState().prompts[0]?.version).toBe(2));
+    expect((await harness.repositories.prompts.get('alpha'))?.content.objective).toBe(
+      'Extract the invoice total.',
+    );
   });
 });

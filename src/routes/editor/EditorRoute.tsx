@@ -338,7 +338,10 @@ export function EditorRoute() {
 
   return (
     <div className="mx-auto flex w-full max-w-6xl min-w-0 flex-col gap-4">
-      <nav aria-label="Prompt location" className="text-xs text-ink-muted">
+      <nav
+        aria-label="Prompt location"
+        className="flex flex-wrap items-center justify-between gap-2 text-xs text-ink-muted"
+      >
         <ol className="flex flex-wrap items-center gap-1.5">
           <li>
             <Link to="/library" className="rounded-xs hover:text-ink hover:underline">
@@ -350,6 +353,12 @@ export function EditorRoute() {
             {prompt.title}
           </li>
         </ol>
+        <Link
+          to={`/prompts/${prompt.id}/compose`}
+          className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }))}
+        >
+          Compose
+        </Link>
       </nav>
 
       <PromptSummaryCard

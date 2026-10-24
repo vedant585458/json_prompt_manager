@@ -578,3 +578,17 @@ describe('validation in the workspace (TASK-016)', () => {
     await waitFor(() => expect(screen.getByLabelText(/^Caret at line 3/)).toBeVisible());
   });
 });
+
+describe('composer handoff (TASK-017)', () => {
+  it('links from the workspace to the composer for this prompt', async () => {
+    renderEditor({ prompts: [makePrompt({ id: 'alpha', title: 'Invoice parser' })] });
+
+    expect(
+      await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' }),
+    ).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Compose' })).toHaveAttribute(
+      'href',
+      '/prompts/alpha/compose',
+    );
+  });
+});

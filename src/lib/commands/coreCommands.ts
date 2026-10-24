@@ -114,6 +114,14 @@ export function createCoreCommands(): readonly CommandDefinition[] {
       run: (context) => context.navigate('/library?new=prompt'),
     },
     {
+      id: 'composer.new',
+      title: 'Compose a prompt',
+      group: 'Workspace',
+      description: 'Build a document section by section instead of hand-writing JSON.',
+      keywords: searchTerms('compose composer form guided sections new prompt'),
+      run: (context) => context.navigate('/composer'),
+    },
+    {
       id: 'folder.new',
       title: 'New folder',
       group: 'Workspace',

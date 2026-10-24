@@ -449,6 +449,41 @@ it with `compileJsonSchema`, and refuses to save until both agree. Deleting a sc
 that currently use it, detaches them in one `updateMany`, then deletes — a prompt never points at a
 schema that is gone. The dialect and its limits are documented in [`VALIDATION.md`](./VALIDATION.md).
 
+## Guided composer (TASK-017)
+
+The composer is a second way to edit the same document, not a second document. `/composer` creates a
+prompt; `/prompts/:promptId/compose` edits one through the save pipeline.
+
+| Piece                                         | Responsibility                                                                                                                                 |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/composer.ts`                      | `readComposerView` (tolerant reader), `applyComposerPatch` (raw JSON patches that keep unknown keys), issues, completeness, starters, snippets |
+| `src/features/composer/useComposerDraft.ts`   | The draft object and its canonical text; no writes, no storage                                                                                 |
+| `src/components/composer/ComposerFields.tsx`  | One fieldset per section with labelled controls; nothing here is unwired                                                                       |
+| `src/components/composer/VariablesEditor.tsx` | Variable rows: name, type, required, default, description, with per-row errors and keyboard reordering                                         |
+| `src/components/composer/JsonValueField.tsx`  | A JSON-valued field that applies only parseable text and reports when it cannot                                                                |
+| `src/components/composer/SnippetInsert.tsx`   | Inserts a stored snippet's value into a chosen section and records `includes`                                                                  |
+| `src/components/composer/ComposerPreview.tsx` | Read-only JSON of the current draft, with a handoff to the raw editor                                                                          |
+| `src/components/composer/ComposerIssues.tsx`  | Completeness in words plus the errors that hold a save back                                                                                    |
+
+**Rules the composer follows.**
+
+- **Patches, not rebuilds.** Every edit starts from the current JSON object, so a key the form does not
+  render survives it — including unknown keys inside `context`, `output`, and `metadata` (ADR-89).
+- **No silent normalization.** Blank rows, duplicate variable names, and a default that contradicts its
+  type are reported, not cleaned up. The form keeps what was typed, and the write gate refuses to store a
+  different document than the one on screen (ADR-90).
+- **JSON fields apply or hold back.** A JSON field that does not parse keeps its previous value in the
+  document, shows why, and blocks saving until it parses (ADR-91).
+- **One writer.** The form owns the draft; the pipeline owns debounce, autosave, conflicts, and recovery.
+  Stored content is adopted into the form only while the pipeline reports nothing unsaved (ADR-92).
+- **Accessible structure.** Sections are fieldsets with legends; repeated rows are their own groups;
+  reordering is a named button pair, never a drag-only affordance (ADR-93).
+- **Honest scope.** "4 of 6 sections have something in them" is a count, not a score, and the copy says the
+  checks are shape checks rather than a judgement of prompt quality.
+
+Creating a prompt validates the document with `parseDocument`, reports any normalization the domain
+applied, and only then writes through `addPrompt`; edit mode saves through `useSavePipeline`.
+
 ## Commands and keyboard
 
 Everything a shortcut can do is declared once, in `src/lib/commands/`:

@@ -4,7 +4,7 @@
 **Created:** 2026-10-24
 **Repository:** `vedant585458/json_prompt_manager`
 **Branch:** `arena/3b0d1d76-json-prompt-manager`
-**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-016 is the latest completed task.
+**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-017 is the latest completed task.
 **Authoritative status source:** This file. One status per task, maintained here only.
 
 ---
@@ -598,7 +598,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-014 — JSON editor workspace (raw + tree views) — High — deps: 012
 - [x] TASK-015 — Save pipeline, autosave, and recovery — High — deps: 014
 - [x] TASK-016 — Validation engine and validation studio — High — deps: 015
-- [ ] TASK-017 — Guided prompt composer with JSON synchronization — High — deps: 015
+- [x] TASK-017 — Guided prompt composer with JSON synchronization — High — deps: 015
 - [ ] TASK-018 — Template catalog and custom templates — Medium — deps: 012, 017
 - [ ] TASK-019 — Version history and safe restoration — High — deps: 015
 - [ ] TASK-020 — Structural diff explorer — High — deps: 019
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 16 of 31 tasks complete. TASK-001 through TASK-016 were completed on 2026-10-24.
+**Progress:** 17 of 31 tasks complete. TASK-001 through TASK-017 were completed on 2026-10-24.
 
 ---
 
@@ -1242,7 +1242,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-017 — Guided prompt composer with JSON synchronization
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-015
 - **Objective:** Let users assemble structured prompts through a guided form that stays bidirectionally consistent with the underlying JSON, without ever discarding content silently.
@@ -1262,6 +1262,19 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Unit tests for form↔document mapping and unknown-field preservation; integration test for create-from-blank → compose → save → reopen; variable validation cases; typecheck/lint/tests/build.
 - **Deliverables:** `src/routes/composer/*`, `src/features/composer/{sections,useComposerState,validation}.ts`, variable editor, snippet insert menu, tests.
 - **Out of scope:** Template catalog browsing (TASK-018), variable preview rendering (TASK-021), custom schema field definitions beyond JSON Schema attachment.
+
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Model (`src/domain/composer.ts`):** the composer edits **raw JSON**, not a normalized document. `readComposerView` is a tolerant reader (wrong types, missing sections, non-object rows), and `applyComposerPatch` starts from the current object and replaces only the edited key, so unknown top-level keys, unknown keys nested inside `context`/`output`/`metadata`, and unknown keys on a variable or example all survive an edit (ADR-89). Variables and examples carry their unreadable entries through verbatim. `composerIssues` reports a missing name (error), an empty objective (warning), an unusable variable name, a duplicate name, and a default that contradicts the declared type (errors); `describeCompleteness` counts filled sections without pretending to score quality; `applySnippet` inserts a snippet's **value** into a chosen section (text replaces, lists append without duplicates) and records the snippet id in `includes`.
+  - **Form (`src/components/composer/*`):** one `<fieldset>`/`<legend>` per section, with `VariablesEditor` (name, type, required, default, description; per-row fieldset and errors), `ExamplesEditor`, `StringListEditor` (instructions, constraints, references, tags), `JsonValueField`, `SnippetInsert`, `ComposerPreview` (read-only JSON, copy, handoff to the raw editor, preserved-field notice), and `ComposerIssues` (completeness in words, blocking errors, warnings, and an explicit "these are shape checks, not a judgement of quality" line). Reordering is a named button pair per row ("Move instruction 2 up"), so the form is keyboard-complete without a drag-only affordance (ADR-93).
+  - **JSON fields:** `JsonValueField` applies text only when it parses; unparseable text stays in the field, the document keeps its previous value, and the field key is reported as invalid so the write is held back (ADR-91).
+  - **Routes:** `/composer` creates a prompt — nothing is written until **Create prompt** succeeds, then it navigates to edit mode; `/prompts/:promptId/compose` edits through the TASK-015 pipeline. Both share `useComposerDraft` (draft object + canonical text) and the same field components. Leaving an unsubmitted create draft asks first, and edit mode keeps the pipeline's conflict, recovery, remote-write, and unsaved-change handling. Stored content is adopted into the form only while the pipeline reports nothing unsaved, and reload/restore are wrapped so the form adopts exactly the text the pipeline adopted (ADR-92).
+  - **Save gate (`src/features/save/useSavePipeline.ts`):** new optional `blockedReason`. When set, autosave is not scheduled and every explicit save returns `false` without writing, so a composer draft with duplicate or blank rows is never stored normalized behind the user's back. Default `null` preserves every TASK-015 behaviour (ADR-90).
+  - **Entry points:** the editor header links to `/prompts/:id/compose`; the palette gained `composer.new` ("Compose a prompt"), and `/composer` is reachable from the navigation rail as before.
+  - **Tests added (54 new cases; whole suite 1078 across 75 files):** `src/domain/composer.test.ts` 38, `src/routes/composer/ComposerRoute.test.tsx` 9, `src/routes/composer/ComposerEditRoute.test.tsx` 5, `src/features/save/useSavePipeline.test.tsx` +1 (gate suppresses autosave and manual saves, then writes when cleared), `src/routes/editor/EditorRoute.test.tsx` +1 (compose handoff).
+  - **Validation executed:** `npx tsc --noEmit` exit 0; `npx eslint .` exit 0 with 0 warnings; `npx vitest run` — **75 files / 1078 tests passed, 0 failures**; `npx vitest run --coverage` — thresholds pass (`src/domain` 95.86/91.66/98.99/96.33, `src/store` 96.07/89/97.08/97.43, `src/data` 96.51/87.03/100/97.22; `composer.ts` 92.85/88.44/97.77/92.78); `npx prettier --check .` clean; `npm run check:contrast` — 64 pairings pass in both themes; `npm run build` exit 0 — CSS 54.99 kB (13.32 kB gzip), app JS 870.22 kB (256.68 kB gzip), lazy `JsonEditor` chunk unchanged at 427.59 kB (138.55 kB gzip), same accepted >500 kB advisory.
+  - **Not performed (stated honestly):** no browser binary exists in this environment, so there was no manual pass at 390 px, no keyboard walkthrough of the reorder buttons on a real device, and no screenshot. Responsive and keyboard behavior are covered by the single-column layout below `lg` and by jsdom tests against the real routes.
+  - **Deviations recorded:** the model lives in `src/domain/composer.ts` rather than the planned `src/features/composer/validation.ts`; the side panel is a read-only preview (the raw editor is the text editor), so there is no second save path; `useSavePipeline` gained `blockedReason` as a default-off extension; `/composer` always means "create" and edit mode is `/prompts/:promptId/compose`, so no route has two meanings; `formatDocumentJson` was added to `serialization.ts` so composer and editor share one key order; the purity guard's module list and the barrel export list were extended.
+  - **Docs:** `docs/DECISIONS.md` gained ADR-89…ADR-93 and a TASK-017 verification log; `docs/ARCHITECTURE.md` gained a "Guided composer (TASK-017)" section; `README.md` gained a composer section; `tasks.md` updated.
 
 ---
 

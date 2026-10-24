@@ -85,6 +85,14 @@ export interface UseSavePipelineOptions {
   readonly parseDebounceMs?: number;
   /** The indent the canonical stored text is rendered with. */
   readonly indent?: 2 | 4;
+  /**
+   * A sentence explaining why this draft must not be written yet (TASK-017).
+   *
+   * When set, autosave and explicit saves are skipped rather than writing a
+   * document the caller knows is wrong. The route renders the reason; the
+   * pipeline stays honest about the draft being dirty and unsaved.
+   */
+  readonly blockedReason?: string | null;
 }
 
 export interface SavePipeline {
@@ -169,7 +177,12 @@ export function useSavePipeline({
   recoveryDelayMs = RECOVERY_DELAY_MS,
   parseDebounceMs,
   indent = 2,
+  blockedReason = null,
 }: UseSavePipelineOptions): SavePipeline {
+  const blocked = blockedReason !== null && blockedReason.length > 0;
+  const blockedRef = useRef(blocked);
+  blockedRef.current = blocked;
+
   const promptId = prompt?.id ?? '';
   const mode = store((state) => state.mode);
   const durable = mode === 'durable';
@@ -466,6 +479,7 @@ export function useSavePipeline({
         return false;
       }
 
+      if (blockedRef.current) return false;
       if (conflictRef.current) return false;
 
       const inFlight = inFlightRef.current;
@@ -605,7 +619,7 @@ export function useSavePipeline({
 
   // Autosave: a debounce over the latest text, restarted by every keystroke.
   useEffect(() => {
-    if (!durable || !autosaveEnabled || !dirty || conflict || saving) return;
+    if (!durable || blocked || !autosaveEnabled || !dirty || conflict || saving) return;
     if (draft.parse.error) return;
     // The same text already failed once (a rejected document): retrying it on a
     // timer would hammer storage with a write that cannot succeed.
@@ -616,6 +630,7 @@ export function useSavePipeline({
   }, [
     autosaveDelayMs,
     autosaveEnabled,
+    blocked,
     conflict,
     dirty,
     draft.parse.error,

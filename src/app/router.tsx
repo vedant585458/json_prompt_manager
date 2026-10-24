@@ -1,6 +1,7 @@
 import { createBrowserRouter, type RouteObject } from 'react-router-dom';
 
 import { Shell } from '@/components/layout/Shell';
+import { ComposerEditRoute } from '@/routes/composer/ComposerEditRoute';
 import { ComposerRoute } from '@/routes/composer/ComposerRoute';
 import { DashboardRoute } from '@/routes/dashboard/DashboardRoute';
 import { DesignGallery } from '@/routes/design/DesignGallery';
@@ -30,6 +31,7 @@ export const routes: RouteObject[] = [
       { index: true, element: <DashboardRoute /> },
       { path: 'library', element: <LibraryRoute /> },
       { path: 'prompts/:promptId', element: <EditorRoute /> },
+      { path: 'prompts/:promptId/compose', element: <ComposerEditRoute /> },
       { path: 'composer', element: <ComposerRoute /> },
       { path: 'templates', element: <TemplatesRoute /> },
       { path: 'validation', element: <ValidationRoute /> },

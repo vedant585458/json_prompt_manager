@@ -17,3 +17,4 @@ export * from '@/domain/jsonTree';
 export * from '@/domain/textDiff';
 export * from '@/domain/jsonSchema';
 export * from '@/domain/validation';
+export * from '@/domain/composer';

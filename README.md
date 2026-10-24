@@ -243,6 +243,33 @@ inspector.
 - **Not here yet.** Revision history arrives in TASK-019 and variables in TASK-021; no control pretends
   otherwise. CodeMirror is a lazy chunk, so the rest of the app does not pay for it.
 
+## Guided composer
+
+`/composer` builds a prompt section by section; `/prompts/:id/compose` (or the editor's **Compose** link)
+edits an existing one through the same save pipeline as the raw editor.
+
+- **One document, two surfaces.** The form patches the document's JSON, so every field it does not render —
+  including unknown keys nested inside a section — is preserved verbatim and named in the preview panel.
+  The preview is read-only; the **Open in the JSON editor** link hands off to the raw editor for anything
+  the form cannot express.
+- **Sections.** Identity (name, role), task (objective, instructions, constraints), context (description,
+  references, structured data), variables, output (format, attached schema, example output), examples, and
+  metadata (author, tags, notes, snippets used). Repeated rows are reordered with buttons that name the row,
+  so the whole form is keyboard operable.
+- **Variables.** Name, type, required, default, and description per variable. Invalid identifiers, duplicates,
+  and defaults that contradict the declared type are errors attached to the row.
+- **Snippets.** Insert a stored snippet into a chosen section: text fields are replaced, list fields gain the
+  entries they do not already have, and the document records the snippet id. The Insert button is disabled
+  when the value does not fit the section.
+- **Honest checks.** A JSON field that does not parse is not applied and holds saving back; duplicate rows are
+  never silently deduplicated on write. The panel counts how many sections have content and says plainly that
+  this is not a judgement of prompt quality.
+- **Safety.** Creating a prompt writes nothing until **Create prompt** succeeds; leaving with an unsubmitted
+  draft asks first. Editing autosaves through the TASK-015 pipeline, with conflicts, recovery drafts, and the
+  unsaved-changes guard unchanged.
+
+## Validation studio
+
 ## Validation studio
 
 `/validation` (also `G V`, or the editor's _Open the studio_ link) is where schemas are managed and

@@ -14,7 +14,7 @@ const ROUTES: readonly { path: string; heading: string }[] = [
   { path: '/', heading: 'Dashboard' },
   { path: '/library', heading: 'Library' },
   { path: '/prompts/prompt-1', heading: 'Prompt workspace' },
-  { path: '/composer', heading: 'Composer' },
+  { path: '/composer', heading: 'Compose a prompt' },
   { path: '/templates', heading: 'Templates' },
   { path: '/validation', heading: 'Validation' },
   { path: '/health', heading: 'Health' },
@@ -127,7 +127,7 @@ describe('router', () => {
       }),
     );
 
-    const heading = await screen.findByRole('heading', { level: 1, name: 'Composer' });
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Compose a prompt' });
     expect(heading).toBeVisible();
     expect(document.activeElement).toBe(screen.getByRole('main'));
   });
@@ -150,7 +150,7 @@ describe('router', () => {
         name: 'Composer',
       }),
     );
-    await screen.findByRole('heading', { level: 1, name: 'Composer' });
+    await screen.findByRole('heading', { level: 1, name: 'Compose a prompt' });
 
     expect(screen.getByRole('button', { name: 'Expand navigation' })).toBeInTheDocument();
   });

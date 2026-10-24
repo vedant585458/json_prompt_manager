@@ -172,9 +172,13 @@ export function documentToJson(document: PromptDocument): Record<string, JsonVal
   return orderedDocumentJson(document);
 }
 
-/** Pretty-printed canonical JSON for the editor and for exports. */
-export function formatDocument(document: PromptDocument, indent = 2): string {
-  const json = documentToJson(document);
+/**
+ * Pretty-printed JSON for a document-shaped object, in canonical key order.
+ *
+ * Works on the raw object rather than a typed document, so the composer can
+ * serialize a draft that is not yet valid (TASK-017) without normalizing it.
+ */
+export function formatDocumentJson(json: Record<string, JsonValue>, indent = 2): string {
   const ordered: Record<string, JsonValue> = {};
 
   for (const key of DOCUMENT_KEY_ORDER) {
@@ -185,6 +189,11 @@ export function formatDocument(document: PromptDocument, indent = 2): string {
   }
 
   return JSON.stringify(ordered, null, indent);
+}
+
+/** Pretty-printed canonical JSON for the editor and for exports. */
+export function formatDocument(document: PromptDocument, indent = 2): string {
+  return formatDocumentJson(documentToJson(document), indent);
 }
 
 /* -------------------------------------------------------------------------- */

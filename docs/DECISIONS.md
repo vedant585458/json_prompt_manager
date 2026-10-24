@@ -2284,3 +2284,152 @@ palette command, library badge, and the dashboard mismatch count.
   saving first" is satisfied in the editor, where the live report runs against the unsaved text.
 - `src/domain/jsonSchema.ts` and `src/domain/validation.ts` are new domain modules, so the purity guard's
   module list and the barrel export list were extended.
+
+## ADR-89 — The composer edits the raw JSON object, so an edit cannot drop a field it does not render
+
+**Context.** A guided form usually works on a typed model: the form maps a struct to inputs, and saving
+re-serializes the struct. That path silently deletes anything the struct does not have — an unknown
+top-level field, an extra key inside `context`, a stray key on a variable. The task requires exactly the
+opposite: fields the form cannot represent must be preserved and named.
+
+**Decision.** `src/domain/composer.ts` treats the document as a **raw JSON object**. `readComposerView`
+is a tolerant reader that never throws and never invents values; `applyComposerPatch` starts from the
+current object and replaces only the key being edited, copying the surrounding section (`context`,
+`output`, `metadata`) so keys it does not know survive. Variables and examples carry their unknown keys
+(`extras`) and unreadable entries (a string where an object was expected) through the view and back. The
+document is never normalized by a patch; normalization happens only when the text is validated or saved.
+
+**Consequences.** Form ↔ JSON round-trips are lossless for everything the document contains, and the
+"preserved fields" notice plus the JSON preview make the difference visible. The cost is that the form
+can hold a document the domain model would reject (duplicate variable names, blank rows); that is
+intentional, because hiding the user's input would be worse — the checks name the problem and saving is
+gated (ADR-90).
+
+## ADR-90 — The save pipeline accepts a caller-held write gate, and a composer draft is never normalized behind the user's back
+
+**Context.** The pipeline validates a document before writing. Its validator treats duplicate variable
+names and blank rows as **warnings** and normalizes them away, which is right for the editor (the text is
+what it is) but wrong for a form: the write would store something different from what the form shows
+without saying so.
+
+**Decision.** `useSavePipeline` gained one optional input, `blockedReason`. When it is a non-empty string,
+autosave is not scheduled and every explicit save returns `false` without writing; the draft stays
+`dirty`, and the route renders the reason and disables the Save action. The default (`null`) preserves
+every TASK-015 behaviour, and the pipeline tests were extended with a case that starts blocked, asserts no
+version bump, then clears the gate and observes the write.
+
+**Consequences.** A composer form with errors cannot persist a mutated document. The gate is the caller's
+statement of intent, not a second validator inside the pipeline, so the editor's behaviour is untouched.
+The trade-off is that the user must fix the row they typed instead of the app quietly cleaning it up.
+
+## ADR-91 — A JSON field applies only when it parses, and a field that is not applied blocks saving
+
+**Context.** Some sections are arbitrary JSON (`context.data`, an example, a variable default). Parsing
+on every keystroke is necessary for live feedback, but applying a half-typed value is not possible: the
+document would hold something nobody wrote.
+
+**Decision.** `JsonValueField` parses as you type. A parseable value is applied immediately; an empty
+field removes the key. An unparseable one is **not** applied — the field shows "Not applied — …" and the
+parent marks the field key as invalid, which contributes to the write gate. The check list names the
+field ("Variable 1 default value", "Example 2 input") so the error is actionable without hunting.
+
+**Consequences.** The document is always valid JSON while the form may hold a broken draft, and neither
+the broken text nor a stale value is ever lost silently: the text stays in the field, the document keeps
+its previous value, and saving is refused until the two agree.
+
+## ADR-92 — One document, two surfaces: the form owns the draft, the pipeline owns the write
+
+**Context.** Two-way sync invites two copies of the same data, and two copies drift. The editor is
+text-first; the composer is form-first. Both must end up writing the same stored document.
+
+**Decision.** In edit mode the composer holds the raw object and derives canonical text with
+`formatDocumentJson` (the same key ordering as `formatDocument`). One effect pushes that text into the
+pipeline, which owns debounce, autosave, conflicts, and recovery. There is no second serializer and no
+second writer. Stored content is **adopted** into the form only while the pipeline reports no unsaved
+edits, so a tab's write can never overwrite an in-progress form. The three pipeline actions that replace
+the draft (reload the stored version, restore a recovery draft, resolve a conflict) are wrapped so the
+form adopts the same text; adopting normalizes nothing.
+
+**Consequences.** Both surfaces store byte-identical documents for the same content, and a change made in
+one is visible in the other after the pipeline confirms it. The wrapping is the price of not merging two
+drafts; where merging would be needed, the pipeline already asks instead of guessing.
+
+## ADR-93 — Sections are fieldsets, reordering is a button, and snippets are inserted by value
+
+**Context.** The task asks for accessible forms and keyboard reordering, and for snippet insertion into a
+chosen section. Drag handles and drop targets are the usual answer to the first, and a snippet that only
+records an id would show text that is not in the document.
+
+**Decision.** Every section is a `<fieldset>` with a real `<legend>`, and every repeated row (a variable,
+an example, an instruction) is its own fieldset or labelled input. Reordering is a pair of buttons with
+names that include the row ("Move instruction 2 up"), disabled at the ends — no pointer-only affordance
+and no keyboard-specific mode. A snippet's **value** is written into the document at the chosen section
+(text replaces, lists append without duplicates) and its id is recorded in `includes`; the panel reports
+which of those happened, and the Insert button is disabled when the value does not fit the section. The
+document's `includes` list can also be edited directly.
+
+**Consequences.** The form is keyboard-complete and announces its structure. A snippet edit later does not
+retroactively change a document that used it — the value was copied, which the panel and the docs state.
+
+## Verification log — TASK-017
+
+**Scope verified:** the composer's view/patch model (including unknown-field preservation, unreadable rows
+and list reordering), variable and default validation, JSON field application rules, snippet insertion,
+starter replacement, both routes (create `/composer`, edit `/prompts/:id/compose`), the save gate, the
+unsaved-changes guard, and the editor → composer handoff.
+
+### Tests added (54 cases)
+
+| File                                                    | Cases | Covers                                                                                                                                                                                                                                                            |
+| ------------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/composer.test.ts`                           | 38    | view reading (complete, partial, wrong types, extras, unreadable rows), patch preservation of unknown top-level and nested keys, every patch field, list moves, all issue kinds, completeness, starters, snippet insert/replace/dedupe/refusal, JSON field labels |
+| `src/routes/composer/ComposerRoute.test.tsx`            | 9     | blank start and preview, live edits, create → navigate, missing name refusal, unusable variable blocked, unparseable JSON field blocked, snippet insertion, starter replacement confirm, leave guard                                                              |
+| `src/routes/composer/ComposerEditRoute.test.tsx`        | 5     | stored document loaded into form and preview, autosave of a field edit with a version bump, unknown field preserved through a save, duplicate variable holds saving back (including `Mod+S`) with no version bump, leave guard                                    |
+| `src/features/save/useSavePipeline.test.tsx` (extended) | +1    | a caller-held gate suppresses autosave and manual saves, then writes once the reason clears                                                                                                                                                                       |
+| `src/routes/editor/EditorRoute.test.tsx` (extended)     | +1    | the workspace links to the composer for the open prompt                                                                                                                                                                                                           |
+
+### Gates
+
+| Gate                        | Result                                                                                                                                                            |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npx tsc --noEmit`          | exit 0                                                                                                                                                            |
+| `npx eslint .`              | exit 0, 0 warnings                                                                                                                                                |
+| `npx vitest run`            | **75 files / 1078 tests passed, 0 failures**                                                                                                                      |
+| `npx vitest run --coverage` | thresholds pass — `src/domain` 95.86/91.66/98.99/96.33, `src/store` 96.07/89/97.08/97.43, `src/data` 96.51/87.03/100/97.22; `composer.ts` 92.85/88.44/97.77/92.78 |
+| `npx prettier --check .`    | clean                                                                                                                                                             |
+| `npm run check:contrast`    | 64 pairings pass in both themes                                                                                                                                   |
+| `npm run build`             | exit 0 — CSS 54.99 kB (13.32 kB gzip), app JS 870.22 kB (256.68 kB gzip), lazy `JsonEditor` chunk 427.59 kB (138.55 kB gzip)                                      |
+
+### Known limitations and honesty notes
+
+- **No browser binary exists in this environment.** There was no manual pass at 390 px, no pointer or
+  keyboard walkthrough, and no screenshot. The responsive claim rests on the layout being a single column
+  below `lg` plus jsdom tests; it is not a visual verification.
+- **The composer renders the sections it knows.** Unknown top-level keys are preserved and named; unknown
+  keys nested inside a _known_ section are preserved by patches, but the form cannot show them, so they are
+  visible only in the JSON preview. There is no per-field "show raw" escape hatch yet.
+- **Rename, not restructure.** The composer cannot add, remove, or reorder top-level sections; a document
+  with an unusual shape is better handled in the raw editor, which the composer links to.
+- **Snippet values are copied.** Editing a stored snippet later does not update documents that already
+  used it; only the `includes` reference remains.
+- **The create route writes nothing until "Create prompt" succeeds.** There is no autosave for a prompt that
+  does not exist yet, so a browser crash loses an unsubmitted draft — the leave guard only covers in-app
+  navigation and `beforeunload`.
+- **The write gate is deliberately coarse.** Any composer error blocks every write, including metadata-only
+  edits, so the form and the stored document cannot disagree while the user is mid-fix.
+
+### Deliberate deviations recorded for TASK-017
+
+- The plan named `src/features/composer/{sections,useComposerState,validation}`. The implementation puts the
+  model in `src/domain/composer.ts` (pure, unit-tested), the draft in
+  `src/features/composer/useComposerDraft.ts`, and the form in `src/components/composer/*` — the same split
+  the rest of the app uses.
+- The document editor in the composer's side panel is a **read-only preview**, not a second CodeMirror. It
+  links to the raw editor for real text editing, so there is no second save path.
+- `useSavePipeline` gained `blockedReason` (ADR-90) — a small, default-off extension of TASK-015 rather than
+  a parallel save implementation.
+- The composer's edit mode is `/prompts/:promptId/compose`; `/composer` always creates a new prompt (and
+  navigates into edit mode after a successful create), so a route never has two meanings.
+- `src/domain/composer.ts` is a new domain module, so the purity guard's module list and the barrel export
+  list were extended; `formatDocumentJson` was added to `serialization.ts` so the composer and the editor
+  share one key order.

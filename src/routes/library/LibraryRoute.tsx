@@ -1,11 +1,14 @@
 import { Plus } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { FilterBar } from '@/components/library/FilterBar';
 import { IngredientRail } from '@/components/library/IngredientRail';
 import { PromptGrid } from '@/components/library/PromptGrid';
 import { PromptList } from '@/components/library/PromptList';
+import type { PromptActionHandlers } from '@/components/prompts/PromptActionsMenu';
+import { DeletePromptDialog } from '@/components/prompts/DeletePromptDialog';
+import { PromptFormDialog, type PromptFormValues } from '@/components/prompts/PromptFormDialog';
 import {
   Button,
   Checkbox,
@@ -13,13 +16,26 @@ import {
   ErrorState,
   SkeletonCard,
   buttonVariants,
+  useToast,
 } from '@/components/ui';
+import { DeleteContainerDialog } from '@/features/organization/DeleteContainerDialog';
+import {
+  CollectionDialog,
+  type CollectionFormValues,
+} from '@/features/organization/CollectionDialog';
+import { FolderDialog, type FolderFormValues } from '@/features/organization/FolderDialog';
+import {
+  countCollectionMembers,
+  countFolderContents,
+  parentFolderLabel,
+} from '@/features/organization/organization';
 import { registerLibrarySearchFocus } from '@/lib/commands/librarySearchFocus';
 import { cn } from '@/lib/cn';
 import { folderSubtreeIds } from '@/lib/folderTree';
 import { readLibraryView, writeLibraryView, type LibraryView } from '@/lib/viewPreference';
 import { searchPrompts, type PromptMatch } from '@/domain/search';
 import { getBrowserStorage } from '@/styles/theme';
+import { describeDataError } from '@/store/dataStore';
 import { useDataStoreApi } from '@/store/dataStoreContext';
 import { findDocumentProblems } from '@/store/dashboard';
 import {
@@ -37,6 +53,7 @@ import {
   hasActiveFilters,
   type LibraryState,
 } from '@/routes/library/libraryQuery';
+import type { Collection, Folder, Prompt, PromptDocument } from '@/domain/types';
 
 /**
  * Library (TASK-011).
@@ -50,6 +67,11 @@ import {
  *
  * Pinned prompts are listed separately and left out of the main results. Card
  * and list views render the same facts; only the density differs.
+ *
+ * Since TASK-012 the screen also owns the prompt lifecycle: create, edit
+ * metadata, duplicate, move, archive/restore, delete, and folder/collection
+ * management. Every mutation goes through the store, so storage is the source
+ * of truth, and failures are reported instead of being optimistically applied.
  */
 export function LibraryRoute() {
   const store = useDataStoreApi();
@@ -61,10 +83,44 @@ export function LibraryRoute() {
   const error = store((state) => state.error);
   const hydrate = store((state) => state.hydrate);
 
+  const templates = store((state) => state.templates);
+  const schemas = store((state) => state.schemas);
+  const testCases = store((state) => state.testCases);
+  const addPrompt = store((state) => state.addPrompt);
+  const editPrompt = store((state) => state.editPrompt);
+  const duplicatePrompt = store((state) => state.duplicatePrompt);
+  const archivePrompt = store((state) => state.archivePrompt);
+  const unarchivePrompt = store((state) => state.unarchivePrompt);
+  const deletePrompt = store((state) => state.deletePrompt);
+  const addFolder = store((state) => state.addFolder);
+  const updateFolder = store((state) => state.updateFolder);
+  const deleteFolder = store((state) => state.deleteFolder);
+  const addCollection = store((state) => state.addCollection);
+  const updateCollection = store((state) => state.updateCollection);
+  const deleteCollection = store((state) => state.deleteCollection);
+
+  const toast = useToast();
+  const navigate = useNavigate();
+
   const selectedPromptIds = useUiStore((state) => state.selectedPromptIds);
   const toggleSelection = useUiStore((state) => state.toggleSelection);
   const setSelection = useUiStore((state) => state.setSelection);
   const clearSelection = useUiStore((state) => state.clearSelection);
+
+  const [editingPrompt, setEditingPrompt] = useState<Prompt | null>(null);
+  const [deletingPrompt, setDeletingPrompt] = useState<Prompt | null>(null);
+  const [folderDialog, setFolderDialog] = useState<{
+    readonly mode: 'create' | 'edit';
+    readonly folder: Folder | null;
+    readonly parentId: string | null;
+  } | null>(null);
+  const [deletingFolder, setDeletingFolder] = useState<Folder | null>(null);
+  const [collectionDialog, setCollectionDialog] = useState<{
+    readonly mode: 'create' | 'edit';
+    readonly collection: Collection | null;
+  } | null>(null);
+  const [deletingCollection, setDeletingCollection] = useState<Collection | null>(null);
+  const [pending, setPending] = useState(false);
 
   const [searchParams, setSearchParams] = useSearchParams();
   const search = searchParams.toString();
@@ -156,9 +212,12 @@ export function LibraryRoute() {
   const update = useCallback(
     (patch: Partial<LibraryState>) => {
       const next = writeLibraryState({ ...state, ...patch });
+      const keys = Object.keys(patch);
       // Typing should not fill the back stack; a deliberate filter should.
-      const typingOnly = Object.keys(patch).length === 1 && 'q' in patch;
-      setSearchParams(next, { replace: typingOnly });
+      // Opening or closing a dialog never adds an entry either.
+      const replace =
+        (keys.length === 1 && 'q' in patch) || (keys.length === 1 && 'dialog' in patch);
+      setSearchParams(next, { replace });
     },
     [state, setSearchParams],
   );
@@ -174,6 +233,203 @@ export function LibraryRoute() {
     },
     [state, setSearchParams],
   );
+
+  /* ----------------------------- prompt actions ---------------------------- */
+
+  const promptActions = useMemo<PromptActionHandlers>(
+    () => ({
+      onEdit: setEditingPrompt,
+      onDuplicate: (prompt) => void handleDuplicate(prompt),
+      onToggleArchive: (prompt) => void handleToggleArchive(prompt),
+      onDelete: setDeletingPrompt,
+    }),
+    // The handlers are recreated with the component; behaviour is identical.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
+  async function submitPromptForm(values: PromptFormValues) {
+    if (editingPrompt) {
+      await editPrompt(editingPrompt.id, {
+        title: values.title,
+        description: values.description,
+        folderId: values.folderId,
+        collectionIds: values.collectionIds,
+        tags: values.tags,
+        status: values.status,
+        schemaId: values.schemaId,
+      });
+      setEditingPrompt(null);
+      toast.success({ title: 'Prompt details saved', description: values.title });
+      return;
+    }
+
+    const template =
+      values.templateId === null
+        ? null
+        : (templates.find((candidate) => candidate.id === values.templateId) ?? null);
+
+    const created = await addPrompt({
+      title: values.title,
+      description: values.description,
+      folderId: values.folderId,
+      collectionIds: values.collectionIds,
+      tags: values.tags,
+      status: values.status,
+      schemaId: values.schemaId,
+      // Deep copy: the new prompt must not share structure with the template.
+      ...(template
+        ? { content: JSON.parse(JSON.stringify(template.content)) as PromptDocument }
+        : {}),
+    });
+
+    update({ dialog: null });
+    toast.success({ title: 'Prompt created', description: created.title });
+    navigate(`/prompts/${created.id}`);
+  }
+
+  async function handleDuplicate(prompt: Prompt) {
+    try {
+      const copy = await duplicatePrompt(prompt.id);
+      toast.success({ title: 'Prompt duplicated', description: copy.title });
+    } catch (error) {
+      toast.error({
+        title: 'The prompt could not be duplicated',
+        description: describeDataError(error),
+      });
+    }
+  }
+
+  async function handleToggleArchive(prompt: Prompt) {
+    try {
+      if (prompt.archived) await unarchivePrompt(prompt.id);
+      else await archivePrompt(prompt.id);
+
+      const archived = !prompt.archived;
+      toast.success({
+        title: archived ? 'Prompt archived' : 'Prompt restored',
+        description: prompt.title,
+        action: {
+          label: 'Undo',
+          onClick: () => {
+            void (async () => {
+              try {
+                if (archived) await unarchivePrompt(prompt.id);
+                else await archivePrompt(prompt.id);
+              } catch (error) {
+                toast.error({
+                  title: 'That change could not be undone',
+                  description: describeDataError(error),
+                });
+              }
+            })();
+          },
+        },
+      });
+    } catch (error) {
+      toast.error({
+        title: 'The prompt was not updated',
+        description: describeDataError(error),
+      });
+    }
+  }
+
+  async function confirmDeletePrompt() {
+    if (!deletingPrompt) return;
+
+    setPending(true);
+    try {
+      await deletePrompt(deletingPrompt.id);
+      toast.success({ title: 'Prompt deleted', description: deletingPrompt.title });
+      setDeletingPrompt(null);
+    } catch (error) {
+      toast.error({
+        title: 'The prompt was not deleted',
+        description: describeDataError(error),
+      });
+    } finally {
+      setPending(false);
+    }
+  }
+
+  /* -------------------------- folder and collection ------------------------ */
+
+  function closeFolderDialog() {
+    setFolderDialog(null);
+    if (state.dialog === 'folder') update({ dialog: null });
+  }
+
+  function closeCollectionDialog() {
+    setCollectionDialog(null);
+    if (state.dialog === 'collection') update({ dialog: null });
+  }
+
+  async function submitFolder(values: FolderFormValues) {
+    if (folderDialog?.mode === 'edit' && folderDialog.folder) {
+      await updateFolder(folderDialog.folder.id, values);
+      toast.success({ title: 'Folder saved', description: values.name });
+    } else {
+      await addFolder(values.name, values.parentId);
+      toast.success({ title: 'Folder created', description: values.name });
+    }
+
+    closeFolderDialog();
+  }
+
+  async function submitCollection(values: CollectionFormValues) {
+    if (collectionDialog?.mode === 'edit' && collectionDialog.collection) {
+      await updateCollection(collectionDialog.collection.id, values);
+      toast.success({ title: 'Collection saved', description: values.name });
+    } else {
+      await addCollection(values.name, values.description);
+      toast.success({ title: 'Collection created', description: values.name });
+    }
+
+    closeCollectionDialog();
+  }
+
+  async function confirmDeleteFolder() {
+    if (!deletingFolder) return;
+
+    const destination = parentFolderLabel(folders, deletingFolder.parentId);
+    setPending(true);
+    try {
+      const result = await deleteFolder(deletingFolder.id);
+      toast.success({
+        title: 'Folder deleted',
+        description: `${result.promptsMoved} prompt${result.promptsMoved === 1 ? '' : 's'} moved to ${destination}.`,
+      });
+      setDeletingFolder(null);
+    } catch (error) {
+      toast.error({
+        title: 'The folder was not deleted',
+        description: describeDataError(error),
+      });
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function confirmDeleteCollection() {
+    if (!deletingCollection) return;
+
+    setPending(true);
+    try {
+      const result = await deleteCollection(deletingCollection.id);
+      toast.success({
+        title: 'Collection deleted',
+        description: `${result.promptsDetached} prompt${result.promptsDetached === 1 ? '' : 's'} kept, membership removed.`,
+      });
+      setDeletingCollection(null);
+    } catch (error) {
+      toast.error({
+        title: 'The collection was not deleted',
+        description: describeDataError(error),
+      });
+    } finally {
+      setPending(false);
+    }
+  }
 
   const selectAllVisible = useCallback(() => {
     if (allVisibleSelected) {
@@ -215,9 +471,9 @@ export function LibraryRoute() {
       description="Prompts you create are stored in this browser. Start with a template or write the first one."
       icon={Plus}
       action={
-        <Link to="/composer" className={cn(buttonVariants({ variant: 'primary' }))}>
+        <Button variant="primary" onClick={() => update({ dialog: 'prompt' })}>
           Create a prompt
-        </Link>
+        </Button>
       }
       secondaryAction={
         <Link to="/templates" className={cn(buttonVariants({ variant: 'secondary' }))}>
@@ -236,9 +492,9 @@ export function LibraryRoute() {
       }
       secondaryAction={
         filtersActive ? (
-          <Link to="/composer" className={cn(buttonVariants({ variant: 'secondary' }))}>
+          <Button variant="secondary" onClick={() => update({ dialog: 'prompt' })}>
             New prompt
-          </Link>
+          </Button>
         ) : undefined
       }
     />
@@ -247,7 +503,12 @@ export function LibraryRoute() {
   if (status === 'loading') {
     return (
       <div className="flex flex-col gap-4" aria-busy="true">
-        <LibraryHeader resultCount={0} totalCount={prompts.length} filtersActive={false} />
+        <LibraryHeader
+          resultCount={0}
+          totalCount={prompts.length}
+          filtersActive={false}
+          onNewPrompt={() => update({ dialog: 'prompt' })}
+        />
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <SkeletonCard />
           <SkeletonCard />
@@ -284,6 +545,7 @@ export function LibraryRoute() {
         onToggleSelected={toggleSelection}
         empty={emptyState}
         label="Matching prompts"
+        actions={promptActions}
       />
     ) : (
       <PromptList
@@ -296,6 +558,7 @@ export function LibraryRoute() {
         onToggleSelected={toggleSelection}
         empty={emptyState}
         label="Matching prompts"
+        actions={promptActions}
       />
     );
 
@@ -305,6 +568,7 @@ export function LibraryRoute() {
         resultCount={results.length}
         totalCount={prompts.length}
         filtersActive={filtersActive}
+        onNewPrompt={() => update({ dialog: 'prompt' })}
       />
 
       <div className="grid gap-4 lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start">
@@ -323,6 +587,12 @@ export function LibraryRoute() {
             }
             onSelectCollection={(collectionId) => update({ collection: collectionId })}
             onToggleTag={(tag) => update({ tags: toggleTag(state, tag).tags })}
+            onNewFolder={(parentId) => setFolderDialog({ mode: 'create', folder: null, parentId })}
+            onEditFolder={(folder) => setFolderDialog({ mode: 'edit', folder, parentId: null })}
+            onDeleteFolder={setDeletingFolder}
+            onNewCollection={() => setCollectionDialog({ mode: 'create', collection: null })}
+            onEditCollection={(collection) => setCollectionDialog({ mode: 'edit', collection })}
+            onDeleteCollection={setDeletingCollection}
           />
         </div>
 
@@ -401,6 +671,7 @@ export function LibraryRoute() {
                       onToggleSelected={toggleSelection}
                       empty={null}
                       label="Pinned prompts"
+                      actions={promptActions}
                     />
                   ) : (
                     <PromptList
@@ -413,6 +684,7 @@ export function LibraryRoute() {
                       onToggleSelected={toggleSelection}
                       empty={null}
                       label="Pinned prompts"
+                      actions={promptActions}
                     />
                   )}
                 </section>
@@ -437,6 +709,94 @@ export function LibraryRoute() {
           )}
         </div>
       </div>
+
+      <PromptFormDialog
+        open={state.dialog === 'prompt' || editingPrompt !== null}
+        mode={editingPrompt ? 'edit' : 'create'}
+        prompt={editingPrompt}
+        folders={folders}
+        collections={collections}
+        templates={templates}
+        schemas={schemas}
+        onOpenChange={(open) => {
+          if (open) return;
+          if (editingPrompt) setEditingPrompt(null);
+          else update({ dialog: null });
+        }}
+        onSubmit={submitPromptForm}
+      />
+
+      <DeletePromptDialog
+        open={deletingPrompt !== null}
+        prompt={deletingPrompt}
+        revisionCount={
+          deletingPrompt === null
+            ? 0
+            : revisions.filter((revision) => revision.promptId === deletingPrompt.id).length
+        }
+        testCaseCount={
+          deletingPrompt === null
+            ? 0
+            : testCases.filter((testCase) => testCase.promptId === deletingPrompt.id).length
+        }
+        pending={pending}
+        onOpenChange={(open) => {
+          if (!open && !pending) setDeletingPrompt(null);
+        }}
+        onConfirm={() => void confirmDeletePrompt()}
+      />
+
+      <FolderDialog
+        open={state.dialog === 'folder' || folderDialog !== null}
+        mode={folderDialog?.mode ?? 'create'}
+        folder={folderDialog?.folder ?? null}
+        parentId={folderDialog?.parentId ?? null}
+        folders={folders}
+        onOpenChange={(open) => {
+          if (!open) closeFolderDialog();
+        }}
+        onSubmit={submitFolder}
+      />
+
+      {deletingFolder ? (
+        <DeleteContainerDialog
+          open
+          kind="folder"
+          name={deletingFolder.name}
+          promptCount={countFolderContents(prompts, folders, deletingFolder.id).prompts}
+          folderCount={countFolderContents(prompts, folders, deletingFolder.id).folders}
+          destination={parentFolderLabel(folders, deletingFolder.parentId)}
+          pending={pending}
+          onOpenChange={(open) => {
+            if (!open && !pending) setDeletingFolder(null);
+          }}
+          onConfirm={() => void confirmDeleteFolder()}
+        />
+      ) : null}
+
+      <CollectionDialog
+        open={state.dialog === 'collection' || collectionDialog !== null}
+        mode={collectionDialog?.mode ?? 'create'}
+        collection={collectionDialog?.collection ?? null}
+        onOpenChange={(open) => {
+          if (!open) closeCollectionDialog();
+        }}
+        onSubmit={submitCollection}
+      />
+
+      {deletingCollection ? (
+        <DeleteContainerDialog
+          open
+          kind="collection"
+          name={deletingCollection.name}
+          promptCount={countCollectionMembers(prompts, deletingCollection.id)}
+          pending={pending}
+          onOpenChange={(open) => {
+            if (!open && !pending) setDeletingCollection(null);
+          }}
+          onConfirm={() => void confirmDeleteCollection()}
+        />
+      ) : null}
     </div>
   );
 }
@@ -457,10 +817,12 @@ function LibraryHeader({
   resultCount,
   totalCount,
   filtersActive,
+  onNewPrompt,
 }: {
   readonly resultCount: number;
   readonly totalCount: number;
   readonly filtersActive: boolean;
+  readonly onNewPrompt: () => void;
 }) {
   return (
     <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -474,13 +836,10 @@ function LibraryHeader({
         </p>
       </div>
 
-      <Link
-        to="/composer"
-        className={cn(buttonVariants({ variant: 'primary', size: 'md' }), 'gap-2')}
-      >
+      <Button variant="primary" onClick={onNewPrompt} className="gap-2">
         <Plus aria-hidden="true" size={15} />
         New prompt
-      </Link>
+      </Button>
     </header>
   );
 }

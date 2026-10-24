@@ -4,7 +4,7 @@
 **Created:** 2026-10-24
 **Repository:** `vedant585458/json_prompt_manager`
 **Branch:** `arena/3b0d1d76-json-prompt-manager`
-**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-011 is the latest completed task.
+**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-012 is the latest completed task.
 **Authoritative status source:** This file. One status per task, maintained here only.
 
 ---
@@ -593,7 +593,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-009 — Keyboard shortcut registry and command palette — High — deps: 008
 - [x] TASK-010 — Dashboard with real library data — High — deps: 008, 009
 - [x] TASK-011 — Prompt library browsing, search, filters, and views — High — deps: 008
-- [ ] TASK-012 — Prompt CRUD, folders, and collections — High — deps: 011
+- [x] TASK-012 — Prompt CRUD, folders, and collections — High — deps: 011
 - [ ] TASK-013 — Tags, favorites, pins, archive, and bulk actions — Medium — deps: 012
 - [ ] TASK-014 — JSON editor workspace (raw + tree views) — High — deps: 012
 - [ ] TASK-015 — Save pipeline, autosave, and recovery — High — deps: 014
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 11 of 31 tasks complete. TASK-001 through TASK-011 were completed on 2026-10-24.
+**Progress:** 12 of 31 tasks complete. TASK-001 through TASK-012 were completed on 2026-10-24.
 
 ---
 
@@ -1041,7 +1041,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-012 — Prompt CRUD, folders, and collections
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-011
 - **Objective:** Enable the full lifecycle of prompts and organizational containers with safe, reversible operations.
@@ -1061,6 +1061,22 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Integration tests for create, duplicate independence, folder move/delete-into-parent, cycle rejection, collection delete cleanup, prompt delete cascade, failure path; manual keyboard dialogs; typecheck/lint/tests/build.
 - **Deliverables:** `src/components/prompts/{PromptFormDialog,PromptActionsMenu,DeletePromptDialog}.tsx`, `src/features/organization/*` (folder/collection dialogs + logic), store actions, palette commands, tests.
 - **Out of scope:** Favorites/pins/archive bulk (TASK-013), editor content editing (TASK-014), templates (TASK-018), import (TASK-026).
+
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Domain rules (`src/domain/`):** new `errors.ts` defines `RuleViolationError` with one message per field (`issueFor(path)`), so a rule can explain itself under the offending control instead of in a generic banner; `invariants.ts` gained `checkCollectionName` (library-global, case-insensitive) and `checkNewFolder` (sibling-scoped, explicit `parentId = null` default). The existing folder rules still own depth (5), cycles, and name trimming.
+  - **Transactional delete:** `Repositories.prompts` gained `deleteCascade(id)`, implemented in IndexedDB with one `readwrite` transaction over `prompts`, `revisions`, and `testCases`, and in the in-memory adapter with an all-or-nothing check first. Prompt deletion therefore never leaves orphaned snapshots or test cases, and a failure leaves every row in place.
+  - **Store (`src/store/dataStore.ts`):** `duplicatePrompt`, `movePrompt`, `addFolder`, `updateFolder`, `deleteFolder`, `addCollection`, `updateCollection`, `deleteCollection`; every write goes through `run()` + `writePrompt` (expected version), records activity, and re-hydrates only when a cascade touched other entities. `deleteFolder` returns `{ promptsMoved, foldersMoved }`, `deleteCollection` returns `{ promptsDetached }`, both derived from the rows actually written. Folder deletion re-parents child folders and prompts to the removed folder's parent, never to the root unless the folder was at the root.
+  - **Query (`src/routes/library/libraryQuery.ts`):** `LIBRARY_DIALOGS = ['prompt','folder','collection']` with `?new=` parsing/round-tripping, so palette commands and deep links open the same dialog. Unknown dialog names are ignored rather than guessed.
+  - **Organization module (`src/features/organization/`):** `organization.ts` holds the pure helpers the dialogs share — `folderOptions` (indented labels, excludes the edited folder and its subtree), `countFolderContents`/`countCollectionMembers`, `parentFolderLabel`/`folderLabel`, `ROOT_FOLDER_VALUE`, `folderMoveIssues`, `formatTagInput`/`parseTagInput`, `sortedCollections`. `FolderDialog` (create/rename/move), `CollectionDialog` (create/rename/description), and `DeleteContainerDialog` state where prompts go before anything is deleted.
+  - **Dialogs (`src/components/prompts/`):** `PromptFormDialog` is metadata-only in both modes (create also offers template/blank), validates the title locally, surfaces rule messages under their fields, disables dismissal while saving, and never pretends to edit the document; `PromptActionsMenu` is a single dropdown whose items are `onEdit`, `onDuplicate`, `onToggleArchive` (label flips to "Restore"), `onDelete`; `DeletePromptDialog` names the prompt and itemises what else disappears (snapshots, test cases) before confirming.
+  - **Route (`src/routes/library/LibraryRoute.tsx`):** now owns the whole lifecycle — create/edit submit, duplicate, archive/restore with an Undo toast, delete with confirmation, folder and collection create/edit/delete — and renders the eight dialogs at the end of the route. `update()` treats a dialog-only query patch as a replace so closing a dialog cannot spam history. Empty states open the create dialog instead of navigating, the header button is "New prompt", and every row/card receives the same `PromptActionHandlers` object.
+  - **Rail (`src/components/library/IngredientRail.tsx`):** `+` buttons in the Folders and Collections headers, per-row `⋯` menus (`RailMenu`/`FolderMenu`/`CollectionMenu`) with explicit `aria-label`s, and real empty copy ("No folders yet…") that does not pretend filtering.
+  - **Commands (`src/lib/commands/coreCommands.ts`):** `prompt.new` → `/library?new=prompt` and `folder.new` → `/library?new=folder`, both in `Workspace`. The deliberately unimplemented IDs asserted absent by `coreCommands.test.ts` (`prompt.create`, `prompt.save`, …) are untouched.
+  - **Tests added (75 new cases; whole suite 733 across 57 files):** `src/domain/errors.test.ts` 5, `src/domain/invariants.test.ts` +3 (collection names, new-folder defaults), `src/domain/search.test.ts` +1 (500-prompt keystroke budget), `src/data/**` contract suites +13 (`deleteCascade` success, missing id, cascade atomicity), `src/store/dataStore.test.ts` +15 (duplicate independence and naming, folder create/rename/move/delete with prompts and subfolders, collection CRUD, failure paths), `src/features/organization/organization.test.ts` 17 (new file), `src/routes/library/libraryQuery.test.ts` +2 (dialog round-trip, unknown dialog), `src/routes/library/LibraryRoute.test.tsx` +18 (create from template → editor, missing-title error, edit details, duplicate card, archive + Undo, delete cascade with counts, failed delete keeps data, folder create + duplicate-name error, folder rename/re-parent, cycle-safe parent list, folder delete moves prompt to parent, failed folder delete, collection delete clears membership only, collection create, `?new=folder` and `?new=prompt`, 320-prompt search, Enter-to-open), `src/lib/commands/coreCommands.test.ts` +1 (create commands).
+  - **Validation executed:** `npx tsc --noEmit` exit 0; `npx eslint .` exit 0; `npx vitest run` — **57 files / 733 tests passed**; `prettier --check "src/**/*.{ts,tsx,css}"` clean; `npm run check:contrast` — 52 pairings pass in both themes; `npm run build` exit 0 — CSS 51.10 kB (12.60 kB gzip), JS 707.54 kB (213.11 kB gzip), same accepted >500 kB advisory as TASK-011.
+  - **Not performed (stated honestly):** no browser binary exists here, so no visual pass at 360/390/1440 px and no manual pointer/keyboard walkthrough; keyboard behaviour and layout classes are covered by scripted jsdom tests and code review only. Dialog composition at very small widths is reasoned from the `w-[calc(100vw-2rem)]` dialog shell rather than observed.
+  - **Deviations recorded:** added `src/domain/errors.ts` (a domain module, so the purity guard's module list was extended), a `ResizeObserver` no-op in `src/test/setup.ts` (Radix's checkbox input measures itself; jsdom has none), and reused `ConfirmDialog` rather than adding a second confirmation primitive. Grammar in the container-delete copy was corrected to agree with counts ("1 prompt moves", "1 prompt keeps its place"). Rationale in ADR-65…ADR-68.
+  - **Docs:** `docs/DECISIONS.md` gained ADR-65…ADR-68 and a TASK-012 verification log; `docs/ARCHITECTURE.md` gained an "Organization and prompt lifecycle" section and an updated route note; `README.md` and `tasks.md` updated.
 
 ---
 

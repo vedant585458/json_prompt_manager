@@ -61,6 +61,15 @@ export const STATUS_VALUES = ['all', 'active', 'draft', 'deprecated'] as const;
 export const VALIDATION_VALUES = ['all', 'parsable', 'unparsable'] as const;
 export const EDITED_VALUES = ['any', '7d', '30d', '90d', 'year'] as const;
 
+/** Which create/edit dialog the library should open (TASK-012). */
+export const LIBRARY_DIALOGS = ['prompt', 'folder', 'collection'] as const;
+
+export type LibraryDialog = (typeof LIBRARY_DIALOGS)[number];
+
+export function isLibraryDialog(value: unknown): value is LibraryDialog {
+  return LIBRARY_DIALOGS.some((dialog) => dialog === value);
+}
+
 /** Long enough for a real query, short enough to keep a link shareable. */
 export const SEARCH_MAX_LENGTH = 120;
 
@@ -90,6 +99,12 @@ export interface LibraryState {
   readonly sort: PromptSort;
   /** `null` when the URL does not pin a view; the stored preference decides. */
   readonly view: LibraryView | null;
+  /**
+   * A create dialog requested by a command or a link (`?new=prompt`). It lives
+   * in the URL so the palette's "New prompt" works from any screen and a
+   * refresh cannot resurrect a dialog that was already closed.
+   */
+  readonly dialog: LibraryDialog | null;
 }
 
 export const EMPTY_LIBRARY_STATE: LibraryState = {
@@ -107,6 +122,7 @@ export const EMPTY_LIBRARY_STATE: LibraryState = {
   edited: 'any',
   sort: 'updated',
   view: null,
+  dialog: null,
 };
 
 function paramsOf(search: string): URLSearchParams {
@@ -167,6 +183,9 @@ export function readLibraryState(search: string): LibraryState {
   const viewParam = params.get('view');
   const view = isLibraryView(viewParam) ? viewParam : null;
 
+  const dialogParam = params.get('new');
+  const dialog = isLibraryDialog(dialogParam) ? dialogParam : null;
+
   const collection = params.get('collection');
 
   return {
@@ -188,6 +207,7 @@ export function readLibraryState(search: string): LibraryState {
     edited,
     sort,
     view,
+    dialog,
   };
 }
 
@@ -215,6 +235,7 @@ export function writeLibraryState(state: LibraryState): string {
   if (state.edited !== 'any') params.set('edited', state.edited);
   if (state.sort !== 'updated') params.set('sort', state.sort);
   if (state.view !== null) params.set('view', state.view);
+  if (state.dialog !== null) params.set('new', state.dialog);
 
   return params.toString();
 }

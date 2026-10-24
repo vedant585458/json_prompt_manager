@@ -224,15 +224,15 @@ matching rules themselves live in `src/domain/search.ts` (ADR-62).
 | `src/domain/search.ts`                       | `parseSearchQuery`, `matchPrompt`, `searchPrompts`, `highlightSegments` — the only definition of a match (ADR-62)                                                               |
 | `src/lib/folderTree.ts`                      | `buildFolderTree`, `flattenFolderTree`, `folderSubtreeIds`: nesting for the rail and subtree filtering, with cycle rejection                                                    |
 | `src/lib/viewPreference.ts`                  | Validated `localStorage` grid/list preference (ADR-64)                                                                                                                          |
-| `src/components/library/IngredientRail.tsx`  | Folder tree, collections, and tag multi-select with counts scoped to the archive scope                                                                                          |
+| `src/components/library/IngredientRail.tsx`  | Folder tree, collections, and tag multi-select with counts scoped to the archive scope, plus per-row `⋯` menus and `+` create buttons (TASK-012)                               |
 | `src/components/library/FilterBar.tsx`       | Debounced search, removable filter chips, clear-all, sort / status / validation / date selects, archived and favorites toggles, result count                                    |
 | `src/components/library/PromptBadges.tsx`    | Status pill and the "Parses / Will not parse" badge shared by both views                                                                                                        |
 | `src/components/library/HighlightedText.tsx` | Renders `highlightSegments` output as `<mark>` runs — no user text is ever treated as markup                                                                                    |
-| `src/components/library/PromptCard.tsx`      | Artifact card (grid): title, description, tags, status, parsability, pin/favorite markers, relative edit time, JSON excerpt when the document matched                           |
-| `src/components/library/PromptRow.tsx`       | Dense row (list) showing the same facts with a stable column rhythm                                                                                                             |
+| `src/components/library/PromptCard.tsx`      | Artifact card (grid): title, description, tags, status, parsability, pin/favorite markers, relative edit time, JSON excerpt when the document matched, action menu             |
+| `src/components/library/PromptRow.tsx`       | Dense row (list) showing the same facts with a stable column rhythm, including the action menu                                                                                  |
 | `src/components/library/PromptGrid.tsx`      | Responsive grid + empty slot, labelled for the a11y tree                                                                                                                        |
 | `src/components/library/PromptList.tsx`      | Table-like list + empty slot, labelled for the a11y tree                                                                                                                        |
-| `src/routes/library/LibraryRoute.tsx`        | Derives the query from the URL, renders pinned and matching sections, the selection bar, and the loading/empty/error states                                                     |
+| `src/routes/library/LibraryRoute.tsx`        | Derives the query from the URL, renders pinned and matching sections, the selection bar, and the loading/empty/error states, and owns the prompt/folder/collection lifecycle   |
 
 **Rules the screen follows.**
 
@@ -255,6 +255,44 @@ matching rules themselves live in `src/domain/search.ts` (ADR-62).
 Screens read the store through `useDataStoreApi()` (`src/store/dataStoreContext.ts`), which returns the
 store provided by `DataBootstrap` or the application singleton. That is what lets the integration tests
 mount the real shell, store, and seeded in-memory repositories together (ADR-59).
+
+## Organization and prompt lifecycle (TASK-012)
+
+Creating, editing, duplicating, archiving, and deleting prompts — plus folders and collections — happens
+in the library. The route owns the intent; the store owns the write; the domain owns the rules.
+
+| Piece                                        | Responsibility                                                                                                                                                            |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/errors.ts`                       | `RuleViolationError` carries one message per field (`issueFor(path)`), so a rule explains itself under the offending control instead of in a generic banner                 |
+| `src/domain/invariants.ts`                   | `checkNewFolder`, `checkCollectionName`, plus the existing depth/cycle/name rules `checkFolderMove` and `wouldCreateFolderCycle`                                            |
+| `src/store/dataStore.ts`                     | `duplicatePrompt`, `movePrompt`, `addFolder`, `updateFolder`, `deleteFolder`, `addCollection`, `updateCollection`, `deleteCollection` — every write goes through `run()` + `writePrompt` and records activity |
+| `src/features/organization/organization.ts`  | Pure helpers: `folderOptions` (indented labels, subtree excluded), `countFolderContents`, `countCollectionMembers`, `parentFolderLabel`, `folderLabel`, `folderMoveIssues`, `formatTagInput`/`parseTagInput`, `sortedCollections` |
+| `src/features/organization/FolderDialog.tsx` | Create/rename/move a folder; the parent list cannot express a cycle, and the rule still runs on submit                                                                     |
+| `src/features/organization/CollectionDialog.tsx` | Create/rename a collection with a description                                                                                                                         |
+| `src/features/organization/DeleteContainerDialog.tsx` | Confirms container deletion with the exact destination and counts, and states that no prompt is deleted                                                           |
+| `src/components/prompts/PromptFormDialog.tsx`| Create/edit prompt metadata; create also picks a template or a blank document. Never edits the document body                                                               |
+| `src/components/prompts/PromptActionsMenu.tsx`| One dropdown per prompt: edit details, duplicate, archive/restore, delete                                                                                                 |
+| `src/components/prompts/DeletePromptDialog.tsx`| Names the prompt and itemises the snapshots and test cases that go with it                                                                                               |
+| `src/routes/library/libraryQuery.ts`         | `LIBRARY_DIALOGS` and the `?new=` parameter, so palette commands and links open the same dialog (ADR-68)                                                                  |
+
+**Rules the screen follows.**
+
+- Deleting a prompt calls `prompts.deleteCascade(id)` once: prompt, revisions, and test cases disappear
+  in a single IndexedDB transaction, or nothing does (ADR-66).
+- Deleting a folder re-parents its prompts and subfolders to the *removed folder's* parent — never
+  `null` unless the folder was already at the top level — so the tree keeps its shape and no prompt is
+  deleted (ADR-67).
+- Deleting a collection clears membership only; prompt rows are rewritten without the collection id and
+  nothing else about them changes.
+- Toasts report what the mutation returned (`{ promptsMoved, foldersMoved }`, `{ promptsDetached }`),
+  not a number recomputed in the component (ADR-65).
+- Duplicate names, depth, and cycles come back as `RuleViolationError` and render under the field; a
+  non-rule failure renders as a form-level `role="alert"` and leaves the dialog open with the values
+  intact.
+- Archive/restore offers an Undo action in the toast; deletion is confirmed and final.
+- A create navigates to `/prompts/:id` only after the store confirms the write, so the editor always
+  opens on stored data.
+- Empty rails say so and open the create dialog; they never fake a filter.
 
 ## Commands and keyboard
 
@@ -307,7 +345,7 @@ Everything a shortcut can do is declared once, in `src/lib/commands/`:
 
 `src/data/` is a self-contained layer behind repository interfaces: eleven repositories, a
 `promptforge` IndexedDB database at schema version 2 with eleven object stores and versioned
-migrations, an in-memory adapter that passes the same 25-case contract suite, typed storage errors
+migrations, an in-memory adapter that passes the same contract suite, typed storage errors
 mapped at the repository boundary, and a per-prompt write queue.
 
 - **Nothing outside `src/data` imports an adapter or the database module** — only the public surface
@@ -316,6 +354,9 @@ mapped at the repository boundary, and a per-prompt write queue.
   the stored version; a stale base is rejected with `StaleWriteError` and mutates nothing.
 - **Migrations are atomic and replayable.** They run inside the `versionchange` transaction, record
   themselves in `meta`, and abort the whole upgrade on failure.
+- **Prompt deletion cascades in one transaction.** `prompts.deleteCascade(id)` removes the prompt, its
+  revisions, and its test cases inside a single `readwrite` transaction; a failure leaves every row in
+  place (ADR-66).
 - **Failures are typed.** `QuotaExceededError`, `StorageUnavailableError`, `CorruptDataError`,
   `DuplicateRecordError`, `RecordNotFoundError`, `InvalidWriteError`, `StaleWriteError`, and
   `MigrationError` let the UI choose a recovery path instead of parsing messages.

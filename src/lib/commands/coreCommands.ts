@@ -105,6 +105,22 @@ export function createCoreCommands(): readonly CommandDefinition[] {
       run: (context) => context.focusLibrarySearch(),
     },
     {
+      id: 'prompt.new',
+      title: 'New prompt',
+      group: 'Workspace',
+      description: 'Create a prompt with its title, tags, folder, and collections.',
+      keywords: searchTerms('create new add prompt library compose'),
+      run: (context) => context.navigate('/library?new=prompt'),
+    },
+    {
+      id: 'folder.new',
+      title: 'New folder',
+      group: 'Workspace',
+      description: 'Create a folder to group prompts by area of work.',
+      keywords: searchTerms('create new add folder group organize library'),
+      run: (context) => context.navigate('/library?new=folder'),
+    },
+    {
       id: 'development.design-gallery',
       title: 'Open the design system gallery',
       group: 'Development',

@@ -53,6 +53,8 @@ function makeRevision(
   return { ...revision, promptId };
 }
 
+const now = (): Date => new Date('2026-10-24T09:41:07.123Z');
+
 function makeActivity(id: string, createdAt: string): ActivityEvent {
   return createActivityEvent(
     { type: 'updated', summary: `Event ${id}` },
@@ -241,6 +243,38 @@ export function describeRepositoryContract(
         await repos.prompts.delete('p1');
 
         await expect(repos.prompts.list()).resolves.toEqual([]);
+      });
+
+      it("cascades a delete to that prompt's revisions and test cases only", async () => {
+        await repos.prompts.create(makePrompt('p1'));
+        await repos.prompts.create(makePrompt('p2'));
+        await repos.revisions.create(makeRevision('r1', 'p1', 1));
+        await repos.revisions.create(makeRevision('r2', 'p1', 2));
+        await repos.revisions.create(makeRevision('r3', 'p2', 1));
+        await repos.testCases.create(
+          createTestCase({ promptId: 'p1', name: 'Keep me' }, { now, newId: () => 'tc1' }),
+        );
+        await repos.testCases.create(
+          createTestCase({ promptId: 'p2', name: 'Survivor' }, { now, newId: () => 'tc2' }),
+        );
+
+        await repos.prompts.deleteCascade('p1');
+
+        await expect(repos.prompts.get('p1')).resolves.toBeNull();
+        await expect(repos.prompts.get('p2')).resolves.not.toBeNull();
+        await expect(repos.revisions.listByPrompt('p1')).resolves.toEqual([]);
+        await expect(repos.revisions.listByPrompt('p2')).resolves.toHaveLength(1);
+        await expect(repos.testCases.get('tc1')).resolves.toBeNull();
+        await expect(repos.testCases.get('tc2')).resolves.not.toBeNull();
+      });
+
+      it('cascades idempotently, including for a prompt that never existed', async () => {
+        await repos.prompts.create(makePrompt('p1'));
+        await repos.revisions.create(makeRevision('r1', 'p1', 1));
+
+        await repos.prompts.deleteCascade('p1');
+        await expect(repos.prompts.deleteCascade('p1')).resolves.toBeUndefined();
+        await expect(repos.prompts.deleteCascade('never-there')).resolves.toBeUndefined();
       });
     });
 

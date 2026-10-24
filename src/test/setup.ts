@@ -14,6 +14,19 @@ declare global {
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
+// jsdom has no `ResizeObserver`, and Radix's checkbox bubble input measures
+// itself with one. A no-op observer is enough: the tests assert on checked
+// state and focus behavior, never on the measured size.
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  class NoopResizeObserver {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+
+  globalThis.ResizeObserver = NoopResizeObserver as unknown as typeof globalThis.ResizeObserver;
+}
+
 // Testing Library only auto-registers cleanup when Vitest globals are enabled;
 // this project keeps globals off, so cleanup is explicit.
 afterEach(() => {

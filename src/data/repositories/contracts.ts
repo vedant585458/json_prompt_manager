@@ -69,6 +69,12 @@ export interface PromptRepository {
    */
   update: (prompt: Prompt, options: { readonly expectedVersion: number }) => Promise<Prompt>;
   delete: (id: string) => Promise<void>;
+  /**
+   * Deletes a prompt and every record that references it (revisions and test
+   * cases) in one transaction: either the whole cascade is stored or nothing
+   * is. Idempotent, like `delete`.
+   */
+  deleteCascade: (id: string) => Promise<void>;
 }
 
 export interface RevisionRepository {

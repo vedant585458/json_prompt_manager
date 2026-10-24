@@ -3,6 +3,10 @@ import { Link } from 'react-router-dom';
 
 import { HighlightedText } from '@/components/library/HighlightedText';
 import { ParsabilityBadge, StatusBadge } from '@/components/library/PromptBadges';
+import {
+  PromptActionsMenu,
+  type PromptActionHandlers,
+} from '@/components/prompts/PromptActionsMenu';
 import { Badge, Checkbox } from '@/components/ui';
 import { formatRelativeTime } from '@/lib/dates';
 import type { PromptMatch } from '@/domain/search';
@@ -16,6 +20,7 @@ export interface PromptRowProps {
   readonly now: Date;
   readonly selected: boolean;
   readonly onToggleSelected: (id: string) => void;
+  readonly actions: PromptActionHandlers;
 }
 
 /**
@@ -34,6 +39,7 @@ export function PromptRow({
   now,
   selected,
   onToggleSelected,
+  actions,
 }: PromptRowProps) {
   return (
     <li className="flex min-w-0 items-start gap-3 px-3 py-2.5 transition-colors duration-[var(--pf-duration-fast)] hover:bg-surface-2 sm:px-4">
@@ -93,6 +99,8 @@ export function PromptRow({
           </time>
         </div>
       </div>
+
+      <PromptActionsMenu prompt={prompt} {...actions} align="start" />
     </li>
   );
 }

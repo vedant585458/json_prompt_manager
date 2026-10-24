@@ -209,6 +209,30 @@ async function createPromptRepository(db: Database) {
       withStorageErrors('prompts.delete', async () => {
         await db.delete(STORE.prompts, id);
       }),
+
+    deleteCascade: (id: string) =>
+      withStorageErrors('prompts.deleteCascade', async () => {
+        // One transaction across the three stores. If any delete fails the
+        // transaction aborts, so a half-deleted prompt cannot be left behind.
+        const transaction = db.transaction(
+          [STORE.prompts, STORE.revisions, STORE.testCases],
+          'readwrite',
+        );
+        const revisionStore = transaction.objectStore(STORE.revisions);
+        const testCaseStore = transaction.objectStore(STORE.testCases);
+
+        const [revisionKeys, testCaseKeys] = await Promise.all([
+          revisionStore.index('promptId').getAllKeys(id),
+          testCaseStore.index('promptId').getAllKeys(id),
+        ]);
+
+        await Promise.all([
+          ...revisionKeys.map((key) => revisionStore.delete(key)),
+          ...testCaseKeys.map((key) => testCaseStore.delete(key)),
+          transaction.objectStore(STORE.prompts).delete(id),
+        ]);
+        await transaction.done;
+      }),
   };
 }
 

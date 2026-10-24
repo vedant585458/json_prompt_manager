@@ -5,6 +5,7 @@ import {
   SEARCH_MAX_LENGTH,
   editedAfter,
   hasActiveFilters,
+  isLibraryDialog,
   readLibraryState,
   toggleTag,
   writeLibraryState,
@@ -163,5 +164,25 @@ describe('toggleTag', () => {
     const withTag = toggleTag(EMPTY_LIBRARY_STATE, 'Finance');
     expect(withTag.tags).toEqual(['finance']);
     expect(toggleTag(withTag, 'finance').tags).toEqual([]);
+  });
+});
+
+describe('dialog requests', () => {
+  it('reads and writes the create-dialog parameter', () => {
+    for (const dialog of ['prompt', 'folder', 'collection'] as const) {
+      expect(readLibraryState(`?new=${dialog}`).dialog).toBe(dialog);
+      expect(writeLibraryState({ ...EMPTY_LIBRARY_STATE, dialog })).toBe(`new=${dialog}`);
+    }
+  });
+
+  it('ignores an unknown dialog name', () => {
+    expect(readLibraryState('?new=spaceship').dialog).toBeNull();
+    expect(isLibraryDialog('spaceship')).toBe(false);
+    expect(isLibraryDialog('prompt')).toBe(true);
+  });
+
+  it('keeps the filters when a dialog is open', () => {
+    const state = readLibraryState('?tag=finance&new=folder');
+    expect(state).toMatchObject({ tags: ['finance'], dialog: 'folder' });
   });
 });

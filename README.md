@@ -2,7 +2,7 @@
 
 **Advanced JSON Prompt Management Studio** — a local-first workspace for creating, organizing, validating, versioning, comparing, and optimizing structured JSON prompts.
 
-> **Status: TASK-011 complete — the prompt library: search, filters, sorting, and grid/list views.**
+> **Status: TASK-012 complete — prompt CRUD, folders, and collections.**
 > The repository contains the toolchain, the Prompt Observatory token system with dark and light
 > themes, the primitive layer, the overlay/feedback layer demonstrated in a design gallery, the typed
 > domain model, the persistence layer (repository interfaces, IndexedDB with migrations, an in-memory
@@ -14,10 +14,11 @@
 > that rejects duplicate shortcuts, platform-aware single and two-step bindings, a fuzzy-searchable
 > palette at `⌘K` / `Ctrl K`, and a generated shortcut reference), the dashboard, and the **library**:
 > URL-synced search across titles, descriptions, tags, and JSON, tag/folder/collection/status/validation
-> /date filters, three sorts, pinned section, grid and list views, and per-card selection. Every
-> declared route is reachable; screens not yet built say so instead of showing mock controls. Each
-> subsequent feature is built in a separate, explicitly authorized task tracked in
-> [`tasks.md`](./tasks.md).
+> /date filters, three sorts, pinned section, grid and list views, and per-card selection — plus the
+> full prompt lifecycle (create from a template or blank, edit metadata, duplicate, archive with undo,
+> delete with a confirmed cascade) and folder/collection management with cycle guards. Every declared
+> route is reachable; screens not yet built say so instead of showing mock controls. Each subsequent
+> feature is built in a separate, explicitly authorized task tracked in [`tasks.md`](./tasks.md).
 
 ---
 
@@ -80,9 +81,11 @@ src/
   components/layout/  shell, rail, drawer, breadcrumbs, top bar, route chrome, shortcut help
   components/command-palette/  palette dialog and the command layer mounted by the shell
   components/dashboard/  dashboard sections, stat strip, rails, and the first-run guide
+  components/library/  filter bar, ingredient rail, prompt cards and rows, badges
+  components/prompts/  prompt create/edit dialog, action menu, delete confirmation
   lib/commands/   registry, shortcut parsing/matching, core commands, React bindings
   components/     ui primitives, layout, and domain components
-  features/       feature modules (save pipeline, revisions, diff, lab, ...)
+  features/       feature modules (organization, save pipeline, revisions, diff, lab, ...)
   domain/         pure TypeScript domain logic and types (no React, no storage)
   data/           repository interfaces, IndexedDB + in-memory adapters, migrations,
                   typed storage errors, write queue, cross-tab announcements
@@ -137,12 +140,39 @@ address bar is the only filter state — reload, back/forward, and in-app links 
   the main list; counts count each prompt once.
 - **Selection.** Every card and row has a checkbox and the bar reports the count; bulk actions are
   TASK-013, and the bar says so rather than offering buttons that do nothing.
+- **Actions.** Each card and row has a `⋯` menu (edit details, duplicate, archive/restore, delete) and
+  the header has "New prompt"; both open dialogs rather than navigating to empty screens.
 - **Honesty rules.** "Will not parse" is `parseDocument()` refusing the stored document — never a claim
   about prompt quality. Archived prompts stay hidden unless the toggle is on, and the archive toggle
   changes the rail's counts with it. An empty library and an empty _result set_ are different states
   with different explanations and different ways forward.
 - **URL contract.** `?q=&folder=&tag=&collection=&status=&validation=&archived=&favorites=&snapshots=&incollection=&edited=&sort=&view=`,
   plus the dashboard's `?filter=` shorthand as a base layer that explicit parameters override.
+
+## Creating and organizing
+
+The library owns the prompt lifecycle. Nothing is optimistic: a dialog closes, a toast appears, and a
+card changes only after the store confirms the write.
+
+- **Create.** Title, description, folder, collections, tags, status, and a template/blank choice. The
+  document is created from the template (or the schema defaults) and the editor opens on the stored
+  prompt, never on a draft.
+- **Edit details.** The same fields, minus the template choice. The JSON document is deliberately out
+  of reach here — it belongs to the editor (TASK-014).
+- **Duplicate.** Copies the document and metadata with fresh IDs and a `(copy)`, `(copy 2)`, … title, so
+  editing one never touches the other. The activity log records it.
+- **Archive.** Archived prompts leave the working views and the toast offers **Undo**.
+- **Delete.** Confirmation names the prompt and lists the snapshots and test cases that disappear with
+  it. Deletion is one IndexedDB transaction over prompts, revisions, and test cases — a failure leaves
+  every row in place and the dialog open with an error.
+- **Folders.** Create, rename, re-parent, and delete. Depth is capped at five levels, duplicate sibling
+  names are refused, and the parent picker cannot express a cycle; the domain rule still runs on submit
+  and renders its message under the field. Deleting a folder moves its prompts and subfolders to the
+  removed folder's parent and says where they went.
+- **Collections.** Create, rename, describe, and delete. A collection is membership, not a container:
+  deleting one clears the membership and never deletes a prompt.
+- **Palette and links.** `prompt.new` and `folder.new` open the same dialogs as `/library?new=prompt`
+  and `/library?new=folder`, so a command, a link, and a click share one path.
 
 ## Design system
 

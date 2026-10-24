@@ -9,7 +9,15 @@ import {
   type Repositories,
 } from '@/data';
 import { createDataStore, describeDataError, type DataStore } from '@/store/dataStore';
-import { createDefaultSettings, createPrompt as createPromptEntity } from '@/domain/factories';
+import { RuleViolationError } from '@/domain/errors';
+import {
+  createCollection,
+  createDefaultSettings,
+  createFolder,
+  createPrompt as createPromptEntity,
+  createRevision,
+  createTestCase,
+} from '@/domain/factories';
 
 /** Clock that advances one second per read, so ordering is observable. */
 function createClock(start = '2026-10-24T09:00:00.000Z', stepMs = 1000) {
@@ -347,5 +355,374 @@ describe('describeDataError', () => {
     expect(describeDataError(new Error('Plain failure.'))).toBe('Plain failure.');
     expect(describeDataError('a string')).toMatch(/unknown reason/);
     expect(describeDataError(undefined)).toMatch(/unknown reason/);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* TASK-012 — prompt and container lifecycle                                   */
+/* -------------------------------------------------------------------------- */
+
+const seededNow = () => new Date('2026-10-20T09:00:00.000Z');
+
+function folderEntity(id: string, name: string, parentId: string | null = null) {
+  return createFolder({ name, parentId }, { now: seededNow, newId: () => id });
+}
+
+function collectionEntity(id: string, name: string) {
+  return createCollection({ name }, { now: seededNow, newId: () => id });
+}
+
+function promptEntity(id: string, title: string, overrides: Record<string, unknown> = {}) {
+  return createPromptEntity({ title, ...overrides }, { now: seededNow, newId: () => id });
+}
+
+describe('dataStore prompt lifecycle', () => {
+  it('duplicates a prompt under a "(copy)" title with a fresh id', async () => {
+    const { repositories, store } = await createHarness(async (repos) => {
+      await repos.prompts.create(
+        promptEntity('source', 'Invoice parser', {
+          tags: ['finance'],
+          collectionIds: ['kit'],
+          content: {
+            ...promptEntity('template', 'Invoice parser').content,
+            objective: 'Read an invoice and return line items.',
+          },
+        }),
+      );
+    });
+
+    const copy = await store.getState().duplicatePrompt('source');
+
+    expect(copy.id).not.toBe('source');
+    expect(copy.title).toBe('Invoice parser (copy)');
+    expect(copy.version).toBe(1);
+    expect(copy.createdAt).toBe(copy.updatedAt);
+    expect(copy.tags).toEqual(['finance']);
+    expect(copy.collectionIds).toEqual(['kit']);
+    expect(copy.content.objective).toBe('Read an invoice and return line items.');
+    expect(
+      store
+        .getState()
+        .prompts.map((prompt) => prompt.id)
+        .sort(),
+    ).toEqual(['source', copy.id].sort());
+    expect(store.getState().activity[0]?.summary).toBe('Duplicated "Invoice parser"');
+
+    await repositories.close();
+  });
+
+  it('numbers later copies instead of reusing a title', async () => {
+    const { repositories, store } = await createHarness(async (repos) => {
+      await repos.prompts.create(promptEntity('source', 'Triage'));
+    });
+
+    const first = await store.getState().duplicatePrompt('source');
+    const second = await store.getState().duplicatePrompt('source');
+    const third = await store.getState().duplicatePrompt('source');
+
+    expect([first.title, second.title, third.title]).toEqual([
+      'Triage (copy)',
+      'Triage (copy 2)',
+      'Triage (copy 3)',
+    ]);
+    expect(new Set([first.id, second.id, third.id]).size).toBe(3);
+
+    await repositories.close();
+  });
+
+  it('keeps a duplicate independent of its source', async () => {
+    const { repositories, store } = await createHarness(async (repos) => {
+      await repos.prompts.create(
+        promptEntity('source', 'Independent', {
+          content: {
+            ...promptEntity('template', 'Independent').content,
+            instructions: ['One', 'Two'],
+          },
+        }),
+      );
+    });
+
+    const copy = await store.getState().duplicatePrompt('source');
+
+    await store.getState().editPrompt(copy.id, {
+      title: 'Changed copy',
+      content: { ...copy.content, instructions: ['Only the copy'] },
+    });
+
+    const source = store.getState().prompts.find((prompt) => prompt.id === 'source');
+    expect(source?.title).toBe('Independent');
+    expect(source?.content.instructions).toEqual(['One', 'Two']);
+    await expect(repositories.prompts.get('source')).resolves.toMatchObject({
+      content: { instructions: ['One', 'Two'] },
+    });
+
+    await repositories.close();
+  });
+
+  it('deletes a prompt together with its revisions and test cases', async () => {
+    const { repositories, store } = await createHarness(async (repos) => {
+      await repos.prompts.create(promptEntity('doomed', 'Doomed'));
+      await repos.prompts.create(promptEntity('kept', 'Kept'));
+      await repos.revisions.create(
+        createRevision(
+          promptEntity('doomed', 'Doomed'),
+          { revisionNumber: 1, kind: 'manual' },
+          { now: seededNow, newId: () => 'rev-1' },
+        ),
+      );
+      await repos.revisions.create(
+        createRevision(
+          promptEntity('kept', 'Kept'),
+          { revisionNumber: 1, kind: 'manual' },
+          { now: seededNow, newId: () => 'rev-2' },
+        ),
+      );
+      await repos.testCases.create(
+        createTestCase(
+          { promptId: 'doomed', name: 'Case A' },
+          { now: seededNow, newId: () => 'tc-1' },
+        ),
+      );
+      await repos.testCases.create(
+        createTestCase(
+          { promptId: 'kept', name: 'Case B' },
+          { now: seededNow, newId: () => 'tc-2' },
+        ),
+      );
+    });
+
+    await store.getState().deletePrompt('doomed');
+
+    expect(store.getState().prompts.map((prompt) => prompt.id)).toEqual(['kept']);
+    expect(store.getState().revisions.map((revision) => revision.id)).toEqual(['rev-2']);
+    expect(store.getState().testCases.map((testCase) => testCase.id)).toEqual(['tc-2']);
+    await expect(repositories.prompts.get('doomed')).resolves.toBeNull();
+    await expect(repositories.revisions.listByPrompt('doomed')).resolves.toEqual([]);
+    await expect(repositories.testCases.get('tc-1')).resolves.toBeNull();
+    expect(store.getState().activity[0]?.summary).toBe('Deleted "Doomed"');
+
+    await repositories.close();
+  });
+
+  it('moves a prompt into a folder and records where it went', async () => {
+    const { repositories, store } = await createHarness(async (repos) => {
+      await repos.folders.create(folderEntity('finance', 'Finance'));
+      await repos.prompts.create(promptEntity('p1', 'Receipts'));
+    });
+
+    const moved = await store.getState().movePrompt('p1', 'finance');
+
+    expect(moved.folderId).toBe('finance');
+    expect(store.getState().activity[0]?.summary).toBe('Moved "Receipts" to Finance');
+
+    const back = await store.getState().movePrompt('p1', null);
+    expect(back.folderId).toBeNull();
+
+    await repositories.close();
+  });
+
+  it('refuses to move a prompt into a folder that does not exist', async () => {
+    const { repositories, store } = await createHarness(async (repos) => {
+      await repos.prompts.create(promptEntity('p1', 'Receipts'));
+    });
+
+    await expect(store.getState().movePrompt('p1', 'ghost')).rejects.toBeInstanceOf(
+      RuleViolationError,
+    );
+    expect(store.getState().prompts[0]?.folderId).toBeNull();
+    await expect(repositories.prompts.get('p1')).resolves.toMatchObject({ folderId: null });
+
+    await repositories.close();
+  });
+});
+
+describe('dataStore organization', () => {
+  it('creates nested folders and rejects a duplicate name among siblings', async () => {
+    const { repositories, store } = await createHarness();
+
+    const parent = await store.getState().addFolder('Work');
+    const child = await store.getState().addFolder('Drafts', parent.id);
+    expect(child.parentId).toBe(parent.id);
+
+    await expect(store.getState().addFolder('  drafts  ', parent.id)).rejects.toBeInstanceOf(
+      RuleViolationError,
+    );
+    expect(store.getState().folders).toHaveLength(2);
+
+    // The same name is fine under a different parent.
+    const other = await store.getState().addFolder('Drafts');
+    expect(other.parentId).toBeNull();
+
+    await repositories.close();
+  });
+
+  it('rejects nesting deeper than the documented limit', async () => {
+    const { repositories, store } = await createHarness();
+    let parentId: string | null = null;
+
+    for (let depth = 1; depth <= 5; depth += 1) {
+      const folder: { id: string } = await store.getState().addFolder(`Level ${depth}`, parentId);
+      parentId = folder.id;
+    }
+
+    await expect(store.getState().addFolder('Too deep', parentId)).rejects.toMatchObject({
+      message: expect.stringMatching(/at most 5 levels/),
+    });
+    expect(store.getState().folders).toHaveLength(5);
+
+    await repositories.close();
+  });
+
+  it('renames a folder and records the new name', async () => {
+    const { repositories, store } = await createHarness(async (repos) => {
+      await repos.folders.create(folderEntity('work', 'Work'));
+    });
+
+    const saved = await store.getState().updateFolder('work', { name: 'Client work' });
+
+    expect(saved.name).toBe('Client work');
+    expect(store.getState().folders[0]?.name).toBe('Client work');
+    expect(store.getState().activity[0]?.summary).toBe('Renamed folder "Work" to "Client work"');
+
+    await repositories.close();
+  });
+
+  it('refuses to move a folder inside its own subtree', async () => {
+    const { repositories, store } = await createHarness(async (repos) => {
+      await repos.folders.create(folderEntity('work', 'Work'));
+      await repos.folders.create(folderEntity('drafts', 'Drafts', 'work'));
+      await repos.folders.create(folderEntity('ideas', 'Ideas', 'drafts'));
+    });
+
+    await expect(
+      store.getState().updateFolder('work', { parentId: 'ideas' }),
+    ).rejects.toMatchObject({
+      message: expect.stringMatching(/cannot be moved inside itself/),
+    });
+
+    const work = store.getState().folders.find((folder) => folder.id === 'work');
+    expect(work?.parentId).toBeNull();
+    await expect(repositories.folders.get('work')).resolves.toMatchObject({ parentId: null });
+
+    await repositories.close();
+  });
+
+  it('deletes a folder by moving its prompts and child folders to the parent', async () => {
+    const { repositories, store } = await createHarness(async (repos) => {
+      await repos.folders.create(folderEntity('work', 'Work'));
+      await repos.folders.create(folderEntity('drafts', 'Drafts', 'work'));
+      await repos.folders.create(folderEntity('ideas', 'Ideas', 'drafts'));
+      await repos.prompts.create(promptEntity('in-drafts', 'In drafts', { folderId: 'drafts' }));
+      await repos.prompts.create(promptEntity('in-work', 'In work', { folderId: 'work' }));
+      await repos.prompts.create(promptEntity('outside', 'Outside'));
+    });
+
+    const result = await store.getState().deleteFolder('drafts');
+
+    expect(result).toEqual({ promptsMoved: 1, foldersMoved: 1 });
+    expect(
+      store
+        .getState()
+        .folders.map((folder) => folder.id)
+        .sort(),
+    ).toEqual(['ideas', 'work']);
+    expect(store.getState().folders.find((folder) => folder.id === 'ideas')?.parentId).toBe('work');
+    expect(store.getState().prompts.find((prompt) => prompt.id === 'in-drafts')?.folderId).toBe(
+      'work',
+    );
+    expect(store.getState().prompts.find((prompt) => prompt.id === 'in-work')?.folderId).toBe(
+      'work',
+    );
+    expect(store.getState().prompts.find((prompt) => prompt.id === 'outside')?.folderId).toBeNull();
+    await expect(repositories.prompts.get('in-drafts')).resolves.toMatchObject({
+      folderId: 'work',
+    });
+    expect(store.getState().activity[0]?.summary).toBe(
+      'Deleted folder "Drafts" — 1 prompt moved to Work',
+    );
+
+    await repositories.close();
+  });
+
+  it('moves prompts to the top level when a root folder is deleted', async () => {
+    const { repositories, store } = await createHarness(async (repos) => {
+      await repos.folders.create(folderEntity('work', 'Work'));
+      await repos.prompts.create(promptEntity('p1', 'Filed', { folderId: 'work' }));
+    });
+
+    await store.getState().deleteFolder('work');
+
+    expect(store.getState().prompts[0]?.folderId).toBeNull();
+    expect(store.getState().activity[0]?.summary).toMatch(/moved to the top level/);
+
+    await repositories.close();
+  });
+
+  it('reports a failed cascade and re-reads storage instead of faking success', async () => {
+    const { repositories, store } = await createHarness(async (repos) => {
+      await repos.folders.create(folderEntity('work', 'Work'));
+      await repos.folders.create(folderEntity('drafts', 'Drafts', 'work'));
+      await repos.prompts.create(promptEntity('p1', 'Filed', { folderId: 'drafts' }));
+    });
+
+    repositories.folders.delete = async () => {
+      throw new StorageUnavailableError('The database is locked.');
+    };
+
+    await expect(store.getState().deleteFolder('drafts')).rejects.toBeInstanceOf(StorageError);
+
+    expect(store.getState().error).toMatch(/locked/);
+    // The prompt move was already written, so the store shows the real state.
+    expect(store.getState().prompts.find((prompt) => prompt.id === 'p1')?.folderId).toBe('work');
+    expect(
+      store
+        .getState()
+        .folders.map((folder) => folder.id)
+        .sort(),
+    ).toEqual(['drafts', 'work']);
+
+    await repositories.close();
+  });
+
+  it('deletes a collection by removing membership only', async () => {
+    const { repositories, store } = await createHarness(async (repos) => {
+      await repos.collections.create(collectionEntity('kit', 'Starter kit'));
+      await repos.prompts.create(promptEntity('p1', 'Member', { collectionIds: ['kit'] }));
+      await repos.prompts.create(promptEntity('p2', 'Also a member', { collectionIds: ['kit'] }));
+    });
+
+    const result = await store.getState().deleteCollection('kit');
+
+    expect(result).toEqual({ promptsDetached: 2 });
+    expect(store.getState().collections).toEqual([]);
+    expect(store.getState().prompts).toHaveLength(2);
+    expect(store.getState().prompts.every((prompt) => prompt.collectionIds.length === 0)).toBe(
+      true,
+    );
+    await expect(repositories.prompts.get('p1')).resolves.toMatchObject({ collectionIds: [] });
+    expect(store.getState().activity[0]?.summary).toBe(
+      'Deleted collection "Starter kit" — 2 prompts kept, membership removed',
+    );
+
+    await repositories.close();
+  });
+
+  it('renames a collection and rejects a duplicate name', async () => {
+    const { repositories, store } = await createHarness(async (repos) => {
+      await repos.collections.create(collectionEntity('one', 'Kit'));
+      await repos.collections.create(collectionEntity('two', 'Replies'));
+    });
+
+    const saved = await store.getState().updateCollection('two', {
+      name: 'Support replies',
+      description: ' Canned answers ',
+    });
+    expect(saved).toMatchObject({ name: 'Support replies', description: 'Canned answers' });
+
+    await expect(store.getState().updateCollection('two', { name: 'kit' })).rejects.toBeInstanceOf(
+      RuleViolationError,
+    );
+
+    await repositories.close();
   });
 });

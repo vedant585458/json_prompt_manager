@@ -36,16 +36,24 @@ import {
 import {
   ACTIVITY_LOG_LIMIT,
   capActivityLog,
+  checkCollectionName,
+  checkFolderMove,
+  checkFolderName,
+  checkNewFolder,
+  hasErrors,
   nextRevisionNumber,
   normalizeTags,
   normalizeTitle,
 } from '@/domain/invariants';
+import { RuleViolationError } from '@/domain/errors';
 import type {
   ActivityType,
   ActivityEvent,
   Collection,
+  DomainIssue,
   Folder,
   Prompt,
+  PromptDocument,
   PromptRevision,
   PromptSchema,
   PromptStatus,
@@ -76,6 +84,27 @@ export interface PromptEdit {
   readonly metadata?: Readonly<Record<string, string>>;
 }
 
+/** What a folder deletion did, so the caller can report it honestly. */
+export interface FolderDeletion {
+  readonly promptsMoved: number;
+  readonly foldersMoved: number;
+}
+
+/** What a collection deletion did: prompts are kept, membership removed. */
+export interface CollectionDeletion {
+  readonly promptsDetached: number;
+}
+
+export interface FolderEdit {
+  readonly name?: string;
+  readonly parentId?: string | null;
+}
+
+export interface CollectionEdit {
+  readonly name?: string;
+  readonly description?: string;
+}
+
 export interface DataState {
   /** Whether writes survive a reload. Set by `attach`. */
   readonly mode: StorageMode;
@@ -104,14 +133,24 @@ export interface DataState {
 
   addPrompt: (input?: CreatePromptInput) => Promise<Prompt>;
   editPrompt: (id: string, changes: PromptEdit) => Promise<Prompt>;
+  /** Copies a prompt under a "(copy)" title; the copy shares no mutable state. */
+  duplicatePrompt: (id: string) => Promise<Prompt>;
+  movePrompt: (id: string, folderId: string | null) => Promise<Prompt>;
   archivePrompt: (id: string) => Promise<Prompt>;
   unarchivePrompt: (id: string) => Promise<Prompt>;
+  /** Deletes the prompt, its revisions, and its test cases together. */
   deletePrompt: (id: string) => Promise<void>;
   /** Saves a manual snapshot revision for a prompt. */
   snapshotPrompt: (id: string, label?: string | null) => Promise<PromptRevision>;
 
-  addFolder: (name: string) => Promise<Folder>;
+  addFolder: (name: string, parentId?: string | null) => Promise<Folder>;
+  updateFolder: (id: string, changes: FolderEdit) => Promise<Folder>;
+  /** Deletes a folder; its prompts and child folders move up one level. */
+  deleteFolder: (id: string) => Promise<FolderDeletion>;
   addCollection: (name: string, description?: string) => Promise<Collection>;
+  updateCollection: (id: string, changes: CollectionEdit) => Promise<Collection>;
+  /** Deletes a collection; prompts keep their place and lose the membership. */
+  deleteCollection: (id: string) => Promise<CollectionDeletion>;
 
   saveSettings: (settings: Settings) => Promise<Settings>;
 
@@ -180,6 +219,45 @@ function applyEdit(current: Prompt, changes: PromptEdit, updatedAt: string): Pro
   };
 }
 
+/** Throws the first fatal rule issue, if any. */
+function throwIfInvalid(issues: readonly DomainIssue[]): void {
+  if (hasErrors(issues)) throw new RuleViolationError(issues);
+}
+
+/**
+ * Deep copy for document bodies.
+ *
+ * Documents are JSON by definition, so a round-trip is exact and guarantees a
+ * duplicate or a template-based prompt shares no nested arrays or objects with
+ * its source.
+ */
+function copyDocument(document: PromptDocument): PromptDocument {
+  return JSON.parse(JSON.stringify(document)) as PromptDocument;
+}
+
+/**
+ * "Title (copy)", then "Title (copy 2)", and so on.
+ *
+ * Comparison is case-insensitive over every prompt in the library, so two
+ * copies created in a row cannot end up with the same name.
+ */
+function copyTitle(title: string, prompts: readonly Prompt[]): string {
+  const taken = new Set(prompts.map((prompt) => prompt.title.toLowerCase()));
+  let candidate = `${title} (copy)`;
+  let attempt = 2;
+
+  while (taken.has(candidate.toLowerCase())) {
+    candidate = `${title} (copy ${attempt})`;
+    attempt += 1;
+  }
+
+  return candidate;
+}
+
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
 /**
  * Creates a store instance.
  *
@@ -194,7 +272,7 @@ export function createDataStore(options: DataStoreOptions = {}) {
 
   let repositories: Repositories | null = null;
 
-  return create<DataState>()((set) => {
+  return create<DataState>()((set, get) => {
     function requireRepositories(): Repositories {
       if (!repositories) {
         throw new StorageUnavailableError(
@@ -251,7 +329,7 @@ export function createDataStore(options: DataStoreOptions = {}) {
       id: string,
       changes: PromptEdit,
       activityType: ActivityType,
-      verb: string,
+      describe: (saved: Prompt, previous: Prompt) => string,
     ): Promise<Prompt> {
       return run(async (repos) => {
         const current = await repos.prompts.get(id);
@@ -263,7 +341,7 @@ export function createDataStore(options: DataStoreOptions = {}) {
         set((state) => ({ prompts: upsertPrompt(state.prompts, saved) }));
         await recordActivity({
           type: activityType,
-          summary: `${verb} "${saved.title}"`,
+          summary: describe(saved, current),
           promptId: saved.id,
           promptTitle: saved.title,
         });
@@ -366,21 +444,82 @@ export function createDataStore(options: DataStoreOptions = {}) {
           return saved;
         }),
 
-      editPrompt: (id, changes) => writePrompt(id, changes, 'updated', 'Updated'),
+      editPrompt: (id, changes) =>
+        writePrompt(id, changes, 'updated', (saved) => `Updated "${saved.title}"`),
 
-      archivePrompt: (id) => writePrompt(id, { archived: true }, 'archived', 'Archived'),
+      duplicatePrompt: async (id) =>
+        run(async (repos) => {
+          const state = get();
+          const source = state.prompts.find((prompt) => prompt.id === id);
+          if (!source) throw new RecordNotFoundError(`Prompt ${id} no longer exists.`);
+
+          const copy = createPromptEntity(
+            {
+              title: copyTitle(source.title, state.prompts),
+              description: source.description,
+              content: copyDocument(source.content),
+              format: source.format,
+              folderId: source.folderId,
+              collectionIds: [...source.collectionIds],
+              tags: [...source.tags],
+              status: source.status,
+              schemaId: source.schemaId,
+              variables: JSON.parse(JSON.stringify(source.variables)) as VariableDefinition[],
+              metadata: { ...source.metadata },
+            },
+            dependencies,
+          );
+          const saved = await repos.prompts.create(copy);
+          set((current) => ({ prompts: upsertPrompt(current.prompts, saved) }));
+
+          await recordActivity({
+            type: 'created',
+            summary: `Duplicated "${source.title}"`,
+            promptId: saved.id,
+            promptTitle: saved.title,
+          });
+          return saved;
+        }),
+
+      movePrompt: async (id, folderId) => {
+        const state = get();
+        const folder =
+          folderId === null ? null : state.folders.find((item) => item.id === folderId);
+        if (folderId !== null && !folder) {
+          throw new RuleViolationError([
+            { path: 'folderId', message: 'Target folder no longer exists.', severity: 'error' },
+          ]);
+        }
+
+        return writePrompt(
+          id,
+          { folderId },
+          'updated',
+          (saved) => `Moved "${saved.title}" to ${folder?.name ?? 'Unfiled'}`,
+        );
+      },
+
+      archivePrompt: (id) =>
+        writePrompt(id, { archived: true }, 'archived', (saved) => `Archived "${saved.title}"`),
 
       unarchivePrompt: (id) =>
-        writePrompt(id, { archived: false }, 'updated', 'Restored from the archive'),
+        writePrompt(
+          id,
+          { archived: false },
+          'updated',
+          (saved) => `Restored "${saved.title}" from the archive`,
+        ),
 
       deletePrompt: async (id) =>
         run(async (repos) => {
           const current = await repos.prompts.get(id);
-          await repos.prompts.delete(id);
+          // Revisions and test cases go in the same transaction as the prompt.
+          await repos.prompts.deleteCascade(id);
 
           set((state) => ({
             prompts: state.prompts.filter((prompt) => prompt.id !== id),
             revisions: state.revisions.filter((revision) => revision.promptId !== id),
+            testCases: state.testCases.filter((testCase) => testCase.promptId !== id),
           }));
 
           await recordActivity({
@@ -419,15 +558,124 @@ export function createDataStore(options: DataStoreOptions = {}) {
           return saved;
         }),
 
-      addFolder: async (name) =>
+      addFolder: async (name, parentId = null) =>
         run(async (repos) => {
-          const folder = await repos.folders.create(createFolder({ name }, dependencies));
+          throwIfInvalid(checkNewFolder(get().folders, name, parentId));
+
+          const folder = await repos.folders.create(createFolder({ name, parentId }, dependencies));
           set((state) => ({ folders: sortByName([folder, ...state.folders]) }));
+          await recordActivity({ type: 'created', summary: `Created folder "${folder.name}"` });
           return folder;
+        }),
+
+      updateFolder: async (id, changes) =>
+        run(async (repos) => {
+          const state = get();
+          const current = state.folders.find((folder) => folder.id === id);
+          if (!current) throw new RecordNotFoundError(`Folder ${id} no longer exists.`);
+
+          const name = changes.name === undefined ? current.name : normalizeTitle(changes.name);
+          const parentId = changes.parentId === undefined ? current.parentId : changes.parentId;
+
+          throwIfInvalid([
+            ...checkFolderName(state.folders, name, parentId, id),
+            ...checkFolderMove(state.folders, id, parentId),
+          ]);
+
+          const saved = await repos.folders.update({
+            ...current,
+            name,
+            parentId,
+            updatedAt: dependencies.now().toISOString(),
+          });
+          set((state) => ({
+            folders: sortByName([saved, ...state.folders.filter((folder) => folder.id !== id)]),
+          }));
+
+          const parentName =
+            parentId === null
+              ? null
+              : (state.folders.find((folder) => folder.id === parentId)?.name ?? null);
+          const renamed = saved.name !== current.name;
+          const moved = saved.parentId !== current.parentId;
+          const summary = renamed
+            ? `Renamed folder "${current.name}" to "${saved.name}"${moved ? ' and moved it' : ''}`
+            : `Moved folder "${saved.name}" to ${parentName ?? 'the top level'}`;
+
+          await recordActivity({ type: 'updated', summary });
+          return saved;
+        }),
+
+      deleteFolder: async (id) =>
+        run(async (repos) => {
+          const state = get();
+          const folder = state.folders.find((candidate) => candidate.id === id);
+          if (!folder) throw new RecordNotFoundError(`Folder ${id} no longer exists.`);
+
+          const parentId = folder.parentId;
+          const childFolders = state.folders.filter((candidate) => candidate.parentId === id);
+          const affectedPrompts = state.prompts.filter((prompt) => prompt.folderId === id);
+          const updatedAt = dependencies.now().toISOString();
+
+          try {
+            const savedFolders: Folder[] = [];
+            for (const child of childFolders) {
+              savedFolders.push(await repos.folders.update({ ...child, parentId, updatedAt }));
+            }
+
+            const savedPrompts: Prompt[] = [];
+            for (const prompt of affectedPrompts) {
+              savedPrompts.push(
+                await repos.prompts.update(applyEdit(prompt, { folderId: parentId }, updatedAt), {
+                  expectedVersion: prompt.version,
+                }),
+              );
+            }
+
+            await repos.folders.delete(id);
+
+            const movedIds = new Set(childFolders.map((child) => child.id));
+            set((state) => ({
+              folders: sortByName([
+                ...savedFolders,
+                ...state.folders.filter(
+                  (candidate) => candidate.id !== id && !movedIds.has(candidate.id),
+                ),
+              ]),
+              prompts: savedPrompts.reduce(
+                (prompts, prompt) => upsertPrompt(prompts, prompt),
+                state.prompts,
+              ),
+            }));
+
+            const destination =
+              parentId === null
+                ? 'the top level'
+                : (state.folders.find((candidate) => candidate.id === parentId)?.name ??
+                  'the parent folder');
+            await recordActivity({
+              type: 'deleted',
+              summary:
+                `Deleted folder "${folder.name}" — ` +
+                `${plural(affectedPrompts.length, 'prompt', 'prompts')} moved to ${destination}`,
+            });
+
+            return {
+              promptsMoved: affectedPrompts.length,
+              foldersMoved: childFolders.length,
+            };
+          } catch (error) {
+            // A partial cascade must never be shown as if it succeeded: re-read
+            // storage so the screen matches what is actually saved.
+            await get().hydrate();
+            throw error;
+          }
         }),
 
       addCollection: async (name, description) =>
         run(async (repos) => {
+          throwIfInvalid(checkCollectionName(get().collections, name));
+
           const collection = await repos.collections.create(
             createCollection(
               { name, ...(description === undefined ? {} : { description }) },
@@ -435,7 +683,95 @@ export function createDataStore(options: DataStoreOptions = {}) {
             ),
           );
           set((state) => ({ collections: sortByName([collection, ...state.collections]) }));
+          await recordActivity({
+            type: 'created',
+            summary: `Created collection "${collection.name}"`,
+          });
           return collection;
+        }),
+
+      updateCollection: async (id, changes) =>
+        run(async (repos) => {
+          const state = get();
+          const current = state.collections.find((collection) => collection.id === id);
+          if (!current) throw new RecordNotFoundError(`Collection ${id} no longer exists.`);
+
+          const name = changes.name === undefined ? current.name : normalizeTitle(changes.name);
+          throwIfInvalid(checkCollectionName(state.collections, name, id));
+
+          const saved = await repos.collections.update({
+            ...current,
+            name,
+            description:
+              changes.description === undefined ? current.description : changes.description.trim(),
+            updatedAt: dependencies.now().toISOString(),
+          });
+          set((state) => ({
+            collections: sortByName([
+              saved,
+              ...state.collections.filter((collection) => collection.id !== id),
+            ]),
+          }));
+          await recordActivity({
+            type: 'updated',
+            summary:
+              saved.name === current.name
+                ? `Updated collection "${saved.name}"`
+                : `Renamed collection "${current.name}" to "${saved.name}"`,
+          });
+          return saved;
+        }),
+
+      deleteCollection: async (id) =>
+        run(async (repos) => {
+          const state = get();
+          const collection = state.collections.find((candidate) => candidate.id === id);
+          if (!collection) throw new RecordNotFoundError(`Collection ${id} no longer exists.`);
+
+          const members = state.prompts.filter((prompt) => prompt.collectionIds.includes(id));
+          const updatedAt = dependencies.now().toISOString();
+
+          try {
+            const savedPrompts: Prompt[] = [];
+            for (const prompt of members) {
+              savedPrompts.push(
+                await repos.prompts.update(
+                  applyEdit(
+                    prompt,
+                    {
+                      collectionIds: prompt.collectionIds.filter(
+                        (collectionId) => collectionId !== id,
+                      ),
+                    },
+                    updatedAt,
+                  ),
+                  { expectedVersion: prompt.version },
+                ),
+              );
+            }
+
+            await repos.collections.delete(id);
+
+            set((state) => ({
+              collections: state.collections.filter((candidate) => candidate.id !== id),
+              prompts: savedPrompts.reduce(
+                (prompts, prompt) => upsertPrompt(prompts, prompt),
+                state.prompts,
+              ),
+            }));
+
+            await recordActivity({
+              type: 'deleted',
+              summary:
+                `Deleted collection "${collection.name}" — ` +
+                `${plural(members.length, 'prompt', 'prompts')} kept, membership removed`,
+            });
+
+            return { promptsDetached: members.length };
+          } catch (error) {
+            await get().hydrate();
+            throw error;
+          }
         }),
 
       saveSettings: async (settings) =>

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { PromptRow } from '@/components/library/PromptRow';
+import type { PromptActionHandlers } from '@/components/prompts/PromptActionsMenu';
 import type { PromptMatch } from '@/domain/search';
 import type { Prompt } from '@/domain/types';
 
@@ -15,6 +16,7 @@ export interface PromptListProps {
   readonly empty: ReactNode;
   /** Distinguishes the pinned list from the main results in the a11y tree. */
   readonly label?: string;
+  readonly actions: PromptActionHandlers;
 }
 
 /** Dense list view of the library (TASK-011). */
@@ -28,6 +30,7 @@ export function PromptList({
   onToggleSelected,
   empty,
   label = 'Prompts',
+  actions,
 }: PromptListProps) {
   if (prompts.length === 0) return <>{empty}</>;
 
@@ -52,6 +55,7 @@ export function PromptList({
             now={now}
             selected={selectedIds.has(prompt.id)}
             onToggleSelected={onToggleSelected}
+            actions={actions}
           />
         ))}
       </ul>

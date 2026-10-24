@@ -49,7 +49,19 @@ describe('core command catalogue', () => {
     }
   });
 
-  it('binds the palette, help, theme, and rail shortcuts', () => {
+  it('offers the library create flows without claiming CRUD commands', () => {
+    const navigate = vi.fn();
+
+    run('prompt.new', { navigate });
+    run('folder.new', { navigate });
+
+    expect(navigate).toHaveBeenNthCalledWith(1, '/library?new=prompt');
+    expect(navigate).toHaveBeenNthCalledWith(2, '/library?new=folder');
+    expect(byId.get('prompt.new')?.group).toBe('Workspace');
+    expect(byId.get('folder.new')?.group).toBe('Workspace');
+  });
+
+  it('only registers behaviour that exists today', () => {
     expect(PALETTE_SHORTCUT).toBe('Mod+K');
     expect(byId.get('palette.open')?.shortcut).toBe('Mod+K');
     expect(byId.get('help.shortcuts')?.shortcut).toBe('?');

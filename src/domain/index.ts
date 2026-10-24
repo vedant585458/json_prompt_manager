@@ -6,6 +6,7 @@
  */
 
 export * from '@/domain/types';
+export * from '@/domain/errors';
 export * from '@/domain/invariants';
 export * from '@/domain/promptDocument';
 export * from '@/domain/serialization';

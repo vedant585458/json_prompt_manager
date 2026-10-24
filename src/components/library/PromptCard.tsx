@@ -3,6 +3,10 @@ import { Link } from 'react-router-dom';
 
 import { HighlightedText } from '@/components/library/HighlightedText';
 import { ParsabilityBadge, StatusBadge } from '@/components/library/PromptBadges';
+import {
+  PromptActionsMenu,
+  type PromptActionHandlers,
+} from '@/components/prompts/PromptActionsMenu';
 import { Badge, Checkbox } from '@/components/ui';
 import { formatRelativeTime } from '@/lib/dates';
 import type { PromptMatch } from '@/domain/search';
@@ -16,6 +20,7 @@ export interface PromptCardProps {
   readonly now: Date;
   readonly selected: boolean;
   readonly onToggleSelected: (id: string) => void;
+  readonly actions: PromptActionHandlers;
 }
 
 const MAX_VISIBLE_TAGS = 4;
@@ -35,13 +40,15 @@ export function PromptCard({
   now,
   selected,
   onToggleSelected,
+  actions,
 }: PromptCardProps) {
   const visibleTags = prompt.tags.slice(0, MAX_VISIBLE_TAGS);
   const hiddenTagCount = prompt.tags.length - visibleTags.length;
 
   return (
     <li className="relative min-w-0">
-      <div className="absolute top-3.5 right-3.5 z-10">
+      <div className="absolute top-2.5 right-2.5 z-10 flex items-center gap-0.5">
+        <PromptActionsMenu prompt={prompt} {...actions} />
         <Checkbox
           id={`select-${prompt.id}`}
           name={`select-${prompt.id}`}
@@ -53,7 +60,7 @@ export function PromptCard({
 
       <Link
         to={`/prompts/${prompt.id}`}
-        className="group flex h-full min-w-0 flex-col gap-2 rounded-lg border border-line bg-surface-1 p-4 pr-12 transition-colors duration-[var(--pf-duration-fast)] hover:border-line-strong hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        className="group flex h-full min-w-0 flex-col gap-2 rounded-lg border border-line bg-surface-1 p-4 pr-16 transition-colors duration-[var(--pf-duration-fast)] hover:border-line-strong hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       >
         <span className="flex flex-wrap items-center gap-1.5">
           <StatusBadge status={prompt.status} />

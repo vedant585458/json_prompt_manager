@@ -1,5 +1,14 @@
-import { useState } from 'react';
+import { FolderPlus, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  IconButton,
+} from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { buildFolderTree, flattenFolderTree } from '@/lib/folderTree';
 import type { TagCount } from '@/store/selectors';
@@ -23,6 +32,13 @@ export interface IngredientRailProps {
   readonly onSelectFolder: (selection: FolderSelection) => void;
   readonly onSelectCollection: (collectionId: string | null) => void;
   readonly onToggleTag: (tag: string) => void;
+  /** Organization management (TASK-012). */
+  readonly onNewFolder: (parentId: string | null) => void;
+  readonly onEditFolder: (folder: Folder) => void;
+  readonly onDeleteFolder: (folder: Folder) => void;
+  readonly onNewCollection: () => void;
+  readonly onEditCollection: (collection: Collection) => void;
+  readonly onDeleteCollection: (collection: Collection) => void;
 }
 
 const VISIBLE_TAGS = 12;
@@ -33,15 +49,17 @@ function RailButton({
   count,
   depth = 0,
   onClick,
+  actions,
 }: {
   readonly active: boolean;
   readonly label: string;
   readonly count: number;
   readonly depth?: number;
   readonly onClick: () => void;
+  readonly actions?: ReactNode;
 }) {
   return (
-    <li>
+    <li className="flex items-center gap-0.5">
       <button
         type="button"
         aria-pressed={active}
@@ -58,7 +76,75 @@ function RailButton({
         <span className="min-w-0 truncate">{label}</span>
         <span className="shrink-0 font-mono text-2xs text-ink-muted tabular">{count}</span>
       </button>
+      {actions}
     </li>
+  );
+}
+
+function RailMenu({ label, children }: { readonly label: string; readonly children: ReactNode }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <IconButton label={label} size="sm" variant="ghost" className="size-6 shrink-0">
+          <MoreHorizontal size={13} />
+        </IconButton>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">{children}</DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function FolderMenu({
+  folder,
+  onNewFolder,
+  onEditFolder,
+  onDeleteFolder,
+}: {
+  readonly folder: Folder;
+  readonly onNewFolder: (parentId: string | null) => void;
+  readonly onEditFolder: (folder: Folder) => void;
+  readonly onDeleteFolder: (folder: Folder) => void;
+}) {
+  return (
+    <RailMenu label={`Actions for folder “${folder.name}”`}>
+      <DropdownMenuItem onSelect={() => onNewFolder(folder.id)}>
+        <FolderPlus aria-hidden="true" size={13} />
+        New subfolder
+      </DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => onEditFolder(folder)}>
+        <Pencil aria-hidden="true" size={13} />
+        Rename or move…
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem destructive onSelect={() => onDeleteFolder(folder)}>
+        <Trash2 aria-hidden="true" size={13} />
+        Delete folder…
+      </DropdownMenuItem>
+    </RailMenu>
+  );
+}
+
+function CollectionMenu({
+  collection,
+  onEditCollection,
+  onDeleteCollection,
+}: {
+  readonly collection: Collection;
+  readonly onEditCollection: (collection: Collection) => void;
+  readonly onDeleteCollection: (collection: Collection) => void;
+}) {
+  return (
+    <RailMenu label={`Actions for collection “${collection.name}”`}>
+      <DropdownMenuItem onSelect={() => onEditCollection(collection)}>
+        <Pencil aria-hidden="true" size={13} />
+        Rename collection…
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem destructive onSelect={() => onDeleteCollection(collection)}>
+        <Trash2 aria-hidden="true" size={13} />
+        Delete collection…
+      </DropdownMenuItem>
+    </RailMenu>
   );
 }
 
@@ -83,6 +169,12 @@ export function IngredientRail({
   onSelectFolder,
   onSelectCollection,
   onToggleTag,
+  onNewFolder,
+  onEditFolder,
+  onDeleteFolder,
+  onNewCollection,
+  onEditCollection,
+  onDeleteCollection,
 }: IngredientRailProps) {
   const [showAllTags, setShowAllTags] = useState(false);
   const tree = flattenFolderTree(buildFolderTree(folders));
@@ -92,7 +184,17 @@ export function IngredientRail({
   return (
     <nav aria-label="Library organization" className="flex flex-col gap-4">
       <section aria-label="Folders" className="rounded-lg border border-line bg-surface-1 p-2">
-        <h2 className="px-2.5 pt-1 pb-1.5 metadata-rail">Folders</h2>
+        <div className="flex items-center justify-between gap-1 pr-0.5">
+          <h2 className="px-2.5 pt-1 pb-1.5 metadata-rail">Folders</h2>
+          <IconButton
+            label="New folder"
+            size="sm"
+            variant="ghost"
+            onClick={() => onNewFolder(null)}
+          >
+            <Plus size={14} />
+          </IconButton>
+        </div>
         <ul className="space-y-0.5">
           <RailButton
             active={state.folder === null && !state.unfiled}
@@ -108,6 +210,14 @@ export function IngredientRail({
               count={folderCounts.get(entry.folder.id) ?? 0}
               depth={entry.depth + 1}
               onClick={() => onSelectFolder({ folderId: entry.folder.id, unfiled: false })}
+              actions={
+                <FolderMenu
+                  folder={entry.folder}
+                  onNewFolder={onNewFolder}
+                  onEditFolder={onEditFolder}
+                  onDeleteFolder={onDeleteFolder}
+                />
+              }
             />
           ))}
           <RailButton
@@ -119,13 +229,23 @@ export function IngredientRail({
         </ul>
         {tree.length === 0 ? (
           <p className="px-2.5 pb-1 text-2xs leading-relaxed text-ink-muted">
-            No folders yet. Creating them is part of TASK-012.
+            No folders yet. Create one to group prompts by area of work.
           </p>
         ) : null}
       </section>
 
       <section aria-label="Collections" className="rounded-lg border border-line bg-surface-1 p-2">
-        <h2 className="px-2.5 pt-1 pb-1.5 metadata-rail">Collections</h2>
+        <div className="flex items-center justify-between gap-1 pr-0.5">
+          <h2 className="px-2.5 pt-1 pb-1.5 metadata-rail">Collections</h2>
+          <IconButton
+            label="New collection"
+            size="sm"
+            variant="ghost"
+            onClick={() => onNewCollection()}
+          >
+            <Plus size={14} />
+          </IconButton>
+        </div>
         <ul className="space-y-0.5">
           {collections.map((collection) => (
             <RailButton
@@ -136,12 +256,19 @@ export function IngredientRail({
               onClick={() =>
                 onSelectCollection(state.collection === collection.id ? null : collection.id)
               }
+              actions={
+                <CollectionMenu
+                  collection={collection}
+                  onEditCollection={onEditCollection}
+                  onDeleteCollection={onDeleteCollection}
+                />
+              }
             />
           ))}
         </ul>
         {collections.length === 0 ? (
           <p className="px-2.5 pb-1 text-2xs leading-relaxed text-ink-muted">
-            No collections yet. Grouping prompts is part of TASK-012.
+            No collections yet. Create one to group prompts across folders.
           </p>
         ) : null}
       </section>

@@ -117,6 +117,12 @@ export function createInMemoryRepositories(seed: InMemorySeed = {}): Repositorie
     ? { ...seed.meta }
     : { dbSchemaVersion: DB_SCHEMA_VERSION, seedVersion: 0 };
 
+  const testCasesRepository = createEntityRepository<TestCase>(
+    'testCases',
+    (items) => sortByName(items, (t) => t.name),
+    seed.testCases,
+  );
+
   let closed = false;
   const assertOpen = (): void => {
     if (closed) {
@@ -176,6 +182,17 @@ export function createInMemoryRepositories(seed: InMemorySeed = {}): Repositorie
 
       delete: async (id) => {
         assertOpen();
+        promptRows.delete(id);
+      },
+
+      deleteCascade: async (id) => {
+        assertOpen();
+        for (const testCase of await testCasesRepository.list()) {
+          if (testCase.promptId === id) await testCasesRepository.delete(testCase.id);
+        }
+        for (const [revisionId, revision] of revisionRows) {
+          if (revision.promptId === id) revisionRows.delete(revisionId);
+        }
         promptRows.delete(id);
       },
     },
@@ -247,11 +264,7 @@ export function createInMemoryRepositories(seed: InMemorySeed = {}): Repositorie
       seed.templates,
     ),
 
-    testCases: createEntityRepository<TestCase>(
-      'testCases',
-      (items) => sortByName(items, (t) => t.name),
-      seed.testCases,
-    ),
+    testCases: testCasesRepository,
 
     schemas: createEntityRepository<PromptSchema>(
       'schemas',

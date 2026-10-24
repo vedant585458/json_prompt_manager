@@ -6,8 +6,10 @@ import {
   MAX_FOLDER_DEPTH,
   MAX_TAG_LENGTH,
   capActivityLog,
+  checkCollectionName,
   checkFolderMove,
   checkFolderName,
+  checkNewFolder,
   clampAutosaveDelay,
   findFolderCycles,
   folderDepth,
@@ -29,7 +31,7 @@ import {
   titleKey,
   wouldCreateFolderCycle,
 } from '@/domain/invariants';
-import type { ActivityEvent, Folder, PromptRevision } from '@/domain/types';
+import type { ActivityEvent, Collection, Folder, PromptRevision } from '@/domain/types';
 
 function folder(id: string, name: string, parentId: string | null = null): Folder {
   return {
@@ -353,5 +355,84 @@ describe('activity log', () => {
     expect(capActivityLog(many)).toHaveLength(ACTIVITY_LOG_LIMIT);
     expect(capActivityLog([])).toEqual([]);
     expect(capActivityLog(many, 0)).toEqual([]);
+  });
+});
+
+describe('collections', () => {
+  const collection = (id: string, name: string): Collection => ({
+    id,
+    name,
+    description: '',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  });
+
+  const existing = [collection('one', 'Starter kit'), collection('two', 'Support replies')];
+
+  it('accepts a fresh name', () => {
+    expect(checkCollectionName(existing, '  Sales  ')).toEqual([]);
+  });
+
+  it('rejects an empty or whitespace-only name', () => {
+    const issues = checkCollectionName(existing, '   ');
+    expect(issues[0]?.message).toBe('Collection name cannot be empty.');
+  });
+
+  it('rejects names longer than 80 characters', () => {
+    const issues = checkCollectionName(existing, 'x'.repeat(81));
+    expect(issues[0]?.message).toMatch(/at most 80/);
+  });
+
+  it('rejects a duplicate regardless of case and spacing', () => {
+    const issues = checkCollectionName(existing, '  starter   KIT ');
+    expect(issues[0]?.message).toMatch(/already exists/);
+  });
+
+  it('ignores the collection being renamed', () => {
+    expect(checkCollectionName(existing, 'Starter kit', 'one')).toEqual([]);
+  });
+});
+
+describe('checkNewFolder', () => {
+  const tree: Folder[] = [
+    folder('one', 'One'),
+    folder('two', 'Two', 'one'),
+    folder('three', 'Three', 'two'),
+  ];
+
+  it('accepts a valid name at the root and under a parent', () => {
+    expect(checkNewFolder(tree, 'Four')).toEqual([]);
+    expect(checkNewFolder(tree, 'Four', 'two')).toEqual([]);
+  });
+
+  it('reports a sibling name collision', () => {
+    const issues = checkNewFolder(tree, 'two', 'one');
+    expect(issues.map((issue) => issue.path)).toContain('name');
+  });
+
+  it('allows the same name under a different parent', () => {
+    expect(checkNewFolder(tree, 'Three', 'one')).toEqual([]);
+  });
+
+  it('reports a missing parent', () => {
+    const issues = checkNewFolder(tree, 'Four', 'gone');
+    expect(issues[0]?.message).toMatch(/no longer exists/);
+  });
+
+  it('reports a corrupt parent chain', () => {
+    const cyclic = [folder('a', 'A', 'a')];
+    const issues = checkNewFolder(cyclic, 'Child', 'a');
+    expect(issues[0]?.message).toMatch(/invalid tree/);
+  });
+
+  it('stops at the documented depth limit', () => {
+    let chain: Folder[] = [];
+    for (let index = 0; index < MAX_FOLDER_DEPTH; index += 1) {
+      chain = [...chain, folder(`f${index}`, `F${index}`, index === 0 ? null : `f${index - 1}`)];
+    }
+
+    const deepest = `f${MAX_FOLDER_DEPTH - 1}`;
+    const issues = checkNewFolder(chain, 'Too deep', deepest);
+    expect(issues[0]?.message).toMatch(new RegExp(`at most ${MAX_FOLDER_DEPTH} levels`));
   });
 });

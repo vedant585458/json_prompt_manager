@@ -217,3 +217,31 @@ describe('searchPrompts at library scale', () => {
     expect(results).toEqual(expected);
   });
 });
+
+describe('search performance', () => {
+  it('matches 500 prompts within the 100 ms keystroke budget', () => {
+    const prompts = Array.from({ length: 500 }, (_, index) =>
+      makePrompt({
+        title: `Prompt ${index} extraction`,
+        description: `Handles ticket ${index} from the support queue.`,
+        tags: index % 2 === 0 ? ['extraction', 'support'] : ['summarise'],
+        objective: `Extract order ${index}, customer name, and sentiment.`,
+      }),
+    );
+
+    // Warm the caches the way a real session does: prompt documents are
+    // serialised and lowercased on first search, and the route reuses them.
+    searchPrompts(prompts, 'json');
+
+    const timings = ['ext', 'extr', 'extra', 'extrac', 'extract'].map((query) => {
+      const started = performance.now();
+      const results = searchPrompts(prompts, query);
+      const elapsed = performance.now() - started;
+      expect(results.length).toBeGreaterThan(0);
+      return elapsed;
+    });
+
+    const slowest = Math.max(...timings);
+    expect(slowest).toBeLessThan(100);
+  });
+});

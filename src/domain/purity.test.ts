@@ -47,6 +47,7 @@ function importsOf(source: string): string[] {
 describe('domain layer purity', () => {
   it('contains the modules promised by the task', () => {
     expect(moduleNames()).toEqual([
+      'errors.ts',
       'factories.ts',
       'index.ts',
       'invariants.ts',
@@ -107,6 +108,7 @@ describe('domain layer purity', () => {
     const exported = importsOf(barrel);
 
     expect(exported.sort()).toEqual([
+      '@/domain/errors',
       '@/domain/factories',
       '@/domain/invariants',
       '@/domain/promptDocument',

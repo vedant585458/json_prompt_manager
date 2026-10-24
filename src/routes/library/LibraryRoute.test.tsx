@@ -11,9 +11,19 @@ import {
   createDefaultSettings,
   createFolder,
   createPrompt,
+  createRevision,
+  createTemplate,
+  createTestCase,
 } from '@/domain/factories';
 import { createBlankDocument } from '@/domain/promptDocument';
-import type { Collection, Folder, Prompt } from '@/domain/types';
+import type {
+  Collection,
+  Folder,
+  Prompt,
+  PromptRevision,
+  PromptTemplate,
+  TestCase,
+} from '@/domain/types';
 import { LibraryRoute } from '@/routes/library/LibraryRoute';
 import { createDataStore, type DataStore } from '@/store/dataStore';
 import { useUiStore } from '@/store/uiStore';
@@ -84,6 +94,9 @@ interface LibrarySeed {
   readonly prompts?: readonly Prompt[];
   readonly folders?: readonly Folder[];
   readonly collections?: readonly Collection[];
+  readonly templates?: readonly PromptTemplate[];
+  readonly revisions?: readonly PromptRevision[];
+  readonly testCases?: readonly TestCase[];
   readonly path?: string;
 }
 
@@ -92,6 +105,9 @@ function renderLibrary(seed: LibrarySeed = {}) {
     prompts: seed.prompts ?? [],
     folders: seed.folders ?? [],
     collections: seed.collections ?? [],
+    templates: seed.templates ?? [],
+    revisions: seed.revisions ?? [],
+    testCases: seed.testCases ?? [],
     settings: { ...createDefaultSettings(), onboardedAt: COMPLETED_ONBOARDING },
   });
 
@@ -109,6 +125,45 @@ async function openLibrary(seed: LibrarySeed = {}) {
 
 function list(name: string): HTMLElement {
   return screen.getByRole('list', { name });
+}
+
+function makeTemplate(id: string, name = 'Extract fields'): PromptTemplate {
+  return createTemplate(
+    {
+      name,
+      description: 'Pulls structured fields out of an email.',
+      category: 'extraction',
+      content: createBlankDocument({ name, objective: 'Extract the fields from the email.' }),
+    },
+    { now: () => new Date(BASE_TIME), newId: () => id },
+  );
+}
+
+function makeRevision(id: string, promptId: string, revisionNumber = 1): PromptRevision {
+  return createRevision(
+    makePrompt({ id: promptId, title: 'Seed' }),
+    { revisionNumber, kind: 'manual' },
+    { now: () => new Date(BASE_TIME), newId: () => id },
+  );
+}
+
+function makeTestCase(id: string, promptId: string): TestCase {
+  return createTestCase(
+    { promptId, name: `Case ${id}` },
+    { now: () => new Date(BASE_TIME), newId: () => id },
+  );
+}
+
+async function openPromptActions(title: string) {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: `Actions for “${title}”` }));
+  return user;
+}
+
+async function openRailActions(label: string) {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: label }));
+  return user;
 }
 
 beforeEach(() => {
@@ -441,10 +496,7 @@ describe('library empty and defensive states', () => {
     await openLibrary({ prompts: [] });
 
     expect(screen.getByText('Your library is empty')).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Create a prompt' })).toHaveAttribute(
-      'href',
-      '/composer',
-    );
+    expect(screen.getByRole('button', { name: 'Create a prompt' })).toBeVisible();
     expect(screen.getByRole('link', { name: 'Browse templates' })).toHaveAttribute(
       'href',
       '/templates',
@@ -561,5 +613,382 @@ describe('library selection and keyboard', () => {
     await waitFor(() =>
       expect(screen.getByRole('searchbox', { name: 'Search prompts' })).toHaveFocus(),
     );
+  });
+});
+
+describe('library scale and keyboard (TASK-012)', () => {
+  it('searches a 320-prompt library down to the matches', async () => {
+    const user = userEvent.setup();
+    const prompts = Array.from({ length: 320 }, (_, index) =>
+      makePrompt({
+        id: `bulk-${index}`,
+        title: index === 42 ? 'Invoice decoder' : `Routine prompt ${index}`,
+        tags: index % 3 === 0 ? ['finance'] : ['support'],
+      }),
+    );
+
+    await openLibrary({ prompts });
+
+    expect(screen.getByText('320 of 320 prompts')).toBeVisible();
+
+    await user.type(screen.getByRole('searchbox', { name: /search/i }), 'invoice');
+
+    expect(
+      await screen.findByText('1 of 320 prompts', undefined, { timeout: 10_000 }),
+    ).toBeVisible();
+    expect(screen.getByRole('link', { name: /Invoice decoder/ })).toBeVisible();
+  }, 20_000);
+
+  it('opens the prompt editor from the keyboard', async () => {
+    const user = userEvent.setup();
+    const { router } = await openLibrary({
+      prompts: [makePrompt({ id: 'alpha', title: 'Alpha prompt' })],
+    });
+
+    const link = screen.getByRole('link', { name: /Alpha prompt/ });
+    link.focus();
+    expect(link).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/prompts/alpha'));
+  });
+});
+
+describe('library prompt lifecycle (TASK-012)', () => {
+  const folders = [makeFolder('work', 'Work')];
+
+  it('creates a prompt with metadata from a template and opens its editor', async () => {
+    const user = userEvent.setup();
+    const { router, repositories } = await openLibrary({
+      folders,
+      collections: [makeCollection('kit', 'Starter kit')],
+      templates: [makeTemplate('template-1')],
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Create a prompt' }));
+    const form = await screen.findByRole('dialog', { name: 'New prompt' });
+
+    await user.type(within(form).getByLabelText(/^Title/), 'Invoice parser');
+    await user.type(within(form).getByLabelText(/^Description/), 'Reads invoices');
+    await user.selectOptions(within(form).getByLabelText(/^Folder/), 'work');
+    await user.type(within(form).getByLabelText(/^Tags/), 'finance, legal');
+    await user.click(within(form).getByRole('checkbox', { name: 'Starter kit' }));
+    await user.selectOptions(within(form).getByLabelText(/^Start from/), 'template-1');
+    await user.click(within(form).getByRole('button', { name: 'Create prompt' }));
+
+    await waitFor(() => expect(router.state.location.pathname).toMatch(/^\/prompts\//));
+
+    const stored = await repositories.prompts.list();
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({
+      title: 'Invoice parser',
+      description: 'Reads invoices',
+      folderId: 'work',
+      collectionIds: ['kit'],
+      tags: ['finance', 'legal'],
+      status: 'draft',
+    });
+    expect(stored[0]?.content.objective).toBe('Extract the fields from the email.');
+    expect(screen.getByText('Prompt created')).toBeVisible();
+  });
+
+  it('keeps the dialog open and explains a missing title', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({ prompts: [] });
+
+    await user.click(screen.getByRole('button', { name: 'Create a prompt' }));
+    const form = await screen.findByRole('dialog', { name: 'New prompt' });
+
+    await user.click(within(form).getByRole('button', { name: 'Create prompt' }));
+
+    expect(within(form).getByText('Give the prompt a title.')).toBeVisible();
+    await expect(repositories.prompts.list()).resolves.toHaveLength(0);
+  });
+
+  it('edits a prompt’s details from its action menu', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({
+      prompts: [makePrompt({ id: 'alpha', title: 'Alpha prompt', description: 'Before' })],
+      folders,
+    });
+
+    await openPromptActions('Alpha prompt');
+    await user.click(await screen.findByRole('menuitem', { name: 'Edit details' }));
+
+    const form = await screen.findByRole('dialog', { name: 'Edit prompt details' });
+    const title = within(form).getByLabelText(/^Title/);
+    await user.clear(title);
+    await user.type(title, 'Alpha renamed');
+    const description = within(form).getByLabelText(/^Description/);
+    await user.clear(description);
+    await user.type(description, 'After');
+    await user.selectOptions(within(form).getByLabelText(/^Folder/), 'work');
+    await user.click(within(form).getByRole('button', { name: 'Save details' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(await screen.findByRole('link', { name: /Alpha renamed/ })).toBeVisible();
+    await expect(repositories.prompts.get('alpha')).resolves.toMatchObject({
+      title: 'Alpha renamed',
+      description: 'After',
+      folderId: 'work',
+      version: 2,
+    });
+  });
+
+  it('duplicates a prompt into an independent card', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({
+      prompts: [makePrompt({ id: 'alpha', title: 'Alpha prompt' })],
+    });
+
+    await openPromptActions('Alpha prompt');
+    await user.click(await screen.findByRole('menuitem', { name: 'Duplicate' }));
+
+    expect(await screen.findByRole('link', { name: /Alpha prompt \(copy\)/ })).toBeVisible();
+    await waitFor(async () => expect(await repositories.prompts.list()).toHaveLength(2));
+    expect(screen.getByText('Prompt duplicated')).toBeVisible();
+  });
+
+  it('archives a prompt, hides it, and offers an undo', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({
+      prompts: [makePrompt({ id: 'alpha', title: 'Alpha prompt' })],
+    });
+
+    await openPromptActions('Alpha prompt');
+    await user.click(await screen.findByRole('menuitem', { name: 'Archive' }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('link', { name: /Alpha prompt/ })).not.toBeInTheDocument(),
+    );
+    await expect(repositories.prompts.get('alpha')).resolves.toMatchObject({ archived: true });
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+
+    expect(await screen.findByRole('link', { name: /Alpha prompt/ })).toBeVisible();
+    await expect(repositories.prompts.get('alpha')).resolves.toMatchObject({ archived: false });
+  });
+
+  it('deletes a prompt with its revisions and test cases after confirmation', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({
+      prompts: [makePrompt({ id: 'alpha', title: 'Alpha prompt' })],
+      revisions: [makeRevision('rev-1', 'alpha')],
+      testCases: [makeTestCase('case-1', 'alpha')],
+    });
+
+    await openPromptActions('Alpha prompt');
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete prompt' }));
+
+    const confirm = await screen.findByRole('dialog', { name: 'Delete “Alpha prompt”?' });
+    expect(within(confirm).getByText('1 saved snapshot of its document.')).toBeVisible();
+    expect(within(confirm).getByText('1 test case that reference it.')).toBeVisible();
+
+    await user.click(within(confirm).getByRole('button', { name: 'Delete prompt' }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('link', { name: /Alpha prompt/ })).not.toBeInTheDocument(),
+    );
+    await expect(repositories.prompts.get('alpha')).resolves.toBeNull();
+    await expect(repositories.revisions.listByPrompt('alpha')).resolves.toEqual([]);
+    await expect(repositories.testCases.get('case-1')).resolves.toBeNull();
+    expect(screen.getByText('Prompt deleted')).toBeVisible();
+  });
+
+  it('reports a failed delete without removing anything', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({
+      prompts: [makePrompt({ id: 'alpha', title: 'Alpha prompt' })],
+    });
+
+    repositories.prompts.deleteCascade = async () => {
+      throw new Error('The database is locked.');
+    };
+
+    await openPromptActions('Alpha prompt');
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete prompt' }));
+    const confirm = await screen.findByRole('dialog', { name: 'Delete “Alpha prompt”?' });
+    await user.click(within(confirm).getByRole('button', { name: 'Delete prompt' }));
+
+    expect(await screen.findByText('The prompt was not deleted')).toBeVisible();
+    expect(await screen.findByText('The database is locked.')).toBeVisible();
+    await expect(repositories.prompts.get('alpha')).resolves.toBeTruthy();
+
+    await user.click(within(confirm).getByRole('button', { name: 'Cancel' }));
+    expect(await screen.findByRole('link', { name: /Alpha prompt/ })).toBeVisible();
+  });
+});
+
+describe('library organization (TASK-012)', () => {
+  it('creates a folder from the rail and explains a duplicate name', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({ prompts: [] });
+
+    await user.click(screen.getByRole('button', { name: 'New folder' }));
+    const form = await screen.findByRole('dialog', { name: 'New folder' });
+    await user.type(within(form).getByLabelText(/^Name/), 'Finance');
+    await user.click(within(form).getByRole('button', { name: 'Create folder' }));
+
+    expect(await screen.findByRole('button', { name: /^Finance/ })).toBeVisible();
+    await waitFor(async () => expect(await repositories.folders.list()).toHaveLength(1));
+
+    await user.click(screen.getByRole('button', { name: 'New folder' }));
+    const again = await screen.findByRole('dialog', { name: 'New folder' });
+    await user.type(within(again).getByLabelText(/^Name/), 'finance');
+    await user.click(within(again).getByRole('button', { name: 'Create folder' }));
+
+    expect(
+      await within(again).findByText('A folder named "Finance" already exists here.'),
+    ).toBeVisible();
+    await expect(repositories.folders.list()).resolves.toHaveLength(1);
+  });
+
+  it('renames and re-parents a folder from its rail menu', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({
+      prompts: [],
+      folders: [makeFolder('work', 'Work'), makeFolder('personal', 'Personal')],
+    });
+
+    await openRailActions('Actions for folder “Work”');
+    await user.click(await screen.findByRole('menuitem', { name: 'Rename or move…' }));
+
+    const form = await screen.findByRole('dialog', { name: 'Folder settings' });
+    const name = within(form).getByLabelText(/^Name/);
+    await user.clear(name);
+    await user.type(name, 'Client work');
+    await user.selectOptions(within(form).getByLabelText(/^Parent folder/), 'personal');
+    await user.click(within(form).getByRole('button', { name: 'Save folder' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(await screen.findByRole('button', { name: /^Client work/ })).toBeVisible();
+    await expect(repositories.folders.get('work')).resolves.toMatchObject({
+      name: 'Client work',
+      parentId: 'personal',
+    });
+  });
+
+  it('cannot offer a folder or its descendants as its own parent', async () => {
+    const user = userEvent.setup();
+    await openLibrary({
+      prompts: [],
+      folders: [
+        makeFolder('work', 'Work'),
+        makeFolder('drafts', 'Drafts', 'work'),
+        makeFolder('ideas', 'Ideas', 'drafts'),
+      ],
+    });
+
+    await openRailActions('Actions for folder “Work”');
+    await user.click(await screen.findByRole('menuitem', { name: 'Rename or move…' }));
+
+    const form = await screen.findByRole('dialog', { name: 'Folder settings' });
+    const select = within(form).getByLabelText(/^Parent folder/) as HTMLSelectElement;
+    const values = Array.from(select.options).map((option) => option.value);
+
+    expect(values).toContain('');
+    expect(values).not.toContain('work');
+    expect(values).not.toContain('drafts');
+    expect(values).not.toContain('ideas');
+  });
+
+  it('deletes a folder by moving its prompts to the parent', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({
+      prompts: [makePrompt({ id: 'p1', title: 'Filed prompt', folderId: 'drafts' })],
+      folders: [makeFolder('work', 'Work'), makeFolder('drafts', 'Drafts', 'work')],
+    });
+
+    await openRailActions('Actions for folder “Drafts”');
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete folder…' }));
+
+    const confirm = await screen.findByRole('dialog', { name: 'Delete folder “Drafts”?' });
+    expect(within(confirm).getByText('1 prompt moves to Work.')).toBeVisible();
+
+    await user.click(within(confirm).getByRole('button', { name: 'Delete folder' }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /^Drafts/ })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole('link', { name: /Filed prompt/ })).toBeVisible();
+    await expect(repositories.prompts.get('p1')).resolves.toMatchObject({ folderId: 'work' });
+    await expect(repositories.folders.get('drafts')).resolves.toBeNull();
+  });
+
+  it('reports a failed folder deletion and keeps the folder', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({
+      prompts: [],
+      folders: [makeFolder('work', 'Work'), makeFolder('drafts', 'Drafts', 'work')],
+    });
+
+    repositories.folders.delete = async () => {
+      throw new Error('The database is locked.');
+    };
+
+    await openRailActions('Actions for folder “Drafts”');
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete folder…' }));
+    const confirm = await screen.findByRole('dialog', { name: 'Delete folder “Drafts”?' });
+    await user.click(within(confirm).getByRole('button', { name: 'Delete folder' }));
+
+    expect(await screen.findByText('The folder was not deleted')).toBeVisible();
+    await expect(repositories.folders.get('drafts')).resolves.toBeTruthy();
+
+    await user.click(within(confirm).getByRole('button', { name: 'Cancel' }));
+    expect(await screen.findByRole('button', { name: /^Drafts/ })).toBeVisible();
+  });
+
+  it('deletes a collection by clearing membership only', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({
+      prompts: [makePrompt({ id: 'p1', title: 'Member prompt', collectionIds: ['kit'] })],
+      collections: [makeCollection('kit', 'Starter kit')],
+    });
+
+    await openRailActions('Actions for collection “Starter kit”');
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete collection…' }));
+
+    const confirm = await screen.findByRole('dialog', {
+      name: 'Delete collection “Starter kit”?',
+    });
+    expect(within(confirm).getByText('1 prompt keeps its place.')).toBeVisible();
+
+    await user.click(within(confirm).getByRole('button', { name: 'Delete collection' }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /^Starter kit/ })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole('link', { name: /Member prompt/ })).toBeVisible();
+    await expect(repositories.prompts.get('p1')).resolves.toMatchObject({ collectionIds: [] });
+    await expect(repositories.collections.get('kit')).resolves.toBeNull();
+  });
+
+  it('creates a collection from the rail', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openLibrary({ prompts: [] });
+
+    await user.click(screen.getByRole('button', { name: 'New collection' }));
+    const form = await screen.findByRole('dialog', { name: 'New collection' });
+    await user.type(within(form).getByLabelText(/^Name/), 'Replies');
+    await user.type(within(form).getByLabelText(/^Description/), 'Canned answers');
+    await user.click(within(form).getByRole('button', { name: 'Create collection' }));
+
+    expect(await screen.findByRole('button', { name: /^Replies/ })).toBeVisible();
+    await expect(repositories.collections.list()).resolves.toMatchObject([
+      { name: 'Replies', description: 'Canned answers' },
+    ]);
+  });
+
+  it('opens a create dialog from the URL used by the command palette', async () => {
+    renderLibrary({ prompts: [], path: '/library?new=folder' });
+
+    expect(await screen.findByRole('dialog', { name: 'New folder' })).toBeVisible();
+  });
+
+  it('opens the prompt dialog from ?new=prompt', async () => {
+    renderLibrary({ prompts: [], path: '/library?new=prompt' });
+
+    expect(await screen.findByRole('dialog', { name: 'New prompt' })).toBeVisible();
   });
 });

@@ -7,7 +7,13 @@
  * input, imports UI code, or touches storage.
  */
 
-import type { ActivityEvent, DomainIssue, Folder, PromptRevision } from '@/domain/types';
+import type {
+  ActivityEvent,
+  Collection,
+  DomainIssue,
+  Folder,
+  PromptRevision,
+} from '@/domain/types';
 
 /* -------------------------------------------------------------------------- */
 /* Generic helpers                                                            */
@@ -272,6 +278,44 @@ export function checkFolderName(
 }
 
 /**
+ * Validates creating a folder with `name` under `parentId`.
+ *
+ * The parent must exist, be part of a sane tree, and sit at least one level
+ * above the depth limit. Name collisions are checked among siblings only.
+ */
+export function checkNewFolder(
+  folders: readonly Folder[],
+  name: string,
+  parentId: string | null = null,
+): DomainIssue[] {
+  const issues = checkFolderName(folders, name, parentId);
+  if (parentId === null) return issues;
+
+  const depth = folderDepth(folders, parentId);
+  if (depth === null) {
+    issues.push({
+      path: 'parentId',
+      message: 'Target folder no longer exists.',
+      severity: 'error',
+    });
+  } else if (!Number.isFinite(depth)) {
+    issues.push({
+      path: 'parentId',
+      message: 'Target folder is part of an invalid tree and cannot receive folders.',
+      severity: 'error',
+    });
+  } else if (depth + 1 > MAX_FOLDER_DEPTH) {
+    issues.push({
+      path: 'parentId',
+      message: `Folders nest at most ${MAX_FOLDER_DEPTH} levels deep.`,
+      severity: 'error',
+    });
+  }
+
+  return issues;
+}
+
+/**
  * Validates moving `folderId` under `newParentId`.
  *
  * Deleting a folder is a different operation: its prompts and child folders
@@ -324,6 +368,53 @@ export function checkFolderMove(
   }
 
   return [];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Collections                                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Checks that a collection name is usable.
+ *
+ * Collection names are unique across the library (case-insensitive, as folders
+ * are within one parent), because two collections with the same name are
+ * indistinguishable in the rail and in a prompt's membership list.
+ */
+export function checkCollectionName(
+  collections: readonly Collection[],
+  name: string,
+  excludeId?: string,
+): DomainIssue[] {
+  const issues: DomainIssue[] = [];
+  const trimmed = normalizeTitle(name);
+
+  if (trimmed.length === 0) {
+    issues.push({ path: 'name', message: 'Collection name cannot be empty.', severity: 'error' });
+    return issues;
+  }
+  if (trimmed.length > 80) {
+    issues.push({
+      path: 'name',
+      message: 'Collection name must be at most 80 characters.',
+      severity: 'error',
+    });
+  }
+
+  const key = folderNameKey(trimmed);
+  const clash = collections.find(
+    (collection) => collection.id !== excludeId && folderNameKey(collection.name) === key,
+  );
+
+  if (clash) {
+    issues.push({
+      path: 'name',
+      message: `A collection named "${clash.name}" already exists.`,
+      severity: 'error',
+    });
+  }
+
+  return issues;
 }
 
 function maxSubtreeDepth(folders: readonly Folder[], folderId: string): number {

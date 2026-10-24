@@ -66,6 +66,10 @@ Status values: **Accepted** (in force), **Planned** (agreed, not yet built), **S
 | ADR-62 | One pure search module serves filtering, counts, and highlighting         | Accepted   | TASK-011     |
 | ADR-63 | Pinned prompts are a separate section, not a separate result set          | Accepted   | TASK-011     |
 | ADR-64 | Selection and view preference are presentation state, never prompt data   | Accepted   | TASK-011     |
+| ADR-65 | Container mutations report the changes they actually made                  | Accepted   | TASK-012     |
+| ADR-66 | Prompt deletion is one cascading transaction, not three calls              | Accepted   | TASK-012     |
+| ADR-67 | Deleting a folder or collection never deletes a prompt                     | Accepted   | TASK-012     |
+| ADR-68 | Dialogs are URL-addressable and metadata-only                              | Accepted   | TASK-012     |
 
 ---
 
@@ -1544,3 +1548,130 @@ Run `npm run check:contrast` to reproduce. Thresholds: 4.5:1 for text, 3:1 for U
 - `src/test/renderAppWithData.tsx` is a new shared harness (real router, shell, store, in-memory
   repositories) used by both the dashboard and the library integration tests, so neither has to boot
   storage twice or mock the store.
+
+## ADR-65 — Every container mutation reports what it actually changed
+
+**Context.** Deleting a folder has to move prompts and subfolders; deleting a collection has to clear
+membership on every prompt that referenced it. A component that re-derives those counts from the
+store it holds can disagree with storage after a partial write, and the confirmation could promise
+something the transaction did not do.
+
+**Decision.** The cascade lives in `dataStore`: `deleteFolder` returns `{ promptsMoved, foldersMoved }`
+and `deleteCollection` returns `{ promptsDetached }`, derived from the entities the store actually
+rewrote. Callers render those numbers in the success toast and the confirmation's copy; nothing in the
+UI recomputes a count it could get from the mutation.
+
+**Consequences.** The dialogs need the counts *before* the write (to state the consequence), which is
+why `countFolderContents` and `countCollectionMembers` are pure helpers over the same store slices, and
+why the toast uses the returned values instead. If hydration races a deletion, the toast is still true
+about what the store wrote.
+
+---
+
+## ADR-66 — Prompt deletion is one cascading transaction, not three calls
+
+**Context.** A prompt owns its revisions and test cases. Deleting through `prompts.delete()` alone
+would leave snapshots and cases behind, and sequential deletes could fail halfway, producing exactly
+the silent data damage the task forbids.
+
+**Decision.** `PromptRepository.deleteCascade(id)` is part of the repository contract. The IndexedDB
+adapter opens one `readwrite` transaction over `prompts`, `revisions`, and `testCases` and deletes the
+prompt and every dependent row inside it; the in-memory adapter checks that the prompt exists and
+throws before mutating, so both implementations are all-or-nothing. `dataStore.deletePrompt` calls only
+that method, records activity, and re-hydrates.
+
+**Consequences.** The contract suite asserts success, missing-id, and atomicity for both adapters, and
+the route test stubs the method to fail and asserts the prompt, its revision, and its test case are all
+still there. Bulk deletion in TASK-013 must reuse the same method rather than loop over `delete()`.
+
+---
+
+## ADR-67 — Deleting a container never deletes a prompt
+
+**Context.** The scope says deleting a folder moves its contents to the parent and deleting a
+collection only removes membership. A user who confirms "delete folder" may still expect the prompts
+inside to survive, and the confirmation is the last place to say so.
+
+**Decision.** `DeleteContainerDialog` states the destination by name ("3 prompts move to Work."), the
+number of re-parented subfolders, and an explicit "No prompts or documents are deleted." The folder
+cascade writes the removed folder's `parentId` (not `null`) onto child folders and prompts, so deleting
+a nested folder keeps the tree's shape. Both cascade paths subtract the rewritten entities from state
+before prepending, so no prompt appears twice.
+
+**Consequences.** A root-level folder delete does move prompts to the top level, which the same dialog
+calls "the top level". Folder deletion can therefore never shrink the prompt count; only the prompt
+delete dialog can.
+
+---
+
+## ADR-68 — Dialogs are URL-addressable and metadata-only
+
+**Context.** The palette must be able to open "New prompt" and "New folder", and both dialogs must be
+reachable from a link and survive a reload — but a dialog is transient UI, not a route.
+
+**Decision.** `libraryQuery` owns `LIBRARY_DIALOGS = ['prompt', 'folder', 'collection']` and the
+`?new=` parameter. Opening a dialog replaces nothing else in the URL; closing it removes only `new`,
+and the route applies a dialog-only patch as a `replace` so the back button is not filled with dialog
+open/close steps. Unknown dialog names are ignored. `PromptFormDialog` edits metadata (title,
+description, folder, collections, tags, status, schema) and, on create, chooses a template or a blank
+document; it never edits the document body, which belongs to the editor (TASK-014).
+
+**Consequences.** Palette commands and deep links share one code path, and the dialog cannot become a
+second editor with unsaved-state problems of its own. A create from a template navigates to
+`/prompts/:id` once the store confirms the write, so the editor opens on stored data rather than a
+draft.
+
+---
+
+## Verification log — TASK-012
+
+**Executed 2026-10-24, after explicit authorization ("Start Task 012").**
+
+### Test inventory (75 new cases; whole suite 733 across 57 files)
+
+| Area | File | Cases | Covers |
+| --- | --- | --- | --- |
+| Domain errors | `src/domain/errors.test.ts` | 5 | one message per field, `issueFor` for unknown paths, name/message preservation |
+| Domain rules | `src/domain/invariants.test.ts` | +3 | collection name uniqueness and length, new-folder sibling scope and `parentId` default |
+| Domain search | `src/domain/search.test.ts` | +1 | 500 prompts matched five times, slowest keystroke < 100 ms |
+| Repository contract | `src/data/**` suites | +13 | `deleteCascade` success, missing id, dependent rows removed, atomicity in both adapters |
+| Store | `src/store/dataStore.test.ts` | +15 | duplicate independence and `(copy)` naming, folder create/rename/move/delete with prompts and subfolders, collection CRUD, failure paths leave state unchanged |
+| Organization | `src/features/organization/organization.test.ts` | 17 | indented folder options with subtree exclusion, counts, labels, move issues, tag input round-trip |
+| Query | `src/routes/library/libraryQuery.test.ts` | +2 | `?new=` round-trip, unknown dialog ignored |
+| Library integration | `src/routes/library/LibraryRoute.test.tsx` | +18 | create from template → editor, missing title, edit details, duplicate, archive + Undo, delete cascade counts, failed delete, folder create + duplicate error, rename/re-parent, cycle-safe parent list, folder delete moves prompts, failed folder delete, collection delete clears membership, collection create, both `?new=` dialogs, 320-prompt search, Enter-to-open |
+| Commands | `src/lib/commands/coreCommands.test.ts` | +1 | `prompt.new`/`folder.new` navigate to `/library?new=…` |
+
+### Gates
+
+| Command | Result |
+| --- | --- |
+| `npx tsc --noEmit` | exit 0 |
+| `npx eslint .` | exit 0, 0 warnings |
+| `npx vitest run` | **57 files / 733 tests passed** |
+| `npx prettier --check "src/**/*.{ts,tsx,css}"` | clean |
+| `npm run check:contrast` | 52 pairings pass in both themes |
+| `npm run build` | exit 0 — CSS 51.10 kB (12.60 kB gzip), JS 707.54 kB (213.11 kB gzip) |
+
+### Known limitations and honesty notes
+
+- No browser binary exists in this environment, so there was **no** visual pass at 360/390/1440 px, no
+  pointer-driven layout inspection, and no manual keyboard walkthrough. Keyboard paths and layout
+  classes are covered by scripted jsdom tests and review only.
+- The single-chunk build advisory (707.54 kB / 213.11 kB gzip) is accepted; route splitting is still
+  unauthorized.
+- Undo exists for archive/restore only. Deleting a prompt or container asks for confirmation and is
+  final — a restore window is not part of this task's scope.
+- Radix's checkbox input needs `ResizeObserver`, which jsdom lacks; the test setup installs a no-op
+  observer. That stub is test infrastructure and does not affect the shipped bundle.
+
+### Deliberate deviations recorded for TASK-012
+
+- Added `src/domain/errors.ts` (a new domain module, so the purity guard's expected module list and
+  barrel export were extended) instead of throwing strings from the store.
+- Reused the existing `ConfirmDialog` for prompt and container deletion rather than adding another
+  confirmation primitive; its destructive variant is already non-dismissible.
+- Folder and collection dialogs suppress the form-level alert when the error is a field rule, because
+  the same sentence rendered twice reads as two problems.
+- Container-delete copy was corrected to agree with counts ("1 prompt moves to Work", "1 prompt keeps
+  its place") — the plural-only helper produced ungrammatical sentences for a single item.
+- `src/test/setup.ts` gained the `ResizeObserver` no-op described above.

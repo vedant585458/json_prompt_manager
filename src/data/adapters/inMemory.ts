@@ -11,7 +11,7 @@ import {
   DuplicateRecordError,
   InvalidWriteError,
   RecordNotFoundError,
-  StorageError,
+  StorageUnavailableError,
   StaleWriteError,
 } from '@/data/db/errors';
 import { DB_SCHEMA_VERSION } from '@/data/db/schema';
@@ -120,7 +120,7 @@ export function createInMemoryRepositories(seed: InMemorySeed = {}): Repositorie
   let closed = false;
   const assertOpen = (): void => {
     if (closed) {
-      throw new StorageError('unavailable', 'These repositories were closed.');
+      throw new StorageUnavailableError('These repositories were closed.');
     }
   };
 

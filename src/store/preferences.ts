@@ -1,51 +1,19 @@
-import { create } from 'zustand';
-
-import {
-  getBrowserStorage,
-  readThemePreference,
-  resolveTheme,
-  systemPrefersDark,
-  type ResolvedTheme,
-  type ThemePreference,
-} from '@/styles/theme';
-
 /**
- * Preferences slice (TASK-002).
+ * Theme preference slice (TASK-002).
  *
- * Only the theme slice exists at this stage. TASK-007 extends this store with
- * editor density, indent size, and autosave settings backed by the settings
- * repository. Keeping the slice separate from the provider keeps theme state
- * testable without rendering React.
+ * TASK-007 moved the implementation into `preferencesStore.ts`, which owns the
+ * full preference set (theme, density, indentation, autosave, reduced motion).
+ * This module stays as the import path the theme provider and its tests already
+ * use, so the public surface did not move under them.
  */
 
-export interface PreferencesState {
-  themePreference: ThemePreference;
-  resolvedTheme: ResolvedTheme;
-  setTheme: (preference: ThemePreference, resolvedTheme: ResolvedTheme) => void;
-}
-
-export type PreferencesStore = ReturnType<typeof createPreferencesStore>;
-
-export interface InitialPreferences {
-  themePreference: ThemePreference;
-  resolvedTheme: ResolvedTheme;
-}
-
-/** Reads the persisted preference and resolves it against the OS setting. */
-export function getInitialPreferences(): InitialPreferences {
-  const themePreference = readThemePreference(getBrowserStorage());
-  return {
-    themePreference,
-    resolvedTheme: resolveTheme(themePreference, systemPrefersDark()),
-  };
-}
-
-export function createPreferencesStore(initial: InitialPreferences = getInitialPreferences()) {
-  return create<PreferencesState>()((set) => ({
-    themePreference: initial.themePreference,
-    resolvedTheme: initial.resolvedTheme,
-    setTheme: (themePreference, resolvedTheme) => set({ themePreference, resolvedTheme }),
-  }));
-}
-
-export const usePreferencesStore = createPreferencesStore();
+export {
+  createPreferencesStore,
+  getInitialPreferences,
+  usePreferencesStore,
+  DEFAULT_AUTOSAVE_DELAY,
+  type InitialPreferences,
+  type PreferencesDefaults,
+  type PreferencesState,
+  type PreferencesStore,
+} from '@/store/preferencesStore';

@@ -2,15 +2,15 @@
 
 **Advanced JSON Prompt Management Studio** — a local-first workspace for creating, organizing, validating, versioning, comparing, and optimizing structured JSON prompts.
 
-> **Status: TASK-006 complete — persistence foundation.**
+> **Status: TASK-007 complete — seed data, stores, and first-run foundation.**
 > The repository contains the toolchain, the Prompt Observatory token system with dark and light
-> themes, the primitive layer (buttons, form controls, tabs, tooltips, status, progress), the
-> overlay/feedback layer (dialogs, confirmations, sheets, dropdown and context menus, toasts,
-> alerts, empty/error states, skeletons) demonstrated in a design gallery, the typed domain model,
-> and the persistence layer (repository interfaces, IndexedDB with migrations, an in-memory parity
-> adapter, typed storage errors). No PromptForge product surface is implemented yet, and nothing
-> opens the database at runtime. Each subsequent feature is built in a separate, explicitly
-> authorized task tracked in [`tasks.md`](./tasks.md).
+> themes, the primitive layer, the overlay/feedback layer demonstrated in a design gallery, the typed
+> domain model, the persistence layer (repository interfaces, IndexedDB with migrations, an in-memory
+> parity adapter, typed storage errors), and the application data lifecycle: storage selection with a
+> labelled ephemeral fallback, versioned first-run seeding, data/preferences/UI stores, pure
+> selectors, a hydrating bootstrap, and an error boundary. The design gallery is still the only
+> screen; each subsequent feature is built in a separate, explicitly authorized task tracked in
+> [`tasks.md`](./tasks.md).
 
 ---
 
@@ -74,7 +74,7 @@ src/
   domain/         pure TypeScript domain logic and types (no React, no storage)
   data/           repository interfaces, IndexedDB + in-memory adapters, migrations,
                   typed storage errors, write queue, cross-tab announcements
-  store/          Zustand stores
+  store/          Zustand stores (data, preferences, interface) and pure selectors
   hooks/          reusable hooks
   lib/            small framework-agnostic utilities
   styles/         tokens and global styles
@@ -164,14 +164,23 @@ Code outside `src/data` imports only `@/data`; ESLint blocks deep adapter import
 import inside the layer. Schema, migrations, and failure semantics are documented in
 [`docs/PERSISTENCE.md`](./docs/PERSISTENCE.md).
 
+## First run and storage
+
+On first load the app probes storage with a real write/read/delete, opens (or creates) the
+`promptforge` database, seeds a starter library exactly once, and hydrates the stores before any
+screen renders. If storage is unavailable the app still starts on an in-memory adapter and says so in
+a banner: **changes are kept in memory only and disappear when you reload**.
+
+The seed is versioned (`meta.seedVersion`), resumable, and never overwrites edits: a welcome prompt, a
+folder, a collection, two starter templates, and default settings — no activity events, because the
+timeline belongs to the user. Details: [`docs/PERSISTENCE.md`](./docs/PERSISTENCE.md) §8–9.
+
 ## Data and privacy
 
 PromptForge is designed to be **local-first and single-user**. Prompts, revisions, and settings are
 stored in the browser's IndexedDB on this device (or in memory in ephemeral mode). The application
 does not send prompt content to any server, makes no external runtime requests, and integrates no AI
 model provider in its planned v1 scope.
-
-**Seeding and store wiring are TASK-007; until then no screen opens the database.**
 
 ## Roadmap
 

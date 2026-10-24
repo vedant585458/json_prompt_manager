@@ -1,15 +1,17 @@
 # PromptForge — Persistence
 
-**Status:** written by TASK-006 (persistence foundation). Covers the schema, the migration
-strategy, the repository contract, failure semantics, and the test evidence behind them.
+**Status:** written by TASK-006 (persistence foundation) and extended by TASK-007 (seeding and
+bootstrapping). Covers the schema, migrations, the repository contract, failure semantics, storage
+selection, first-run seeding, and the test evidence behind them.
 
-**Scope of this task.** Repository interfaces, the IndexedDB implementation, an in-memory
-implementation, migrations, typed errors, a write queue, cross-tab write announcements, one shared
-contract suite, module-boundary lint rules, and this document.
+**Scope.** Repository interfaces, the IndexedDB implementation, an in-memory implementation,
+migrations, typed errors, a write queue, cross-tab write announcements, one shared contract suite,
+module-boundary lint rules, storage selection with an honest ephemeral fallback, versioned seed data,
+and this document.
 
-**Explicitly out of scope here:** seeding product content and store wiring (TASK-007), the autosave
-UI and save pipeline (TASK-015), and import/export (TASK-026). No screen reads these repositories
-yet.
+**Explicitly out of scope here:** the store's UI actions and selectors (TASK-007's
+`docs/ARCHITECTURE.md` section), the autosave UI and save pipeline (TASK-015), and import/export
+(TASK-026).
 
 ---
 
@@ -253,21 +255,80 @@ which is the one behaviour that intentionally differs (there is no connection to
 
 ---
 
-## 8. Module boundary (ADR-39)
+## 8. Storage selection and ephemeral mode (TASK-007)
+
+`openStorage()` is the only place that decides which adapter runs:
+
+1. probe IndexedDB with a real write/read/delete round trip (`probeStorage`);
+2. if the probe passes, open the durable adapter (`promptforge` database, migrations run);
+3. if the probe fails, **or** the database cannot be opened (corrupt layout, newer build, denied
+   origin), fall back to the in-memory adapter;
+4. return `{ mode, repositories, notice }`, where `notice` is a plain-language sentence for the
+   banner and is `null` only in durable mode.
+
+The fallback is never silent. The notice says what happened and that nothing is being saved:
+_"IndexedDB is not available in this browser. Changes you make now are kept in memory only and
+disappear when you reload; nothing is being saved."_ The app still runs: seeding, the stores, and
+the UI work exactly as they do durably, so the demo is honest about its limits rather than blank.
+
+Boot order (in `src/app/dataBoot.ts`, run once by `DataBootstrap`):
+
+```
+openStorage → attach repositories to the data store → seed (version-gated) → hydrate stores
+            → apply persisted preferences → render children
+```
+
+A seeding failure closes the connection and surfaces a recovery screen with a retry; a hydration
+failure is reported on the store and shown as a load error. The UI never renders an empty library as
+if it were real data.
+
+---
+
+## 9. First-run seeding (TASK-007)
+
+`SEED_VERSION = 1` in `src/data/db/seed.ts`. Seeding is **versioned and resumable**:
+
+- `meta.seedVersion` gates the whole run: a stored version at or above `SEED_VERSION` means one read
+  and no writes at all;
+- every seeded row has a fixed id (`SEED_IDS`) and is created only when that id is missing, so an
+  interrupted seed can be re-run without duplicating or overwriting anything;
+- existing settings are preserved; only their `seedVersion` is advanced;
+- the version is written **last**, so an interrupted run is retried on the next boot;
+- seeded rows write **no activity events**: the timeline records what the user did, not what shipped.
+
+| Row                                    | Id                                    | Notes                                                |
+| -------------------------------------- | ------------------------------------- | ---------------------------------------------------- |
+| Folder "Getting started"               | `seed-folder-getting-started`         | parent of the welcome prompt                         |
+| Collection "Starter kit"               | `seed-collection-starter-kit`         | groups the starter content                           |
+| Welcome prompt                         | `seed-prompt-welcome`                 | active, pinned, explains local storage; one variable |
+| Template "Structured field extraction" | `seed-template-structured-extraction` | built-in, category Extraction, JSON output           |
+| Template "Review response"             | `seed-template-review-response`       | built-in, category Writing, text output              |
+| Settings singleton                     | `app`                                 | defaults with `seedVersion: 1`, `onboardedAt: null`  |
+| Meta singleton                         | `app`                                 | `seedVersion: 1`, `dbSchemaVersion: 2`               |
+
+The starter documents are deliberately two, not a catalog: the full template set is TASK-018.
+Because seeding spans several stores it is **not** one IndexedDB transaction; per-row `ensure` plus
+the last-written version make it idempotent instead, which the seed suite verifies for both adapters.
+
+---
+
+## 10. Module boundary (ADR-39)
 
 Two ESLint rules enforce the layering:
 
 1. `src/data/**` may not import `react`, `react-dom`, `@/components/*`, `@/app/*`, `@/routes/*`,
    `@/store/*`, `@/styles/*`, `zustand`, `lucide-react`, `@radix-ui/*`, `clsx`, or `tailwind-merge`.
 2. Code outside `src/data` may not import `@/data/repositories/*`, `@/data/adapters/*`, or
-   `@/data/db/*` — it must import `@/data`, so the adapter choice stays in one place.
+   `@/data/db/*` — it must import `@/data`, so the adapter choice stays in one place. The in-memory
+   adapter is re-exported from the barrel because the ephemeral mode and the store tests need it;
+   the IndexedDB adapter is not.
 
 Both rules were verified by adding a temporary file that violates each rule, confirming ESLint
 rejects it, and removing the file. The data layer also contains no `any` in its public types.
 
 ---
 
-## 9. Verification
+## 11. Verification
 
 ### Automated suites
 
@@ -281,7 +342,7 @@ rejects it, and removing the file. The data layer also contains no `any` in its 
 | Write queue         | `src/data/writeQueue.test.ts`                      | order, concurrency, failure recovery, depth, drain                                                  |
 | Broadcast           | `src/data/broadcast.test.ts`                       | announcements, validation, subscribe/unsubscribe, no-op fallback                                    |
 
-Current result: **6 data files / 107 tests**, whole suite **27 files / 353 tests**, all passing.
+Current result: **8 data files / 119 tests**, whole suite **36 files / 419 tests**, all passing.
 
 ### Schema verification without a browser
 
@@ -309,10 +370,13 @@ are excluded by construction (for example, a real browser's version-change block
 
 ---
 
-## 10. Known limitations at this stage
+## 12. Known limitations at this stage
 
-- No seeding, no store wiring, and no UI reads these repositories (TASK-007 onward). The database is
-  only created when something calls `openPromptForgeDatabase()`.
+- The seed is deliberately small (one prompt, two templates); the real template catalog is
+  TASK-018.
+- Seeding cannot be atomic across stores through the repository interface; idempotent `ensure` calls
+  plus the last-written version make a retry safe instead.
+- The in-memory fallback loses everything on reload by design; export arrives in TASK-026.
 - The contract suite covers semantics, not browser performance. A large-library benchmark is not part
   of v1.
 - `fake-indexeddb` is not a browser: quota, blocking, and termination behaviour are emulated where
@@ -325,7 +389,7 @@ are excluded by construction (for example, a real browser's version-change block
 
 ---
 
-## 11. Future server-backed path
+## 13. Future server-backed path
 
 The interfaces exist so a server adapter can be added without touching the UI:
 

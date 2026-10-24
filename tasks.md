@@ -588,7 +588,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-004 — Overlay, feedback, and form primitives — High — deps: 003
 - [x] TASK-005 — Domain model and prompt document specification — High — deps: 001
 - [x] TASK-006 — Persistence foundation with repositories and migrations — High — deps: 005
-- [ ] TASK-007 — Seed data, application store, and first-run foundation — High — deps: 004, 006
+- [x] TASK-007 — Seed data, application store, and first-run foundation — High — deps: 004, 006
 - [ ] TASK-008 — Application shell, routing, and responsive navigation — High — deps: 004, 007
 - [ ] TASK-009 — Keyboard shortcut registry and command palette — High — deps: 008
 - [ ] TASK-010 — Dashboard with real library data — High — deps: 008, 009
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 6 of 31 tasks complete. TASK-001 through TASK-006 were completed on 2026-10-24.
+**Progress:** 7 of 31 tasks complete. TASK-001 through TASK-007 were completed on 2026-10-24.
 
 ---
 
@@ -844,7 +844,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-007 — Seed data, application store, and first-run foundation
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-004, TASK-006
 - **Objective:** Bootstrap the app's data lifecycle: seed a first-run dataset, expose typed stores with async actions, record activity, and handle storage-unavailable mode with honest messaging.
@@ -864,6 +864,25 @@ Each task follows the required template. **No task may begin without explicit us
 - **Deliverables:** `src/data/db/seed.ts`, `src/store/dataStore.ts`, `preferencesStore.ts`, `uiStore.ts`, selectors, `src/app/DataBootstrap.tsx`, `src/app/ErrorBoundary.tsx`, ephemeral-mode banner, tests.
 - **Out of scope:** App shell/navigation (TASK-008), dashboard UI, prompt creation dialogs, template catalog.
 
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Modules delivered:**
+    - `src/data/db/seed.ts` — `SEED_VERSION = 1`, fixed `SEED_IDS`, and `seedDatabase(repositories, dependencies)`. Seeds default settings, a "Getting started" folder, a "Starter kit" collection, a pinned welcome prompt explaining local storage, and two starter templates (structured extraction, review response). Version-gated by `meta.seedVersion`, idempotent per row through a `get`-then-`create` `ensure`, resumable after interruption, preserves existing settings and edits, writes the version last, writes no activity events.
+    - `src/data/storage.ts` — `openStorage()` probes storage (open/write/read/delete), opens the durable adapter, and falls back to the in-memory adapter on any failure, returning `{ mode, repositories, notice }` with a plain-language notice that says nothing is being saved. Adapter choice stays inside the data layer (ADR-42).
+    - `src/store/dataStore.ts` — Zustand store holding prompts, folders, collections, templates, test cases, schemas, snippets, activity, and settings plus `mode`/`status`/`error`/`busy`; `attach`/`hydrate` plus async actions `addPrompt`, `editPrompt`, `archivePrompt`, `unarchivePrompt`, `deletePrompt`, `snapshotPrompt`, `addFolder`, `addCollection`, `saveSettings`. Prompt edits read the current row, build the next version, and pass `expectedVersion`; state is always refreshed from the repository's return value; failures are stored and rethrown; activity is recorded for create/update/archive/delete/snapshot/settings.
+    - `src/store/selectors.ts` — pure `selectLibrary`, `selectPromptById`, `selectCounts`, `selectTagCounts`, `selectDashboard`, and `createLibrarySelector()` with single-entry memoization keyed on array identity plus query.
+    - `src/store/preferencesStore.ts` — theme (moved from the TASK-002 slice), density, indent size, autosave enabled/delay (clamped), reduced motion; `applySettings` and `toSettings` round-trip through the settings record. `src/store/preferences.ts` became a re-export so the theme provider and its tests keep their path.
+    - `src/store/uiStore.ts` — sidebar, right panel, palette, selected prompt, and multi-selection; never persisted.
+    - `src/app/dataBoot.ts` — `bootData()` orders open → attach → seed → hydrate → apply preferences, closes the connection when seeding fails, and returns the mode/notice/seed outcome.
+    - `src/app/DataBootstrap.tsx` — skeleton loading state (`role="status"`, `aria-busy`), warning banner in ephemeral mode, boot retry, and a distinct "library could not be loaded" state for hydration failures. Wired into `src/app/App.tsx` inside the error boundary so the dev server exercises the real lifecycle.
+    - `src/app/ErrorBoundary.tsx` — class boundary rendering a recovery screen with reload, retry, and a collapsed `Technical details` disclosure; logs locally only.
+  - **First-run behaviour:** the seed runs once and only once (second boot reads `meta.seedVersion` and stops), is skipped entirely when a newer seed version is stored, recreates only missing rows after an interruption, and never overwrites a prompt or settings the user edited. Onboarding is data only (`Settings.onboardedAt`), as scoped.
+  - **Ephemeral mode:** when IndexedDB is missing or cannot be opened, the app boots on the in-memory adapter, shows "Ephemeral mode — changes are not saved" with the reason above every screen, and never claims a save. Seeding and hydration still run, so the demo contains real data and real behaviour.
+  - **Tests added (61 new cases; whole suite 419):** seed suite 7 (first run, second run, version gate, resume, settings preservation, edited row, durable idempotency via `fake-indexeddb`); storage selection 5; data store 17; selectors 11; preferences store 6; UI store 5; boot sequence 5; `DataBootstrap` 5; `ErrorBoundary` 5.
+  - **Small corrections carried in this task:** the in-memory adapter's closed state now throws `StorageUnavailableError` (it previously threw the base `StorageError`, which made typed handling inconsistent); `dataStore`'s `run` wrapper now records the "storage not attached" failure on state instead of rejecting without a message; the design-gallery tests await the first render because the app root now boots asynchronously.
+  - **Coverage configuration:** `vite.config.ts` measures `src/domain/**`, `src/data/**`, and now `src/store/**` with per-glob floors (store 90 % statements / 85 % branches / 90 % functions / 90 % lines). Measured: domain 98.69/96.65/100/98.58, data 94.78/84.65/93.27/96.44, store 96.20/92.89/96.62/96.64 — all gates pass.
+  - **Validation executed:** `npm run typecheck` exit 0; `npm run lint` exit 0 with **0 warnings** (the module-boundary rule rejected the first draft of the new tests until they imported the in-memory adapter through `@/data`); `npm run test:run` — 36 files / **419 tests passed**, zero React `act` warnings; `npm run test:coverage` — all three floors pass; `npm run format:check` clean; `npm run build` exit 0; `npm run check:contrast` 52 pairings pass.
+  - **Docs:** `docs/PERSISTENCE.md` gained storage-selection and seeding sections plus the updated test inventory; `docs/ARCHITECTURE.md` gained an "Application data lifecycle" section describing boot order, stores, selectors, and recovery; ADR-41…ADR-46 and a TASK-007 verification log in `docs/DECISIONS.md`; `README.md` describes first run and ephemeral mode.
+  - **Notes/limitations:** the seeded library has no product surface yet because the design gallery is still the app root (TASK-008 introduces routing); onboarding is a flag only until TASK-010; the ephemeral banner cannot offer export until TASK-026; seeding is idempotent rather than atomic across stores (ADR-41).
 ---
 
 ### TASK-008 — Application shell, routing, and responsive navigation

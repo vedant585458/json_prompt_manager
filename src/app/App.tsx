@@ -1,19 +1,26 @@
 import { TooltipProvider } from '@/components/ui';
 import { ToastProvider } from '@/app/providers/ToastProvider';
+import { DataBootstrap } from '@/app/DataBootstrap';
+import { ErrorBoundary } from '@/app/ErrorBoundary';
 import { DesignGallery } from '@/routes/design/DesignGallery';
 
 /**
- * Temporary application root (TASK-003).
+ * Temporary application root (TASK-003, extended in TASK-007).
  *
- * The design gallery is the only implemented screen. TASK-008 introduces the
- * router and mounts this component at `/design`; until then it is the root view
- * so the primitives can be reviewed in a real browser.
+ * The design gallery is still the only implemented screen. It now runs inside
+ * the real data lifecycle — storage selection, seeding, hydration — and behind
+ * the application error boundary, so both are exercised by the dev server.
+ * TASK-008 replaces the gallery with the router and moves it to `/design`.
  */
 export function App() {
   return (
     <TooltipProvider>
       <ToastProvider>
-        <DesignGallery />
+        <ErrorBoundary>
+          <DataBootstrap>
+            <DesignGallery />
+          </DataBootstrap>
+        </ErrorBoundary>
       </ToastProvider>
     </TooltipProvider>
   );

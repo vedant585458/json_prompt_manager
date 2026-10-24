@@ -36,7 +36,22 @@ export {
 } from '@/data/db/errors';
 
 export { DB_SCHEMA_VERSION, STORE, STORE_NAMES, type StoreName } from '@/data/db/schema';
+
+/**
+ * The in-memory adapter is part of the public surface on purpose: it backs the
+ * ephemeral mode and the store-level test suites. The IndexedDB adapter stays
+ * internal so only `openStorage` decides when a real database is opened.
+ */
+export { createInMemoryRepositories, type InMemorySeed } from '@/data/adapters/inMemory';
 export { isIndexedDbAvailable, probeStorage, type StorageProbeResult } from '@/data/db/indexedDb';
+
+export { SEED_IDS, SEED_VERSION, seedDatabase, type SeedResult } from '@/data/db/seed';
+export {
+  openStorage,
+  type OpenStorageOptions,
+  type StorageBootResult,
+  type StorageMode,
+} from '@/data/storage';
 
 export { createWriteQueue, type WriteQueue } from '@/data/writeQueue';
 export {

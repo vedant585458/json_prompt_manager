@@ -716,6 +716,100 @@ acceptable for v1.
 
 ---
 
+## ADR-41 — First-run data is versioned and resumable, never transactional
+
+**Context.** A useful first run needs a welcome prompt, starter templates, a folder, a collection, and
+default settings — which means writes to five different object stores. The repository interface has
+no cross-store transaction, and a partial seed must not leave duplicates or reset user edits.
+
+**Decision.** `SEED_VERSION` gates the run through `meta.seedVersion`. Every seeded row has a fixed
+id and is created only if missing (`ensure`), settings are updated in place (only `seedVersion`
+moves), and the version is written last. Seeded rows produce no activity events.
+
+**Consequences.** An interrupted seed is retried safely on the next boot, a shipped seed never
+overwrites the user's edits, and a second boot does nothing but one read. The trade-off is that
+seeding is idempotent rather than atomic; the seed suite covers the resume case explicitly.
+
+---
+
+## ADR-42 — Storage selection lives in the data layer; ephemeral mode is labelled
+
+**Context.** Browsers deny, block, or corrupt IndexedDB often enough that a local-first app must
+degrade gracefully — but a degraded app that looks durable is worse than one that admits it.
+
+**Decision.** `openStorage()` probes storage (open, write, read, delete), tries the durable adapter,
+and falls back to the in-memory adapter on any failure. It returns a `mode` and a plain-language
+`notice` that `DataBootstrap` renders as a warning banner saying changes are not saved. The choice
+lives in `src/data`, so no component can couple itself to an adapter.
+
+**Consequences.** The app always starts, the demo is still fully usable, and the limitation is
+stated in the UI rather than implied by a spinner. The notice is the only user-facing artefact of a
+failure; technical detail stays in logs.
+
+---
+
+## ADR-43 — Store actions adopt the repository's write result, never a guess
+
+**Context.** Optimistic UI is normal, but in a local-first editor an optimistic "saved" state can
+misrepresent what storage accepted — especially with version checks and quota failures.
+
+**Decision.** Every `dataStore` mutation awaits the repository and then stores the returned entity.
+Prompt edits read the current row first, build the next version, and pass the read version as
+`expectedVersion`. Failures are stored on `error` for inline display **and** rethrown so dialogs can
+react.
+
+**Consequences.** In-memory state always matches storage, stale writers are rejected instead of
+clobbering, and the UI has a typed error to show. The cost is one extra read per prompt edit, which
+is negligible against the safety it buys.
+
+---
+
+## ADR-44 — Activity logging is secondary to the mutation it describes
+
+**Context.** Activity events are useful context, not data the user asked to save. Failing a
+successful write because its log line could not be appended would be user-hostile; silently dropping
+the failure would hide a degraded timeline.
+
+**Decision.** Mutations record activity after the repository returns. If the append fails, the
+mutation stands and `error` explains that the change was saved but its activity entry was not.
+Mutations record `created`, `updated`, `archived`, `deleted`, `snapshot`, and `settings`; deletions
+snapshot the prompt title so the timeline stays readable.
+
+**Consequences.** Saving never fails because of logging, and the user is told when the timeline is
+incomplete. The store caps the in-memory log with the domain's `capActivityLog` rather than
+re-reading the repository.
+
+---
+
+## ADR-45 — One preferences store; the theme slice became a re-export
+
+**Context.** TASK-002 shipped a theme-only preference store; TASK-007 needs density, indentation,
+autosave, and reduced motion in the same place, and settings must round-trip through the repository.
+
+**Decision.** `src/store/preferencesStore.ts` owns the full preference set and can `applySettings`
+/ `toSettings`. `src/store/preferences.ts` remains as a re-export so the theme provider and its
+tests keep their import path. The theme still mirrors into `localStorage` for the pre-paint script.
+
+**Consequences.** One source of truth for preferences, no duplicated theme state, and the pre-paint
+theme behaviour is untouched. `toSettings` preserves fields the store does not own.
+
+---
+
+## ADR-46 — Selectors are pure functions with single-entry memoization
+
+**Context.** Library filtering, ordering, and dashboard aggregates are needed by several screens
+(TASK-010, TASK-011) and must be testable without a renderer.
+
+**Decision.** `src/store/selectors.ts` exports pure functions plus `createLibrarySelector()`, which
+caches the last `(prompts, query)` result by array identity and a serialized query. No selector
+library is added.
+
+**Consequences.** Components can call the memoized selector during render without re-sorting on
+unrelated re-renders, tests assert behaviour directly, and there is no cache-invalidation logic to
+get wrong. The trade-off is a one-entry cache, which matches how a single screen queries.
+
+---
+
 ## Verification log — TASK-005
 
 | Check              | Command                                               | Result (2026-10-24)                                                                        |
@@ -789,6 +883,45 @@ acceptable for v1.
   `fake-indexeddb`.
 - Seeding, store wiring, autosave UI, and import/export remain out of scope (TASK-007, TASK-015,
   TASK-026).
+
+---
+
+## Verification log — TASK-007
+
+| Check       | Command                                     | Result (2026-10-24)                                                                                      |
+| ----------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Types       | `npm run typecheck`                         | exit 0                                                                                                   |
+| Lint        | `npm run lint`                              | exit 0, **0 warnings**                                                                                   |
+| Tests       | `npm run test:run`                          | 36 files / 418 tests passed                                                                              |
+| Data tests  | `npm run test:run -- src/data`              | 8 files / 119 tests passed                                                                               |
+| Store tests | `npm run test:run -- src/store`             | 5 files / 43 tests passed                                                                                |
+| App tests   | `npm run test:run -- src/app`               | 7 files / 40 tests passed                                                                                |
+| Coverage    | `npm run test:coverage`                     | domain 98.69/96.65/100/98.58 · data 94.78/84.65/93.27/96.44 · store 96.20/92.89/96.62/96.64 — gates pass |
+| Formatting  | `npm run format:check`                      | clean                                                                                                    |
+| Build       | `npm run build`                             | exit 0                                                                                                   |
+| Contrast    | `npm run check:contrast`                    | 52 pairings pass                                                                                         |
+| Boundary    | `npm run lint` after adding adapter imports | blocked until tests imported `@/data` instead                                                            |
+
+### Test inventory added in this task
+
+| File                                 | Cases | Focus                                                                                                     |
+| ------------------------------------ | ----- | --------------------------------------------------------------------------------------------------------- |
+| `src/data/db/seed.test.ts`           | 7     | first run, second run, version gate, resume, settings preservation, edited rows, durable idempotency      |
+| `src/data/storage.test.ts`           | 5     | durable path, missing IndexedDB, failed open with notice, throwing probe                                  |
+| `src/store/dataStore.test.ts`        | 16    | hydration, create/update/archive/restore/delete, snapshots, settings, folders, activity, failure handling |
+| `src/store/selectors.test.ts`        | 11    | filters, ordering, search, memoization, counts, tags, dashboard aggregates                                |
+| `src/store/uiStore.test.ts`          | 5     | panel toggles, palette, selection semantics                                                               |
+| `src/store/preferencesStore.test.ts` | 6     | defaults, clamping, `applySettings`, `toSettings`, theme pairs                                            |
+| `src/app/dataBoot.test.ts`           | 5     | boot order, seed-once, notice passthrough, failure cleanup, hydration error                               |
+| `src/app/DataBootstrap.test.tsx`     | 5     | loading state, ready state, ephemeral banner, boot retry, load error                                      |
+| `src/app/ErrorBoundary.test.tsx`     | 5     | recovery screen, disclosure, local logging, retry, reload action                                          |
+
+### Known limitations at this stage
+
+- The design gallery is still the only screen; the seeded data has no real surface yet (TASK-008+).
+- Onboarding is a data flag only (`Settings.onboardedAt`); the flow itself is TASK-010.
+- Activity pruning runs only when a caller asks (`activity.prune`); no schedule exists yet.
+- The ephemeral banner cannot offer export until TASK-026.
 
 ---
 

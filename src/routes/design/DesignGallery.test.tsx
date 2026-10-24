@@ -5,17 +5,24 @@ import { describe, expect, it, vi } from 'vitest';
 import { App } from '@/app/App';
 import { ThemeProvider } from '@/app/providers/ThemeProvider';
 
-function renderGallery() {
-  return render(
+/**
+ * The gallery is the app root, so it now boots the data layer (TASK-007):
+ * storage probe, seed, hydration. Rendering is therefore asynchronous, and
+ * these tests wait for the first heading before asserting.
+ */
+async function renderGallery() {
+  const utils = render(
     <ThemeProvider>
       <App />
     </ThemeProvider>,
   );
+  await screen.findByRole('heading', { level: 1, name: 'Design system gallery' });
+  return utils;
 }
 
 describe('Design gallery', () => {
-  it('renders every primitive section with a single page heading', () => {
-    renderGallery();
+  it('renders every primitive section with a single page heading', async () => {
+    await renderGallery();
 
     expect(screen.getByRole('heading', { level: 1, name: 'Design system gallery' })).toBeVisible();
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
@@ -33,8 +40,8 @@ describe('Design gallery', () => {
     }
   });
 
-  it('shows all button variants, sizes, and states', () => {
-    renderGallery();
+  it('shows all button variants, sizes, and states', async () => {
+    await renderGallery();
 
     // Some labels also appear in overlay demos, so assert presence, not uniqueness.
     for (const name of [
@@ -63,7 +70,7 @@ describe('Design gallery', () => {
 
   it('demonstrates an invalid field and preserves the typed value', async () => {
     const user = userEvent.setup();
-    renderGallery();
+    await renderGallery();
 
     const input = screen.getByLabelText(/Prompt name/);
     await user.type(input, 'Structured extraction');
@@ -80,8 +87,8 @@ describe('Design gallery', () => {
     expect(input).toHaveValue('');
   });
 
-  it('keeps every form control reachable by its label', () => {
-    renderGallery();
+  it('keeps every form control reachable by its label', async () => {
+    await renderGallery();
 
     expect(screen.getByLabelText(/Prompt name/)).toBeInTheDocument();
     expect(screen.getByLabelText('Output format')).toBeInTheDocument();
@@ -93,7 +100,7 @@ describe('Design gallery', () => {
 
   it('exercises the composed specimen with real state', async () => {
     const user = userEvent.setup();
-    renderGallery();
+    await renderGallery();
 
     const specimen = screen.getByRole('heading', { level: 2, name: 'Composed specimen' })
       .parentElement as HTMLElement;
@@ -115,7 +122,7 @@ describe('Design gallery', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-    renderGallery();
+    await renderGallery();
 
     await user.click(screen.getByRole('button', { name: 'Light' }));
     expect(document.documentElement).toHaveAttribute('data-theme', 'light');

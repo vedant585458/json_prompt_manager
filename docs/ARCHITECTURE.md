@@ -2,17 +2,18 @@
 
 **Advanced JSON Prompt Management Studio** — a local-first workspace for creating, organizing, validating, versioning, comparing, and optimizing structured JSON prompts.
 
-> **Status: TASK-006 complete — persistence foundation.**
+> **Status: TASK-007 complete — seed data, stores, and first-run foundation.**
 > The repository contains the toolchain, the Prompt Observatory token system with dark and light
 > themes, the primitive layer (buttons, form controls, tabs, tooltips, status, progress), the
 > overlay/feedback layer (dialogs, confirmations, sheets, dropdown and context menus, toasts,
 > alerts, empty/error states, skeletons) demonstrated in a design gallery, the typed domain model
-> (entities, canonical prompt document, validation, factories, serialization), and the persistence
-> layer (repository interfaces, IndexedDB adapter with migrations, an in-memory adapter proven by the
-> same contract suite, typed storage errors, a per-prompt write queue, and cross-tab write
-> announcements).
-> No PromptForge product surface is implemented yet, and nothing opens the database yet. Each
-> subsequent feature is built in a separate, explicitly authorized task tracked in
+> (entities, canonical prompt document, validation, factories, serialization), the persistence layer
+> (repository interfaces, IndexedDB adapter with migrations, an in-memory parity adapter, typed
+> storage errors, a per-prompt write queue, cross-tab announcements), and the application data
+> lifecycle (storage selection with an honest ephemeral fallback, versioned first-run seeding, the
+> data/preferences/UI stores, pure selectors, a hydrating bootstrap, and an error boundary).
+> No PromptForge product surface is implemented yet: the dev server still renders the design gallery.
+> Each subsequent feature is built in a separate, explicitly authorized task tracked in
 > [`tasks.md`](./tasks.md).
 
 ---
@@ -54,7 +55,7 @@ All of the above must pass before a task can be marked complete in `tasks.md`.
 | ----------- | ------------------------------------------------------------------------- |
 | UI          | React 19, TypeScript (strict), Vite                                       |
 | Styling     | Tailwind CSS v4 via `@tailwindcss/vite`                                   |
-| State       | Zustand (introduced with the data layer)                                  |
+| State       | Zustand stores for data, preferences, and interface state (TASK-007)      |
 | Routing     | react-router-dom                                                          |
 | Persistence | IndexedDB through repository interfaces (`idb`), in-memory parity adapter |
 | Editor      | CodeMirror 6 — planned TASK-014                                           |
@@ -69,14 +70,14 @@ architecture; features are still implemented only when their task is authorized.
 
 ```
 src/
-  app/            application root, providers, router (grows in later tasks)
+  app/            application root, providers, boot sequence, error boundary
   routes/         route-level screens
   components/     ui primitives, layout, and domain components
   features/       feature modules (save pipeline, revisions, diff, lab, ...)
   domain/         pure TypeScript domain logic and types (no React, no storage)
   data/           repository interfaces, IndexedDB + in-memory adapters, migrations,
                   typed storage errors, write queue, cross-tab announcements
-  store/          Zustand stores
+  store/          Zustand stores (data, preferences, interface) and pure selectors
   hooks/          reusable hooks
   lib/            small framework-agnostic utilities
   styles/         tokens and global styles
@@ -147,8 +148,48 @@ mapped at the repository boundary, and a per-prompt write queue.
   `MigrationError` let the UI choose a recovery path instead of parsing messages.
 
 Details, schema tables, and the verification evidence live in
-[`docs/PERSISTENCE.md`](./PERSISTENCE.md). Seeding and store wiring are TASK-007; no screen reads
-these repositories yet, so the database is not created at runtime.
+[`docs/PERSISTENCE.md`](./PERSISTENCE.md).
+
+## Application data lifecycle
+
+The gallery now runs inside the real lifecycle, so the boot path is exercised by the dev server
+rather than existing only in tests.
+
+```
+openStorage()            probe → durable adapter, or in-memory with a notice   (src/data/storage.ts)
+   ↓
+attach + seedDatabase()  version-gated, resumable first-run data               (src/data/db/seed.ts)
+   ↓
+hydrate()                every repository read in parallel into the store      (src/store/dataStore.ts)
+   ↓
+applySettings()          persisted preferences adopted                         (src/store/preferencesStore.ts)
+   ↓
+DataBootstrap renders    loading skeletons → banner + children, or a recovery screen
+```
+
+- **`dataStore`** owns the in-memory library (`prompts`, `folders`, `collections`, `templates`,
+  `testCases`, `schemas`, `snippets`, `activity`, `settings`) plus `mode`, `status`, `error`, and
+  `busy`. Every mutation calls a repository and then adopts the value the repository returned, so a
+  failed write can never look saved. Prompt writes read the current row first and pass its version as
+  `expectedVersion`, which keeps the optimistic-concurrency guarantee intact.
+- **Activity is recorded for create, update, archive, restore, delete, and snapshot.** If the
+  activity write alone fails, the mutation stands and the store says the timeline is incomplete —
+  rollback would be worse than a missing log line.
+- **`preferencesStore`** merges the original theme slice with density, indentation, autosave, and
+  reduced motion; `src/store/preferences.ts` re-exports it so the theme provider did not move.
+  `applySettings` adopts a persisted record, `toSettings` writes preferences back without losing
+  `onboardedAt` or `seedVersion`.
+- **`uiStore`** holds panels, the command palette, and selection — never persisted, reset on reload.
+- **`selectors.ts`** filters/sorts the library, memoizes with a single-entry cache keyed on array
+  identity plus query, and computes dashboard aggregates. It is pure and tested without a renderer.
+- **`DataBootstrap`** renders nothing but skeletons until data is ready, labels ephemeral mode with
+  a warning banner that says changes are not saved, and offers retry from typed failures.
+- **`ErrorBoundary`** catches render failures and shows a recovery screen with reload, retry, and a
+  `Technical details` disclosure; it never claims data was lost or saved.
+
+Seeding writes no activity events and is version-gated by `meta.seedVersion`; a second boot adds
+nothing. First-run onboarding is only a data flag (`Settings.onboardedAt`) until the dashboard hosts
+the flow in TASK-010.
 
 ## Data and privacy
 

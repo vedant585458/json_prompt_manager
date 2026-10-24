@@ -1,0 +1,5 @@
+package-lock.json
+tasks.md
+dist/
+coverage/
+node_modules/

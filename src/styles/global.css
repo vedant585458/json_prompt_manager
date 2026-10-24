@@ -1,0 +1,20 @@
+@import 'tailwindcss';
+
+/*
+ * Foundation-only global styles.
+ * The Prompt Observatory design tokens, typography, and theme system are
+ * introduced in TASK-002; no product styling belongs here yet.
+ */
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background-color: #08090b;
+  color: #e9ecef;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}

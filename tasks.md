@@ -595,7 +595,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-011 — Prompt library browsing, search, filters, and views — High — deps: 008
 - [x] TASK-012 — Prompt CRUD, folders, and collections — High — deps: 011
 - [x] TASK-013 — Tags, favorites, pins, archive, and bulk actions — Medium — deps: 012
-- [ ] TASK-014 — JSON editor workspace (raw + tree views) — High — deps: 012
+- [x] TASK-014 — JSON editor workspace (raw + tree views) — High — deps: 012
 - [ ] TASK-015 — Save pipeline, autosave, and recovery — High — deps: 014
 - [ ] TASK-016 — Validation engine and validation studio — High — deps: 015
 - [ ] TASK-017 — Guided prompt composer with JSON synchronization — High — deps: 015
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 13 of 31 tasks complete. TASK-001 through TASK-013 were completed on 2026-10-24.
+**Progress:** 14 of 31 tasks complete. TASK-001 through TASK-014 were completed on 2026-10-24.
 
 ---
 
@@ -1123,7 +1123,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-014 — JSON editor workspace (raw and tree views)
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-012
 - **Objective:** Deliver a professional JSON editing environment with syntax awareness, precise error locations, dual raw/tree views, and durable draft handling independent of persistence.
@@ -1144,6 +1144,18 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Unit tests for parse-error extraction and formatting; component tests for tree navigation and error-focus behavior; CodeMirror integration test (typing + parse debounce using fake timers); manual keyboard pass incl. `Mod+F`; typecheck/lint/tests/build.
 - **Deliverables:** `src/routes/editor/*`, `src/components/editor/{JsonEditor,EditorToolbar,TreeView,JsonErrorPanel,EditorStatusBar}.tsx`, `src/domain/jsonText.ts`, draft hooks, tests.
 - **Out of scope:** Actual persistence/autosave (TASK-015), schema validation (TASK-016), composer (TASK-017), variables preview (TASK-021), import/export.
+
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Domain (`src/domain/`):** new `jsonText.ts` holds `scanJson` — a recursive-descent parser that reports `{ message, line, column, offset }` — plus `formatJsonText`/`minifyJsonText` (idempotent, key order preserved), `lineColumnAt`/`offsetAtLineColumn`, `jsonTextStats`, `isLargeJsonText`, and the `MAX_JSON_DEPTH`/`LARGE_DOCUMENT_CHARS`/`PARSE_DEBOUNCE_MS` constants. `JSON.parse` alone was rejected as the oracle: its message carries a character offset or a snippet depending on length, and its token can be the character after the mistake (ADR-73), so the domain now owns the location as well as the rules. New `jsonTree.ts` builds the read-only tree model, flattens visible rows, formats paths (`$.a[0]`, `$['a b']`), and resolves arrow-key movement as a pure function. Both modules are exported from the barrel and listed in the purity guard.
+  - **Editor (`src/components/editor/`):** `JsonEditor` (CodeMirror 6 with JSON language, line numbers, fold gutter, bracket matching, active line, `Mod-F` search/replace, caret reporting, and an imperative `jumpToOffset`/`selectAll`/`openSearch`/`undo`/`redo` handle), `editorTheme.ts` (chrome and JSON token colors through `--pf-editor-*` variables), `EditorToolbar` (Format, Minify, Undo/Redo, Find, Copy all, Jump to error — disabled rather than hidden when the text does not parse), `TreeView` (`role="tree"` with `aria-activedescendant`, arrow keys, expansion, typed summaries, copy-path), `JsonErrorPanel` (`role="alert"`, exact location, "Go to line N"), `EditorStatusBar` (caret, counts, indent, `Valid JSON`/`Checking…`/`Syntax error` badge — never color-only), and `EditorInspector` (real structure facts plus an explicit "validation is TASK-016" note).
+  - **Drafts (`src/features/editor/`):** `useDocumentDraft` owns the text, debounces the parse (longer for large documents), mirrors dirty text to `localStorage` after 300 ms, clears the copy when clean, installs `beforeunload`, and surfaces a recovery draft for restore/discard. `draftStorage.ts` is namespaced, size-capped, defensively parsed, and fail-soft. Nothing writes to the database, and the status bar, footer, and summary card all say the text is a draft (ADR-76).
+  - **Route (`src/routes/editor/EditorRoute.tsx`):** breadcrumb ("Prompt location"), the existing metadata header with favorite/pin/archive, a Raw/Tree tab strip (no fake Preview tab), the lazily imported editor behind a skeleton, the error panel, status bar, collapsible inspector, a recovery banner, and a `useBlocker` dialog for in-app navigation ("Leave with unsaved changes?"). The palette's favorite command still registers here while the workspace is mounted.
+  - **Preferences and theming:** indent width comes from the saved preference; six new editor tokens per theme were added to `tokens.css` and six new pairings to `scripts/check-contrast.mjs`, which is now 64 pairings (ADR-74).
+  - **Tests added (71 new cases; whole suite 862 across 63 files):** `src/domain/jsonText.test.ts` 33, `src/domain/jsonTree.test.ts` 19, `src/features/editor/draftStorage.test.ts` 7, `src/components/editor/JsonEditor.test.tsx` 4 (real CodeMirror mount, a real transaction, caret jump, select-all), `src/routes/editor/EditorRoute.test.tsx` +8 (stored document, typed syntax error with location and jump, format/minify idempotence, tree keyboard navigation, invalid-tree guidance, leave guard, clipboard copy, recovery draft without a database write).
+  - **Validation executed:** `npx tsc --noEmit` exit 0; `npx eslint .` exit 0 with 0 warnings; `npx vitest run` — **63 files / 862 tests passed, 0 failures**; `npx vitest run --coverage` — thresholds pass (`src/domain` branches 90.48 %); `npx prettier --check .` clean; `npm run check:contrast` — 64 pairings pass in both themes; `npm run build` exit 0 — CSS 53.21 kB (13.10 kB gzip), app JS 760.90 kB (227.29 kB gzip) with CodeMirror split into a lazy `JsonEditor` chunk of 427.59 kB (138.55 kB gzip).
+  - **Not performed (stated honestly):** no browser binary exists in this environment, so there was no visual pass at 360/390/1440 px, no pointer-driven layout inspection, and no manual keyboard walkthrough (including `Mod-F` on a real keyboard). Keyboard behavior is covered by jsdom tests against real CodeMirror instances and by review; no screenshot is claimed. jsdom has no layout, so the test setup returns empty rects from `Range` measurement — test-only infrastructure.
+  - **Deviations recorded:** installed the dependencies the plan already named for this task (`@uiw/react-codemirror`, `@codemirror/lang-json`, plus the `@codemirror/*` packages and `@lezer/highlight` the host configures directly); the domain barrel/purity list grew by two modules; the route's breadcrumb landmark is named "Prompt location" so it does not duplicate the shell's "Breadcrumb"; the toolbar disables only on a known error, not while a parse is pending (rewrites re-scan the text); the canonical baseline text is 2-space formatted so an indent-preference change never rewrites the draft's baseline; switching to the tree tab unmounts CodeMirror and therefore resets its undo history for the tab (the text and recovery copy survive).
+  - **Docs:** `docs/DECISIONS.md` gained ADR-73…ADR-77 and a TASK-014 verification log; `docs/ARCHITECTURE.md` gained a "JSON editor workspace" section plus a drafts note; `README.md` and `tasks.md` updated.
 
 ---
 

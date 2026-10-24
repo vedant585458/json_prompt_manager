@@ -27,6 +27,38 @@ if (typeof globalThis.ResizeObserver === 'undefined') {
   globalThis.ResizeObserver = NoopResizeObserver as unknown as typeof globalThis.ResizeObserver;
 }
 
+// jsdom implements no layout, so a `Range` has no rects. CodeMirror measures a
+// range to decide how tall the caret is on the current line, and throws without
+// them. Empty rects are enough: no test asserts on measured geometry.
+if (typeof Range !== 'undefined') {
+  const emptyRect = (): DOMRect =>
+    ({
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
+      toJSON: () => ({}),
+    }) as DOMRect;
+
+  if (typeof Range.prototype.getClientRects !== 'function') {
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => [] as unknown as DOMRectList,
+    });
+  }
+
+  if (typeof Range.prototype.getBoundingClientRect !== 'function') {
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: emptyRect,
+    });
+  }
+}
+
 // Testing Library only auto-registers cleanup when Vitest globals are enabled;
 // this project keeps globals off, so cleanup is explicit.
 afterEach(() => {

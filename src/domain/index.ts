@@ -12,3 +12,5 @@ export * from '@/domain/promptDocument';
 export * from '@/domain/serialization';
 export * from '@/domain/factories';
 export * from '@/domain/search';
+export * from '@/domain/jsonText';
+export * from '@/domain/jsonTree';

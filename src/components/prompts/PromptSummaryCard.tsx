@@ -120,8 +120,8 @@ export function PromptSummaryCard({
       )}
 
       <p className="border-t border-line pt-3 text-xs leading-relaxed text-ink-muted">
-        The JSON editor, validation, and version history arrive in TASK-014. Nothing on this page
-        changes the prompt document.
+        Validation arrives in TASK-016 and version history in TASK-019. The document editor below is
+        a draft: nothing on this page has been saved.
       </p>
     </Card>
   );

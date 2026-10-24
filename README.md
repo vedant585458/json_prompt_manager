@@ -2,7 +2,7 @@
 
 **Advanced JSON Prompt Management Studio** — a local-first workspace for creating, organizing, validating, versioning, comparing, and optimizing structured JSON prompts.
 
-> **Status: TASK-013 complete — favorites, pins, archive, tags, and bulk actions.**
+> **Status: TASK-014 complete — the JSON editor workspace (raw + tree views).**
 > The repository contains the toolchain, the Prompt Observatory token system with dark and light
 > themes, the primitive layer, the overlay/feedback layer demonstrated in a design gallery, the typed
 > domain model, the persistence layer (repository interfaces, IndexedDB with migrations, an in-memory
@@ -17,9 +17,11 @@
 > /date filters, three sorts, pinned section, grid and list views, and per-card selection — plus the
 > full prompt lifecycle (create from a template or blank, edit metadata, duplicate, archive with undo,
 > delete with a confirmed cascade), folder/collection management with cycle guards, and multi-select
-> bulk actions with an honest undo. Every declared route is reachable; screens not yet built say so
-> instead of showing mock controls. Each subsequent feature is built in a separate, explicitly
-> authorized task tracked in [`tasks.md`](./tasks.md).
+> bulk actions with an honest undo, and the **JSON editor**: a CodeMirror 6 host with formatting,
+> minify, find/replace, folding, copy, and undo/redo, a scanner that reports exact syntax locations,
+> a read-only tree view, a document inspector, and a draft that is explicitly not a save. Every declared
+> route is reachable; screens not yet built say so instead of showing mock controls. Each subsequent
+> feature is built in a separate, explicitly authorized task tracked in [`tasks.md`](./tasks.md).
 
 ---
 
@@ -65,7 +67,7 @@ All of the above must pass before a task can be marked complete in `tasks.md`.
 | Routing     | react-router-dom 7 (`createBrowserRouter`, memory router in tests)          |
 | Commands    | Custom registry + palette (`src/lib/commands`), Radix dialog, no extra deps |
 | Persistence | IndexedDB through repository interfaces (`idb`), in-memory parity adapter   |
-| Editor      | CodeMirror 6 — planned TASK-014                                             |
+| Editor      | CodeMirror 6 (`@uiw/react-codemirror`, `@codemirror/lang-json`), lazy chunk |
 | Validation  | Ajv (JSON Schema) — planned TASK-016                                        |
 | Testing     | Vitest, Testing Library, `jest-dom`, `fake-indexeddb`, jsdom                |
 | Quality     | ESLint (flat config), Prettier                                              |
@@ -83,7 +85,10 @@ src/
   components/command-palette/  palette dialog and the command layer mounted by the shell
   components/dashboard/  dashboard sections, stat strip, rails, and the first-run guide
   components/library/  filter bar, ingredient rail, prompt cards and rows, badges
-  components/prompts/  prompt create/edit dialog, action menu, delete confirmation
+  components/prompts/  prompt create/edit dialog, action menu, delete confirmation, summary card
+  components/editor/   CodeMirror host and theme, toolbar, tree view, error panel, status bar,
+                       inspector
+  features/editor/     draft state (local recovery copy), parse debounce, in-app leave guard
   lib/commands/   registry, shortcut parsing/matching, core commands, React bindings
   components/     ui primitives, layout, and domain components
   features/       feature modules (organization, save pipeline, revisions, diff, lab, ...)
@@ -199,6 +204,29 @@ in their own section, sorted A→Z.
 
 Every bulk write is one repository transaction (`prompts.updateMany`, `prompts.deleteManyCascade`), so a
 selection is never half-changed.
+
+## JSON editor
+
+`/prompts/:promptId` opens the workspace: the prompt's metadata header (with favorite, pin, and
+archive), a raw/tree tab strip, the editor, a syntax-error panel, a status bar, and a collapsible
+inspector.
+
+- **Raw JSON.** CodeMirror 6 with JSON highlighting, line numbers, fold gutters, bracket matching,
+  active-line highlighting, the indent width from settings, and `Mod-F` find/replace. The toolbar also
+  has Format, Minify, Undo/Redo, Find, Copy all, and Jump to error, so nothing is keyboard-only.
+- **Exact errors.** A small scanner in `src/domain/jsonText.ts` owns the parse, so the reported line and
+  column point at the token that is actually wrong — V8's message sometimes only contains a truncated
+  snippet. A syntax error never modifies the text; it disables the rewrites that need a parsed value and
+  offers to move the caret to the offending line.
+- **Tree view.** A read-only, keyboard-operable `role="tree"` of the parsed document with arrow-key
+  navigation, expandable nodes, typed summaries, and a copy-path control. Invalid JSON shows guidance
+  instead of a partial tree.
+- **Drafts.** Edits are a draft in this tab: they are mirrored to `localStorage` (recoverable after a
+  reload), never written to the database, and the status bar says so. Leaving with unsaved edits asks
+  first, and `beforeunload` covers the browser's own navigation.
+- **Not here yet.** Saving and autosave arrive in TASK-015, schema validation in TASK-016, and
+  variables in TASK-021; no control pretends otherwise. CodeMirror is a lazy chunk, so the rest of the
+  app does not pay for it.
 
 ## Design system
 

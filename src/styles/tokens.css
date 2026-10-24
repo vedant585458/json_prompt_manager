@@ -60,6 +60,16 @@
   --pf-scrollbar-thumb-hover: #3b424b;
   --pf-overlay: rgb(4 5 6 / 0.72);
 
+  /* JSON editor syntax (TASK-014) — every one is checked against --pf-editor-bg */
+  --pf-editor-bg: #0b0d10;
+  --pf-editor-gutter: #828d9a;
+  --pf-editor-line: #14171b;
+  --pf-editor-key: #a9c8ff;
+  --pf-editor-string: #a8e6a3;
+  --pf-editor-number: #ffc978;
+  --pf-editor-literal: #d6aaff;
+  --pf-editor-punct: #9aa4b0;
+
   /* Elevation */
   --pf-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
   --pf-shadow-panel: 0 18px 40px -22px rgb(0 0 0 / 0.85), 0 1px 0 rgb(255 255 255 / 0.03) inset;
@@ -106,6 +116,16 @@
   --pf-scrollbar-thumb: #d5d0c6;
   --pf-scrollbar-thumb-hover: #bcb6aa;
   --pf-overlay: rgb(18 20 23 / 0.38);
+
+  /* JSON editor syntax (TASK-014) */
+  --pf-editor-bg: #f6f4ef;
+  --pf-editor-gutter: #5f666f;
+  --pf-editor-line: #ece9e2;
+  --pf-editor-key: #1c4f8f;
+  --pf-editor-string: #1f6b3a;
+  --pf-editor-number: #7a4a00;
+  --pf-editor-literal: #6b2fa0;
+  --pf-editor-punct: #4c5259;
 
   --pf-shadow-sm: 0 1px 2px rgb(18 20 23 / 0.08);
   --pf-shadow-panel: 0 18px 40px -26px rgb(18 20 23 / 0.28), 0 1px 0 rgb(255 255 255 / 0.7) inset;

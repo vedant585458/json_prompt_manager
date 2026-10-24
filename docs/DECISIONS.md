@@ -1485,6 +1485,95 @@ through it, so an id that is both added and removed ends up removed.
 **Consequences.** Tag order is stable across a rename, and the "add and remove the same tag" case has one
 predictable answer instead of two.
 
+## ADR-73 — The editor locates syntax errors with its own scanner
+
+**Status:** Accepted (TASK-014)
+
+**Context.** The editor has to say _where_ a document stopped being JSON, precisely enough to move the
+caret there. `JSON.parse` was the obvious oracle, but V8's message shape depends on the input: some
+failures report a character offset, some a `(line X column Y)` suffix, and some only a truncated
+snippet. A long document with a bare word reports `Unexpected token 'o'` and points past the mistake.
+
+**Decision.** `src/domain/jsonText.ts` contains `scanJson`, a recursive-descent JSON parser that tracks
+its own cursor. It returns either the parsed value or `{ message, line, column, offset }`, with messages
+written for a person ("Expected “,” or “}” after the property value, found “””."). It also refuses two
+things the engine accepts silently: nesting past `MAX_JSON_DEPTH` (200) and numbers that overflow to
+`Infinity`.
+
+**Consequences.** Every surface — the error panel, the toolbar's enabled state, the status badge, the
+tree view's fallback, format and minify — reads one location, and the numbers agree. The cost is a
+parsed copy of the document in the domain layer; at these sizes (and behind a debounce) that is cheaper
+than a wrong caret.
+
+## ADR-74 — Editor syntax colors are tokens, not literals
+
+**Status:** Accepted (TASK-014)
+
+**Context.** CodeMirror themes usually hard-code colors, which would have produced a third palette and
+no contrast guarantee in either theme.
+
+**Decision.** The editor's chrome and its JSON token colors are defined in `tokens.css` (`--pf-editor-*`)
+for both themes and consumed through `var(...)` in `editorTheme.ts`. `npm run check:contrast` gained a
+pairing per syntax color against `--pf-editor-bg`, so a token that becomes unreadable fails the build
+rather than shipping.
+
+**Consequences.** The editor re-themes when `data-theme` changes without re-mounting, and the contrast
+gate now covers 64 pairings. Cost: six more tokens per theme to maintain, and a dark-first palette that
+must stay legible in the light theme too.
+
+## ADR-75 — CodeMirror is a lazy chunk, and the route owns the document
+
+**Status:** Accepted (TASK-014)
+
+**Context.** CodeMirror is the single heaviest dependency in the project, and only one route needs it.
+The editor also has to stay testable in jsdom, where content measurement is faked.
+
+**Decision.** `EditorRoute` imports `JsonEditor` with `React.lazy` behind a `Suspense` fallback, so the
+editor and its CodeMirror dependencies build to their own asset (≈428 kB, ≈139 kB gzip). The document
+text, the parse, and the draft live in the route (`useDocumentDraft`); the editor component only mounts
+CodeMirror, exposes an imperative handle (`jumpToOffset`, `selectAll`, `openSearch`, `undo`, `redo`), and
+reports the caret. `JsonEditor` is also exported directly, which is how its own tests drive real
+CodeMirror transactions.
+
+**Consequences.** The initial bundle excludes CodeMirror (the app ships ≈227 kB gzip without it). The
+editor unmounts when the tree tab is active, so CodeMirror's undo history resets on a tab switch — the
+draft text does not. Switching tabs is not treated as an edit.
+
+## ADR-76 — A draft is a recovery copy, never a save
+
+**Status:** Accepted (TASK-014)
+
+**Context.** Autosave is TASK-015, but people lose work to reloads long before a save pipeline exists.
+The product must not imply that editing here persists anything.
+
+**Decision.** Edits live in component state and are mirrored to `localStorage` under
+`promptforge.editor.draft.<promptId>` after a 300 ms pause: namespaced, size-capped (2 MB), and parsed
+defensively on read. The copy is removed as soon as the text matches the stored document. A dirty draft
+installs a `beforeunload` handler and a `useBlocker` guard that asks before an in-app navigation. The
+status bar, the footer, and the summary card each say the text is a draft and that saving arrives in
+TASK-015; no save command is registered and `Mod-S` stays unbound.
+
+**Consequences.** A reload can lose the tab's undo history but not the text. Because the draft is not a
+save, there is no conflict handling here — TASK-015 owns versions, conflict resolution, and the real
+status indicator.
+
+## ADR-77 — The tree view is read-only, flattened, and announced through one active row
+
+**Status:** Accepted (TASK-014)
+
+**Context.** A tree of nested `role="group"` nodes is hard to render performantly and fiddly to focus,
+while a list of divs usually loses the hierarchy for screen readers.
+
+**Decision.** `buildJsonTree` produces the whole model once, `visibleJsonTreeRows` flattens it for the
+current expansion set, and the container is a single tab stop with `aria-activedescendant` naming the
+active row. Rows carry `role="treeitem"`, `aria-level`, `aria-expanded`, and `aria-selected`; arrow keys
+are resolved by `treeKeyboardAction` (a pure function over the visible rows, following the WAI-ARIA tree
+pattern). The view is read-only: authoring happens in the raw editor, so there is exactly one write path.
+
+**Consequences.** Keyboard behavior is unit-tested without a DOM, and the tree cannot drift from the text
+because both come from the same parse. Cost: a very large document produces a large row list — the panel
+scrolls and the model is rebuilt only when the parsed value changes.
+
 ## Verification log — TASK-002
 
 | Check            | Command                                 | Result (2026-10-24)                                                                                      |
@@ -1814,3 +1903,68 @@ draft.
   This keeps tag order stable, which the tag tests assert.
 - Tag removal from the manager requires a confirmation that names the affected count; tag rename shows
   the count but does not require confirmation because it is reversible by renaming back.
+
+---
+
+## Verification log — TASK-014
+
+**Executed 2026-10-24, after explicit authorization ("Start Task 014").**
+
+### Test inventory (71 new cases; whole suite 862 across 63 files)
+
+| Area            | File                                        | Cases         | Covers                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --------------- | ------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| JSON text       | `src/domain/jsonText.test.ts`               | 33 (new file) | line/column conversion and clamping, every scanner failure (trailing comma, missing comma, unterminated string, raw newline, truncated input, extra content, unquoted key, missing colon, bad escape, control character, malformed and out-of-range numbers, depth limit), format idempotence at 2 and 4 spaces, key-order preservation, minify stability, status statistics, large-document threshold |
+| JSON tree       | `src/domain/jsonTree.test.ts`               | 19 (new file) | node kinds, path formatting with escaping, summaries, depth, expansion, visible rows, node lookup, every arrow/Home/End action including collapse-then-climb, value previews                                                                                                                                                                                                                           |
+| Draft storage   | `src/features/editor/draftStorage.test.ts`  | 7 (new file)  | round-trip, clearing, size cap, corrupt/foreign/incomplete records, blocked storage, probe cleanup                                                                                                                                                                                                                                                                                                     |
+| CodeMirror host | `src/components/editor/JsonEditor.test.tsx` | 4 (new file)  | real mount with an accessible name, a real transaction reaching `onChange`, `jumpToOffset` moving the caret, `selectAll`                                                                                                                                                                                                                                                                               |
+| Editor route    | `src/routes/editor/EditorRoute.test.tsx`    | +8            | stored document rendered, no save claim, typed syntax error with location and caret jump, format/minify idempotence through the toolbar, tree view keyboard navigation, invalid-document guidance, leave guard dialog, clipboard copy, localStorage recovery draft without a database write                                                                                                            |
+
+### Gates
+
+| Command                     | Result                                                                                                                 |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `npx tsc --noEmit`          | exit 0                                                                                                                 |
+| `npx eslint .`              | exit 0, 0 warnings                                                                                                     |
+| `npx vitest run`            | **63 files / 862 tests passed, 0 failures**                                                                            |
+| `npx vitest run --coverage` | thresholds pass (`src/domain` 90.48 % branches, `src/data`, `src/store`)                                               |
+| `npx prettier --check .`    | clean                                                                                                                  |
+| `npm run check:contrast`    | 64 pairings pass in both themes                                                                                        |
+| `npm run build`             | exit 0 — CSS 53.21 kB (13.10 kB gzip), app JS 760.90 kB (227.29 kB gzip), lazy editor chunk 427.59 kB (138.55 kB gzip) |
+
+### Known limitations and honesty notes
+
+- No browser binary exists in this environment, so there was **no** visual pass at 360/390/1440 px, no
+  pointer-driven layout inspection, and no manual keyboard walkthrough (including `Mod-F` on a real
+  keyboard). Keyboard paths are covered by jsdom tests over real CodeMirror instances and code review
+  only; no screenshot is claimed.
+- jsdom has no layout, so `Range.getClientRects`/`getBoundingClientRect` return empty rects in the test
+  setup. That is test infrastructure; it is why caret measurement is asserted through `EditorView`
+  state rather than pixels.
+- Switching to the tree tab unmounts CodeMirror, which resets its undo history for this tab. The text
+  and the recovery draft survive; undo does not span a tab switch.
+- The large-document guard slows the parse and says so in the status bar; it does not paginate or
+  virtualize the document, and documents beyond `LARGE_DOCUMENT_CHARS` (500 000) still load.
+- Drafts are `localStorage` copies: clearing site data, or using a browser that blocks storage, means no
+  recovery. Nothing in this task writes to IndexedDB, and no control claims otherwise.
+- The search/replace panel is CodeMirror's own, restyled through tokens. Its internal markup is not part
+  of this project's accessibility review (that arrives with TASK-028).
+
+### Deliberate deviations recorded for TASK-014
+
+- Added the dependencies the plan already named for this task: `@uiw/react-codemirror`,
+  `@codemirror/lang-json`, and the CodeMirror packages the host configures directly (`@codemirror/search`,
+  `@codemirror/language`, `@codemirror/commands`, `@codemirror/view`, `@codemirror/state`,
+  `@lezer/highlight`). No other dependency changed.
+- `src/domain/jsonText.ts` and `src/domain/jsonTree.ts` are new domain modules, so the purity guard's
+  module list and the barrel export list were extended to include them.
+- `src/test/setup.ts` gained the `Range` rect stubs described above; they are test-only.
+- The route's breadcrumb landmark is labelled "Prompt location" rather than "Breadcrumb", because the
+  shell already exposes a "Breadcrumb" landmark and duplicate landmark names are an accessibility bug.
+- The toolbar stays enabled while a parse is pending and disables only on a known error: formatting
+  re-scans the text itself, so a pending parse is not a reason to block it (and blocking it made the
+  second click in the idempotence test a no-op).
+- The canonical stored text is formatted with two spaces regardless of the indent preference; the
+  preference belongs to the Format action, so changing it does not rewrite the draft's baseline.
+- `PromptSummaryCard`'s "not yet" copy was corrected: the editor now exists, and the card says
+  validation (TASK-016) and history (TASK-019) are what remain, and that the editor is a draft.

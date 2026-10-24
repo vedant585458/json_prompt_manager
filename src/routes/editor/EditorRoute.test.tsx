@@ -1,6 +1,8 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { draftStorageKey } from '@/features/editor/draftStorage';
 
 import { createInMemoryRepositories } from '@/data';
 import {
@@ -104,9 +106,7 @@ describe('prompt workspace header (TASK-013)', () => {
     expect(within(section).getByText('#finance')).toBeVisible();
     expect(within(section).getByText('Client work')).toBeVisible();
     expect(within(section).getByText('Starter kit')).toBeVisible();
-    expect(
-      within(section).getByText(/The JSON editor, validation, and version history/),
-    ).toBeVisible();
+    expect(within(section).getByText(/Validation arrives in TASK-016/)).toBeVisible();
     expect(within(section).getByRole('button', { name: 'Favorite' })).toHaveAttribute(
       'aria-pressed',
       'false',
@@ -155,5 +155,176 @@ describe('prompt workspace header (TASK-013)', () => {
       'href',
       '/library',
     );
+  });
+});
+
+describe('JSON workspace (TASK-014)', () => {
+  const prompt = makePrompt({ id: 'alpha', title: 'Invoice parser' });
+
+  async function openWithDraft(text: string, promptId = 'alpha') {
+    window.localStorage.setItem(
+      draftStorageKey(promptId),
+      JSON.stringify({
+        promptId,
+        text,
+        savedAt: '2026-10-24T10:00:00.000Z',
+        baseUpdatedAt: BASE_TIME,
+      }),
+    );
+    return openEditor({ prompts: [prompt] });
+  }
+
+  it('renders the stored document in the editor and never claims it was saved', async () => {
+    await openEditor({ prompts: [prompt] });
+
+    const editor = await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
+    expect(editor.textContent).toContain('"schemaVersion"');
+    expect(editor.textContent).toContain('"Invoice parser"');
+
+    expect(await screen.findByText('Valid JSON')).toBeVisible();
+    expect(screen.getByText(/Saving to the library arrives in TASK-015/)).toBeVisible();
+    expect(screen.queryByText(/^Saved$/)).not.toBeInTheDocument();
+  });
+
+  it('reports a syntax error from typing, keeps the text, and jumps to the line', async () => {
+    const user = userEvent.setup();
+    await openEditor({ prompts: [prompt] });
+
+    const editor = await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
+    await user.click(editor);
+    await user.keyboard('x');
+
+    const panel = await screen.findByText(/This is not valid JSON — line 1, column 1/);
+    expect(panel).toBeVisible();
+    expect(screen.getByText('Syntax error')).toBeVisible();
+    // The text the person typed is still there, with the stray character first.
+    expect(
+      screen.getByRole('textbox', { name: 'JSON document for Invoice parser' }).textContent,
+    ).toMatch(/^x\{/);
+
+    await user.click(screen.getByRole('button', { name: 'Go to line 1' }));
+    expect(screen.getByLabelText(/Caret at line 1/)).toBeVisible();
+  });
+
+  it('formats and minifies the draft from the toolbar, idempotently', async () => {
+    const user = userEvent.setup();
+    await openWithDraft('{"name":"Compact","tags":["a","b"]}');
+
+    await user.click(await screen.findByRole('button', { name: 'Restore the draft' }));
+    // The parse is debounced; the toolbar reports that instead of accepting a click.
+    await screen.findByText('Valid JSON');
+
+    await user.click(screen.getByRole('button', { name: 'Format JSON' }));
+
+    expect(await screen.findByText('Formatted')).toBeVisible();
+    const formatted = screen.getByRole('textbox', {
+      name: 'JSON document for Invoice parser',
+    }).textContent;
+    expect(formatted).toContain('"name": "Compact"');
+    expect(formatted).toContain('"tags": [');
+    // CodeMirror renders one element per line, so line breaks are DOM structure.
+    expect(document.querySelectorAll('.cm-line').length).toBeGreaterThan(3);
+
+    await user.click(screen.getByRole('button', { name: 'Format JSON' }));
+    expect(await screen.findByText('Already formatted')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Minify JSON' }));
+    expect(await screen.findByText('Minified')).toBeVisible();
+    expect(
+      screen.getByRole('textbox', { name: 'JSON document for Invoice parser' }).textContent,
+    ).toBe('{"name":"Compact","tags":["a","b"]}');
+  });
+
+  it('shows the tree view of the parsed document and moves through it with the keyboard', async () => {
+    const user = userEvent.setup();
+    await openEditor({ prompts: [prompt] });
+
+    await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
+    await user.click(screen.getByRole('tab', { name: 'Tree view' }));
+
+    const tree = await screen.findByRole('tree', { name: 'Document tree' });
+    expect(within(tree).getByText('$')).toBeVisible();
+    expect(within(tree).getByText('schemaVersion')).toBeVisible();
+
+    const initial = tree.getAttribute('aria-activedescendant');
+    expect(initial).not.toBeNull();
+
+    tree.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(tree.getAttribute('aria-activedescendant')).not.toBe(initial);
+
+    await user.keyboard('{ArrowRight}');
+    expect(within(tree).getByText('instructions')).toBeVisible();
+  });
+
+  it('explains an invalid document instead of drawing a partial tree', async () => {
+    const user = userEvent.setup();
+    await openWithDraft('{"name": }');
+
+    await user.click(await screen.findByRole('button', { name: 'Restore the draft' }));
+    await user.click(screen.getByRole('tab', { name: 'Tree view' }));
+
+    expect(await screen.findByText(/The tree needs valid JSON/)).toBeVisible();
+    expect(screen.queryByRole('tree')).not.toBeInTheDocument();
+  });
+
+  it('asks before leaving a dirty draft and stays when asked to', async () => {
+    const user = userEvent.setup();
+    const { store } = await openEditor({ prompts: [prompt] });
+
+    const editor = await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
+    await user.click(editor);
+    await user.keyboard('x');
+
+    await user.click(
+      within(screen.getByRole('navigation', { name: 'Prompt location' })).getByRole('link', {
+        name: 'Library',
+      }),
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: 'Leave with unsaved changes?' });
+    await user.click(within(dialog).getByRole('button', { name: 'Stay' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(store.getState().prompts[0]?.id).toBe('alpha');
+    expect(
+      screen.getByRole('textbox', { name: 'JSON document for Invoice parser' }).textContent,
+    ).toMatch(/^x\{/);
+  });
+
+  it('copies the whole document and reports the real clipboard result', async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+
+    await openEditor({ prompts: [prompt] });
+    await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
+
+    await user.click(screen.getByRole('button', { name: 'Copy the whole document' }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    expect(String(writeText.mock.calls[0]?.[0])).toContain('"schemaVersion"');
+    expect(await screen.findByText('Document copied')).toBeVisible();
+  });
+
+  it('writes a recovery draft to this browser without touching storage', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openEditor({ prompts: [prompt] });
+
+    const editor = await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
+    await user.click(editor);
+    await user.keyboard('x');
+
+    await waitFor(() =>
+      expect(window.localStorage.getItem(draftStorageKey('alpha'))).toContain('"text"'),
+    );
+    // The database still holds the original document.
+    await expect(repositories.prompts.get('alpha')).resolves.toMatchObject({
+      title: 'Invoice parser',
+    });
+    expect(screen.getByText(/Draft only — this text is in this tab/)).toBeVisible();
   });
 });

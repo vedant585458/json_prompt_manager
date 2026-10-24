@@ -312,6 +312,14 @@ the last-written version make it idempotent instead, which the seed suite verifi
 
 ---
 
+## 9a. What is deliberately _not_ in this layer (TASK-014)
+
+The editor's recovery draft is **not** a persisted prompt. It is a `localStorage` copy of the text in
+the current tab (`promptforge.editor.draft.<promptId>`), size-capped, written after a short pause, and
+removed as soon as the text matches the stored document. It exists so a reload does not lose typing;
+saving to the database, autosave, and conflict handling arrive in TASK-015. No repository, table, or
+migration was added for it.
+
 ## 10. Module boundary (ADR-39)
 
 Two ESLint rules enforce the layering:

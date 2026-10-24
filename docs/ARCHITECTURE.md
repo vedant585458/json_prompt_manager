@@ -54,17 +54,17 @@ All of the above must pass before a task can be marked complete in `tasks.md`.
 
 ## Technology stack
 
-| Area        | Choice                                                                    |
-| ----------- | ------------------------------------------------------------------------- |
-| UI          | React 19, TypeScript (strict), Vite                                       |
-| Styling     | Tailwind CSS v4 via `@tailwindcss/vite`                                   |
-| State       | Zustand stores for data, preferences, and interface state (TASK-007)      |
-| Routing     | react-router-dom                                                          |
-| Persistence | IndexedDB through repository interfaces (`idb`), in-memory parity adapter |
-| Editor      | CodeMirror 6 — planned TASK-014                                           |
-| Validation  | Ajv (JSON Schema) — planned TASK-016                                      |
-| Testing     | Vitest, Testing Library, `jest-dom`, `fake-indexeddb`, jsdom              |
-| Quality     | ESLint (flat config), Prettier                                            |
+| Area        | Choice                                                                                    |
+| ----------- | ----------------------------------------------------------------------------------------- |
+| UI          | React 19, TypeScript (strict), Vite                                                       |
+| Styling     | Tailwind CSS v4 via `@tailwindcss/vite`                                                   |
+| State       | Zustand stores for data, preferences, and interface state (TASK-007)                      |
+| Routing     | react-router-dom                                                                          |
+| Persistence | IndexedDB through repository interfaces (`idb`), in-memory parity adapter                 |
+| Editor      | CodeMirror 6 via `@uiw/react-codemirror` + `@codemirror/lang-json` (lazy chunk, TASK-014) |
+| Validation  | Ajv (JSON Schema) — planned TASK-016                                                      |
+| Testing     | Vitest, Testing Library, `jest-dom`, `fake-indexeddb`, jsdom                              |
+| Quality     | ESLint (flat config), Prettier                                                            |
 
 Dependencies for later tasks are already pinned in `package.json` where they define the
 architecture; features are still implemented only when their task is authorized.
@@ -337,6 +337,45 @@ Palette commands added here: `prompt.toggle-favorite` (available on the editor r
 `library.favorites` / `library.archived`, which switch the library scope through the same URL contract
 the rail uses.
 
+## JSON editor workspace (TASK-014)
+
+`/prompts/:promptId` is a workspace, not a form: a metadata header, a raw/tree tab strip, the
+CodeMirror host, a syntax-error panel, a status bar, and a collapsible inspector. The editor owns its
+document text and nothing else — persistence arrives in TASK-015.
+
+| Piece                                       | Responsibility                                                                                                                                                                                                     |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/domain/jsonText.ts`                    | `scanJson` (recursive-descent parser with exact offsets), `formatJsonText`, `minifyJsonText`, `lineColumnAt`, `offsetAtLineColumn`, `jsonTextStats`, `LARGE_DOCUMENT_CHARS`, `PARSE_DEBOUNCE_MS`, `MAX_JSON_DEPTH` |
+| `src/domain/jsonTree.ts`                    | `buildJsonTree`, `visibleJsonTreeRows`, `defaultExpandedPaths`, `treeKeyboardAction`, `formatJsonPath`, `jsonValuePreview` — the tree and its keys, with no renderer                                               |
+| `src/components/editor/JsonEditor.tsx`      | CodeMirror host: extensions, aria-label, caret reporting, and the imperative handle (`jumpToOffset`, `selectAll`, `openSearch`, `undo`, `redo`)                                                                    |
+| `src/components/editor/editorTheme.ts`      | Editor chrome and JSON token colors, all through `--pf-*` variables (ADR-74)                                                                                                                                       |
+| `src/components/editor/EditorToolbar.tsx`   | Format, Minify, Undo/Redo, Find, Copy all, Jump to error — each a real action, disabled (never hidden) when the text does not parse                                                                                |
+| `src/components/editor/TreeView.tsx`        | Read-only `role="tree"` with `aria-activedescendant`, arrow-key navigation, expansion toggles, and the active row's path with a copy control (ADR-77)                                                              |
+| `src/components/editor/JsonErrorPanel.tsx`  | `role="alert"` error with the exact line/column and a "go to line" action; states that the text is unchanged                                                                                                       |
+| `src/components/editor/EditorStatusBar.tsx` | Caret line/column, line and character counts, indent, and a validity badge that has a `Checking…` state instead of a stale "Valid JSON"                                                                            |
+| `src/components/editor/EditorInspector.tsx` | Collapsible inspector with real structure facts (nodes, depth, top-level keys) and an explicit note that schema validation is TASK-016                                                                             |
+| `src/features/editor/useDocumentDraft.ts`   | Draft text, debounced parse, recovery copy in `localStorage`, `beforeunload` guard, and the `Checking…` state (ADR-76)                                                                                             |
+| `src/features/editor/draftStorage.ts`       | Versionless, fail-soft draft storage: namespaced keys, size cap, defensive parsing, and no throwing when storage is blocked                                                                                        |
+
+**Rules the workspace follows.**
+
+- **The scanner owns the location.** `JSON.parse` errors carry a character offset _or_ a truncated
+  snippet depending on the message length, and V8's token can be the character after the mistake. The
+  scanner in `jsonText.ts` reports the position of the token that is actually wrong, with a sentence a
+  person can act on (ADR-73).
+- **A syntax error never edits the text.** It disables formatting and minifying (the actions that need a
+  parsed value), shows the error panel, and leaves the tree view with guidance instead of a partial tree.
+- **Nothing claims a save.** The status bar, the footer, and the summary card all say the text is a
+  draft; there is no save command, no "Saved" state, and `Mod-S` is deliberately unbound until TASK-015.
+- **Leaving is guarded twice.** `useBlocker` asks before an in-app navigation while the draft is dirty,
+  and `beforeunload` covers the browser; the recovery copy survives either way.
+- **The editor is a lazy chunk.** The route imports it with `React.lazy`, so CodeMirror lives in its own
+  bundle (~428 kB, ~139 kB gzip) and the rest of the app does not download it (ADR-75).
+- **Preferences, not constants.** Indent width comes from settings; the stored document is formatted
+  with two spaces as the canonical base, so changing the preference never rewrites the draft's baseline.
+- **Validity is never color-only.** The status badge pairs a color with an icon and a word, and the
+  `Checking…` state exists so a pending parse is not displayed as success.
+
 ## Commands and keyboard
 
 Everything a shortcut can do is declared once, in `src/lib/commands/`:
@@ -441,6 +480,9 @@ DataBootstrap renders    loading skeletons → banner + children, or a recovery 
   `applySettings` adopts a persisted record, `toSettings` writes preferences back without losing
   `onboardedAt` or `seedVersion`.
 - **`uiStore`** holds panels, the command palette, and selection — never persisted, reset on reload.
+- **Editor drafts** (TASK-014) are the one deliberate `localStorage` record outside preferences: a
+  namespaced, size-capped copy of the text in this tab, written after a short pause and removed as soon
+  as the draft is clean. It is a recovery aid, not a save — nothing in TASK-014 writes a prompt.
 - **`selectors.ts`** filters/sorts the library (search, tags, folders and subtrees, collections,
   status, parse state, snapshot coverage, edited-after window), memoizes with a single-entry cache keyed on array
   identity plus query, and computes dashboard aggregates. It is pure and tested without a renderer.

@@ -589,7 +589,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-005 — Domain model and prompt document specification — High — deps: 001
 - [x] TASK-006 — Persistence foundation with repositories and migrations — High — deps: 005
 - [x] TASK-007 — Seed data, application store, and first-run foundation — High — deps: 004, 006
-- [ ] TASK-008 — Application shell, routing, and responsive navigation — High — deps: 004, 007
+- [x] TASK-008 — Application shell, routing, and responsive navigation — High — deps: 004, 007
 - [ ] TASK-009 — Keyboard shortcut registry and command palette — High — deps: 008
 - [ ] TASK-010 — Dashboard with real library data — High — deps: 008, 009
 - [ ] TASK-011 — Prompt library browsing, search, filters, and views — High — deps: 008
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 7 of 31 tasks complete. TASK-001 through TASK-007 were completed on 2026-10-24.
+**Progress:** 8 of 31 tasks complete. TASK-001 through TASK-008 were completed on 2026-10-24.
 
 ---
 
@@ -887,7 +887,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-008 — Application shell, routing, and responsive navigation
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-004, TASK-007
 - **Objective:** Build the navigable frame of the application with real routes, responsive navigation, breadcrumbs, and route-level loading/error handling.
@@ -906,6 +906,19 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Tests for route rendering, active nav state, not-found, theme persistence through navigation; manual keyboard-only navigation pass; 360/768/1024/1440 px screenshots; typecheck/lint/tests/build.
 - **Deliverables:** `src/app/router.tsx`, `src/app/providers/AppProviders.tsx`, `src/components/layout/{Shell,Sidebar,Topbar,MobileNav,Breadcrumbs}.tsx`, route modules with skeleton content, `src/routes/not-found`, settings route, tests.
 - **Out of scope:** Command palette implementation, dashboard content, library UI, editor implementation.
+
+- **Completion record (2026-10-24):** Completed after explicit user authorization.
+  - **Routing:** `src/app/router.tsx` defines one layout route (`/` → `Shell`) with children for `/`, `/library`, `/prompts/:promptId`, `/composer`, `/templates`, `/validation`, `/health`, `/settings`, `/design`, and `*`. The recovery screen is the layout's `errorElement`, outside the shell, so it still renders if the shell throws. `createAppRouter()` returns a browser router; `<App router={…} />` accepts an injected router so tests use `createMemoryRouter` and never touch history.
+  - **Shell and navigation:** `Shell` renders the skip link first, a single `main` landmark (`#main-content`), a 240/64 px collapsible rail visible at `lg` and above, a top bar with breadcrumbs, session status, theme toggle, and the mobile menu button, plus the drawer. One navigation model (`src/components/layout/navigation.ts`) drives the rail, the drawer, the breadcrumbs, and `document.title`; `NavLink` supplies `aria-current="page"`. Collapsed-rail labels stay available to assistive technology via `sr-only` plus `title`, and the collapsed state lives in `uiStore` for the session.
+  - **Drawer:** built on the existing `Sheet` (`side="left"`, widened in this task), so focus moves in, Tab is trapped, Escape closes, and dismissal returns focus to the menu button. Choosing a destination closes the drawer without restoring focus, letting the new screen's `main` landmark win (new `Sheet.restoreFocusOnClose` prop, ADR-49).
+  - **Route chrome:** `useRouteChrome` sets `<Screen> · PromptForge` per route, resets scroll, and focuses `main` on navigation but not on first render.
+  - **Screens:** `/settings` is real — theme (dark/light/system), editor density, autosave enabled plus delay — applying immediately and writing through `preferencesStore.toSettings` + `dataStore.saveSettings`, with a status line that reports the outcome and says "session only" when storage is ephemeral. Every other route renders `RouteScaffold`, which names the screen, what it will do, and the task that will build it, and states that nothing on it reads or changes prompts. The design gallery moved to `/design` inside the shell (its own sticky header was removed).
+  - **Honesty:** the command palette does not exist until TASK-009, so the top bar shows a visibly disabled Search button with a written explanation (`aria-describedby`) and no ⌘K hint. No scaffold renders a control that appears to work.
+  - **Not-found and error screens:** `/…` unknown paths keep the shell and offer "Back to dashboard" and "Open the library"; `RouteErrorScreen` renders a standalone recovery page with reload, a dashboard link, and collapsed technical detail.
+  - **Tests added (32 new cases; whole suite 451):** `src/app/router.test.tsx` 21 (every route, not-found recovery, `aria-current`, per-route titles, theme across navigation, skip link, no focus theft on load, focus after navigation, rail collapse persistence, prompt id, breadcrumb semantics, disabled search, storage wording, clean unmount), `src/components/layout/MobileNav.test.tsx` 7 (focus entry, Tab trap, Escape restore, close-button restore, close-on-navigate focus policy, parity with the rail, in-drawer keyboard and storage hints), `src/routes/settings/SettingsRoute.test.tsx` 4 (theme applies and persists, density persists, autosave disables the delay control, no invented save button). `src/test/renderApp.tsx` renders the real app through a memory router; `src/test/setup.ts` stubs `window.scrollTo` because jsdom's stub reports "not implemented".
+  - **Validation executed:** `npm run typecheck` exit 0; `npm run lint` exit 0 with **0 warnings**; `npm run test:run` — 39 files / **451 tests passed**; `npm run format:check` clean; `npm run build` exit 0 (CSS 46.19 kB / 11.85 kB gzip, JS 592.35 kB / 183.12 kB gzip — Vite warns that the single chunk exceeds 500 kB, documented as a limitation); `npm run check:contrast` 52 pairings pass; dev server `GET /` returns HTTP 200.
+  - **Not performed (stated honestly):** no browser binary or screenshot tool exists in this environment, so the requested 360/768/1024/1440 px captures and the manual keyboard-only pass were not executed. Responsive behaviour is covered by Tailwind breakpoints in code and DOM-level tests only, and the build is not route-split yet.
+  - **Docs:** `docs/ARCHITECTURE.md` gained an "Application shell and routing" section (route table, navigation model, focus policy, settings, scaffolds) and updated status/contrast figures; `docs/DECISIONS.md` gained ADR-47…ADR-51, index rows for ADR-41…ADR-51, and a TASK-008 verification log with limitations; `README.md` and `tasks.md` updated.
 
 ---
 

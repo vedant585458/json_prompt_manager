@@ -24,6 +24,9 @@ let media: MatchMediaController | undefined;
 
 beforeEach(() => {
   window.localStorage.clear();
+  // jsdom implements `scrollTo` as a "not implemented" stub that reports to
+  // console.error; the shell calls it on navigation, so replace it.
+  Object.defineProperty(window, 'scrollTo', { value: () => undefined, writable: true });
   document.documentElement.removeAttribute('data-theme');
   document.documentElement.style.colorScheme = '';
   media = mockMatchMedia(true);

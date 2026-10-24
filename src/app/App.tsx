@@ -1,27 +1,31 @@
-import { TooltipProvider } from '@/components/ui';
-import { ToastProvider } from '@/app/providers/ToastProvider';
+import type { createBrowserRouter } from 'react-router-dom';
+import { RouterProvider } from 'react-router-dom';
+
 import { DataBootstrap } from '@/app/DataBootstrap';
-import { ErrorBoundary } from '@/app/ErrorBoundary';
-import { DesignGallery } from '@/routes/design/DesignGallery';
+import { AppProviders } from '@/app/providers/AppProviders';
+import { appRouter } from '@/app/router';
+
+export interface AppProps {
+  /**
+   * Injected by tests (`createMemoryRouter`). The application uses the browser
+   * router exported from `src/app/router.tsx`.
+   */
+  readonly router?: ReturnType<typeof createBrowserRouter>;
+}
 
 /**
- * Temporary application root (TASK-003, extended in TASK-007).
+ * Application root (TASK-008).
  *
- * The design gallery is still the only implemented screen. It now runs inside
- * the real data lifecycle — storage selection, seeding, hydration — and behind
- * the application error boundary, so both are exercised by the dev server.
- * TASK-008 replaces the gallery with the router and moves it to `/design`.
+ * Providers first, then the data lifecycle, then the router: no route can
+ * render before storage has been resolved, seeded, and hydrated, so a screen
+ * never shows an empty library that looks like data loss.
  */
-export function App() {
+export function App({ router = appRouter }: AppProps) {
   return (
-    <TooltipProvider>
-      <ToastProvider>
-        <ErrorBoundary>
-          <DataBootstrap>
-            <DesignGallery />
-          </DataBootstrap>
-        </ErrorBoundary>
-      </ToastProvider>
-    </TooltipProvider>
+    <AppProviders>
+      <DataBootstrap>
+        <RouterProvider router={router} />
+      </DataBootstrap>
+    </AppProviders>
   );
 }

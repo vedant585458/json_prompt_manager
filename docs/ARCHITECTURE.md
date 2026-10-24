@@ -2,7 +2,7 @@
 
 **Advanced JSON Prompt Management Studio** — a local-first workspace for creating, organizing, validating, versioning, comparing, and optimizing structured JSON prompts.
 
-> **Status: TASK-007 complete — seed data, stores, and first-run foundation.**
+> **Status: TASK-008 complete — application shell, routing, and responsive navigation.**
 > The repository contains the toolchain, the Prompt Observatory token system with dark and light
 > themes, the primitive layer (buttons, form controls, tabs, tooltips, status, progress), the
 > overlay/feedback layer (dialogs, confirmations, sheets, dropdown and context menus, toasts,
@@ -11,8 +11,11 @@
 > (repository interfaces, IndexedDB adapter with migrations, an in-memory parity adapter, typed
 > storage errors, a per-prompt write queue, cross-tab announcements), and the application data
 > lifecycle (storage selection with an honest ephemeral fallback, versioned first-run seeding, the
-> data/preferences/UI stores, pure selectors, a hydrating bootstrap, and an error boundary).
-> No PromptForge product surface is implemented yet: the dev server still renders the design gallery.
+> data/preferences/UI stores, pure selectors, a hydrating bootstrap, and an error boundary), and the
+> application shell (browser router, collapsible rail, drawer navigation, breadcrumbs, skip link,
+> route focus/title/scroll handling, and a working settings screen).
+> Every declared route renders, but only the shell, the settings screen, and the design gallery have
+> real content; the rest are honest scaffolds that name the task which will build them.
 > Each subsequent feature is built in a separate, explicitly authorized task tracked in
 > [`tasks.md`](./tasks.md).
 
@@ -100,7 +103,7 @@ the generated contrast table.
   editorial display — all self-hosted with metric-adjusted fallbacks. No runtime font requests.
 - **Accessible accent.** Chartreuse is the identity color; it is split into `accent` (text/icons,
   light-theme darkening included) and `accent-fill` (surfaces) so both themes meet WCAG AA.
-- **Proof, not promises.** `npm run check:contrast` verifies 26 text/UI pairings in both themes and
+- **Proof, not promises.** `npm run check:contrast` verifies 52 text/UI pairings in both themes and
   fails the build threshold on regression.
 - **Reduced motion** is honored through the OS preference and a `data-reduced-motion` hook for the
   future in-app setting.
@@ -127,8 +130,56 @@ association, and loading announcements.
 
 The **design gallery** (`src/routes/design/DesignGallery.tsx`) renders every primitive in every
 state — including live dialog, confirmation, sheet, menu, toast, and state demos — and is the visual
-reference for later tasks. It becomes the `/design` route in TASK-008 and
-is the temporary application root until then.
+reference for later tasks. Since TASK-008 it lives at `/design`, inside the application shell.
+
+## Application shell and routing
+
+`src/app/router.tsx` is the single route table. One layout route owns the shell, so every screen
+shares the same landmarks, focus behaviour, and navigation; `*` is a child of the shell (a mistyped
+URL still gets navigation), while the recovery screen is the layout's `errorElement` and therefore
+renders even if the shell itself throws.
+
+| Path                 | Screen                | State                                      |
+| -------------------- | --------------------- | ------------------------------------------ |
+| `/`                  | Dashboard             | Scaffold → TASK-010                        |
+| `/library`           | Library               | Scaffold → TASK-011                        |
+| `/prompts/:promptId` | Prompt workspace      | Scaffold → TASK-014                        |
+| `/composer`          | Composer              | Scaffold → TASK-017                        |
+| `/templates`         | Templates             | Scaffold → TASK-018                        |
+| `/validation`        | Validation            | Scaffold → TASK-016                        |
+| `/health`            | Health                | Scaffold → TASK-025                        |
+| `/settings`          | Settings              | **Implemented** (theme, density, autosave) |
+| `/design`            | Design system gallery | **Implemented** (TASK-003/004)             |
+| `*`                  | Not found             | **Implemented** (recovery links)           |
+
+- **One navigation model.** `src/components/layout/navigation.ts` declares every destination once
+  (path, label, description, icon). The rail, the drawer, the breadcrumbs, and the document title all
+  read from it, so a route cannot appear in one place and be missing from another. `NavLink` marks
+  the active destination with `aria-current="page"`.
+- **Rail and drawer.** The rail is 240 px expanded / 64 px collapsed and hidden below `lg`
+  (1024 px); the drawer renders the same `NavList` in a `Sheet side="left"`. Collapsing hides labels
+  visually but keeps them as accessible names, and the collapsed state lives in `uiStore` (session
+  only, reset on reload).
+- **Focus is deliberate.** The skip link is the first focusable element and targets `#main-content`.
+  On navigation, focus moves to that `main` landmark and scroll resets — but not on first render, so
+  loading the app does not steal focus. Closing the drawer with Escape, the close button, or the
+  overlay returns focus to the menu button; closing it _because the user picked a destination_ does
+  not, because the new screen's landmark should win (`Sheet.restoreFocusOnClose`).
+- **`document.title` is per route** (`<Screen> · PromptForge`), driven by the same navigation model.
+- **No phantom controls.** The command palette does not exist until TASK-009, so the top bar shows a
+  visibly disabled search control with a written explanation and no ⌘K hint. Scaffolded routes list
+  what will be built and offer no controls that would appear to work.
+- **Settings are real.** Theme, editor density, and autosave write through `preferencesStore` and the
+  settings repository immediately and report the outcome — including the honest "session only"
+  message when storage is ephemeral. Fields whose features do not exist yet (indentation, reduced
+  motion) are named in copy but not exposed as controls.
+
+```tsx
+// Composition order (src/app/App.tsx)
+AppProviders (theme → tooltips → toasts → error boundary)
+  └─ DataBootstrap          // skeletons until storage is resolved, seeded, hydrated
+       └─ RouterProvider    // createBrowserRouter(routes); tests inject a memory router
+```
 
 ## Persistence
 
@@ -152,8 +203,8 @@ Details, schema tables, and the verification evidence live in
 
 ## Application data lifecycle
 
-The gallery now runs inside the real lifecycle, so the boot path is exercised by the dev server
-rather than existing only in tests.
+The shell and every route run inside the real lifecycle, so the boot path is exercised by the dev
+server rather than existing only in tests.
 
 ```
 openStorage()            probe → durable adapter, or in-memory with a notice   (src/data/storage.ts)

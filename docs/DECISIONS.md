@@ -42,6 +42,17 @@ Status values: **Accepted** (in force), **Planned** (agreed, not yet built), **S
 | ADR-38 | Cross-tab writes are announced, never merged                            | Accepted   | TASK-006     |
 | ADR-39 | The data layer has a lint-enforced boundary and one public entry point  | Accepted   | TASK-006     |
 | ADR-40 | Stored state is copied with `structuredClone` on read and write         | Accepted   | TASK-006     |
+| ADR-41 | First-run data is versioned and resumable, never transactional          | Accepted   | TASK-007     |
+| ADR-42 | Storage selection lives in the data layer; ephemeral mode is labelled   | Accepted   | TASK-007     |
+| ADR-43 | Store actions adopt the repository's write result, never a guess        | Accepted   | TASK-007     |
+| ADR-44 | Activity logging is secondary to the mutation it describes              | Accepted   | TASK-007     |
+| ADR-45 | One preferences store; the theme slice became a re-export               | Accepted   | TASK-007     |
+| ADR-46 | Selectors are pure functions with single-entry memoization              | Accepted   | TASK-007     |
+| ADR-47 | One layout route owns the shell; the error screen sits outside it       | Accepted   | TASK-008     |
+| ADR-48 | One navigation model drives rail, drawer, breadcrumbs, and title        | Accepted   | TASK-008     |
+| ADR-49 | Route focus moves to `main`; drawer navigation skips focus restoration  | Accepted   | TASK-008     |
+| ADR-50 | Unbuilt destinations are scaffolds, not mock-ups                        | Accepted   | TASK-008     |
+| ADR-51 | Settings expose only preferences whose features exist                   | Accepted   | TASK-008     |
 
 ---
 
@@ -810,6 +821,83 @@ get wrong. The trade-off is a one-entry cache, which matches how a single screen
 
 ---
 
+## ADR-47 — One layout route owns the shell; the error screen sits outside it
+
+**Context.** Every screen needs the same landmarks, navigation, skip link, and route chrome. A route
+that fails to render must still produce something readable, which a shared shell cannot guarantee if
+the shell is what failed.
+
+**Decision.** `src/app/router.tsx` defines a single `/` layout route whose element is `Shell` and
+whose children are the screens; `*` is a child too, so a mistyped URL keeps its navigation. The
+layout's `errorElement` is a standalone `RouteErrorScreen` that renders no shell.
+
+**Consequences.** Landmarks and focus handling exist once, and adding a screen is one line in the
+table. The error screen duplicates a small amount of layout — accepted, because dependence on the
+shell would defeat its purpose.
+
+---
+
+## ADR-48 — One navigation model drives rail, drawer, breadcrumbs, and title
+
+**Context.** Navigation duplicated in a desktop rail, a mobile drawer, breadcrumbs, and document
+titles drifts: a route gets added to one list and forgotten in another.
+
+**Decision.** `src/components/layout/navigation.ts` declares each destination once (path, label,
+description, icon, `end`), and exposes `routeLabel`/`crumbsForPath`. Both navigation surfaces render
+the same `NavList`; `NavLink` supplies `aria-current="page"`.
+
+**Consequences.** A new screen appears everywhere at once and the active state cannot disagree with
+the URL. Screens not in the list (`/prompts/:promptId`) get explicit breadcrumb handling rather than
+a generic fallback that would display a raw id.
+
+---
+
+## ADR-49 — Route focus moves to `main`; drawer navigation skips focus restoration
+
+**Context.** In a single-page app, a route change is silent to screen readers unless focus or a live
+region announces it. Meanwhile a modal drawer normally returns focus to the button that opened it —
+which, after navigating, would drag the user back to the menu.
+
+**Decision.** `useRouteChrome` focuses the `main` landmark on navigation (never on first render) and
+resets scroll. `Sheet` gained `restoreFocusOnClose`, and the drawer sets it to `false` when it closes
+because a destination was chosen; Escape, the close button, and the overlay still restore focus to
+the menu button.
+
+**Consequences.** The destination wins over the trigger, and the keyboard model is deterministic on
+both breakpoints. The cost is one extra boolean threaded through `Sheet`.
+
+---
+
+## ADR-50 — Unbuilt destinations are scaffolds, not mock-ups
+
+**Context.** TASK-008 must make every route reachable without implementing the screens behind them.
+Fake controls (a save button that does nothing, a search box that returns nothing) would demonstrate
+the opposite of the project's honesty constraint.
+
+**Decision.** Each unbuilt route renders `RouteScaffold`: the screen name, what it will do, the task
+that will build it, and a statement that nothing there reads or changes prompts. The top bar's search
+is a disabled button with a written explanation and no ⌘K hint, because the palette ships in
+TASK-009.
+
+**Consequences.** Reviewers can navigate the whole application and see exactly what is real. The
+scaffolds are throwaway by design; each is replaced wholesale by its task.
+
+---
+
+## ADR-51 — Settings expose only preferences whose features exist
+
+**Context.** The preferences store already holds indentation and reduced motion, but neither has a
+consumer yet. Presenting controls for them would produce a saved value with no observable effect.
+
+**Decision.** `/settings` exposes theme, editor density, and autosave (enabled plus delay). Values
+apply immediately, persist through `dataStore.saveSettings`/`preferencesStore.toSettings`, and report
+the outcome — including the ephemeral "session only" wording when storage is memory-only.
+
+**Consequences.** Every control on the screen does something observable. Indentation and reduced
+motion are named in copy as arriving with the editor (TASK-014) rather than silently omitted.
+
+---
+
 ## Verification log — TASK-005
 
 | Check              | Command                                               | Result (2026-10-24)                                                                        |
@@ -922,6 +1010,44 @@ get wrong. The trade-off is a one-entry cache, which matches how a single screen
 - Onboarding is a data flag only (`Settings.onboardedAt`); the flow itself is TASK-010.
 - Activity pruning runs only when a caller asks (`activity.prune`); no schedule exists yet.
 - The ephemeral banner cannot offer export until TASK-026.
+
+---
+
+## Verification log — TASK-008
+
+| Check          | Command                                       | Result (2026-10-24)                                                          |
+| -------------- | --------------------------------------------- | ---------------------------------------------------------------------------- |
+| Types          | `npm run typecheck`                           | exit 0                                                                       |
+| Lint           | `npm run lint`                                | exit 0, **0 warnings**                                                       |
+| Tests          | `npm run test:run`                            | 39 files / 451 tests passed                                                  |
+| Router tests   | `npm run test:run -- src/app/router.test.tsx` | 21 tests passed                                                              |
+| Drawer tests   | `npm run test:run -- src/components/layout`   | 7 tests passed                                                               |
+| Settings tests | `npm run test:run -- src/routes/settings`     | 4 tests passed                                                               |
+| Formatting     | `npm run format:check`                        | clean                                                                        |
+| Build          | `npm run build`                               | exit 0 (Vite warns the single JS chunk exceeds 500 kB)                       |
+| Contrast       | `npm run check:contrast`                      | 52 pairings pass                                                             |
+| Dev server     | `GET http://127.0.0.1:5173/`                  | HTTP 200                                                                     |
+| Visual review  | —                                             | **not performed** — no browser or screenshot tool exists in this environment |
+
+### Test inventory added in this task
+
+| File                                         | Cases | Focus                                                                                                                                                                                        |
+| -------------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/app/router.test.tsx`                    | 21    | every route renders, not-found recovery, `aria-current`, titles, theme across navigation, skip link, focus, rail collapse, prompt id, breadcrumbs, disabled search, storage wording, unmount |
+| `src/components/layout/MobileNav.test.tsx`   | 7     | drawer open + focus, Tab trap, Escape restore, close-button restore, close-on-navigate focus policy, parity with rail, in-drawer hints                                                       |
+| `src/routes/settings/SettingsRoute.test.tsx` | 4     | theme applies + persists, density persists, autosave switch disables delay, no save button                                                                                                   |
+
+### Known limitations at this stage
+
+- No browser binary is available, so responsive screenshots at 360/768/1024/1440 px and a manual
+  keyboard-only pass could not be performed. Layout is asserted only through DOM tests and Tailwind's
+  responsive classes.
+- Routes other than `/settings` and `/design` are scaffolds; their content arrives in TASK-010 onward.
+- Search and the command palette are deliberately absent (disabled control with explanation) until
+  TASK-009.
+- Code is not split by route yet: one JS chunk is 592 kB (183 kB gzip), which trips Vite's 500 kB
+  advisory. Splitting belongs to the performance pass (`src/routes` lazy loading), not this task.
+- The mobile drawer is exercised in jsdom only; its visual slide-over behaviour is untested visually.
 
 ---
 

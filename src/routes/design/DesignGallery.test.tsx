@@ -1,21 +1,17 @@
-import { render, screen, within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { App } from '@/app/App';
-import { ThemeProvider } from '@/app/providers/ThemeProvider';
+import { renderAppAt } from '@/test/renderApp';
 
 /**
- * The gallery is the app root, so it now boots the data layer (TASK-007):
- * storage probe, seed, hydration. Rendering is therefore asynchronous, and
- * these tests wait for the first heading before asserting.
+ * The gallery is a route inside the application shell since TASK-008, so these
+ * tests render the real app at `/design`. The data layer boots for real
+ * (storage probe, seed, hydration), so rendering is asynchronous and the helper
+ * waits for the page heading.
  */
 async function renderGallery() {
-  const utils = render(
-    <ThemeProvider>
-      <App />
-    </ThemeProvider>,
-  );
+  const utils = renderAppAt('/design');
   await screen.findByRole('heading', { level: 1, name: 'Design system gallery' });
   return utils;
 }

@@ -3386,3 +3386,140 @@ and the raw-IndexedDB read-through.
 | `npm run check:contrast`    | 64 pairings pass in both themes                                                                                                                                                                                                             |
 | `npm run build`             | exit 0 — CSS 60.48 kB (14.11 kB gzip), app JS 1,143.88 kB (326.68 kB gzip, +32.11 kB over TASK-024's 1,111.77 kB); the pre-existing >500 kB chunk warning remains                                                                           |
 | raw-record cross-check      | automated (see limitations): IndexedDB → raw rows → report → rendered number, all equal                                                                                                                                                     |
+
+---
+
+## ADR-111 — Two envelopes, one strict reader, and an import that unwinds instead of half-writing
+
+**Context.** TASK-026 has to move prompts out of and into a browser-only library: one prompt, a
+selection, or everything. Three constraints shaped the design. Nothing may leave the browser (ADR-01),
+so the file is the whole transfer mechanism. The write path is per-repository (ADR-02), so there is no
+single transaction spanning prompts, folders, collections, schemas, snippets, templates, revisions,
+and test cases. And a half-written import is worse than a refused one, because the library would then
+hold records nobody asked for.
+
+**Decision.**
+
+1. **Two markers, one shape.** A file is a JSON object with `format` (`promptforge.bundle` or
+   `promptforge.prompt`), a numeric `version` (`1`), a `manifest` (app, appVersion, exportedAt, scope,
+   counts, fidelity notes), and flat lists — `prompts`, `revisions`, `folders`, `collections`,
+   `schemas`, `snippets`, `templates`, `testCases`. There is no nested `data` object and no per-record
+   envelope: a backup can be read, diffed, and hand-edited. Both markers are read by one function, and
+   every list is optional, so a prompt file is a bundle that happens to hold one prompt.
+2. **A raw document is normalized, not special-cased.** `detectTransferFormat` returns `bundle`,
+   `prompt-file`, `document`, or nothing; a document (`schemaVersion`, or a `name` with
+   `role`/`objective`/`instructions`) is wrapped into a one-prompt bundle with a generated id and the
+   current time, with a warning that says so. Conflicts and planning therefore never branch on "is this
+   a document".
+3. **Records are rebuilt, never trusted.** Every field is read and type-checked, unknown keys are
+   dropped (a file cannot inject `__proto__` or an unexpected property), documents are re-parsed with
+   the editor's `parseDocument`, timestamps must parse (they are never replaced with "now"), imported
+   templates are forced to `isBuiltIn: false`, duplicate ids and duplicate `(promptId, revisionNumber)`
+   pairs are errors, and every folder, collection, schema, snippet, prompt, and test-case reference
+   must resolve inside the same file. Any error aborts the read with per-field messages; a manifest
+   count mismatch is only a warning, because the lists are the truth and the manifest is a convenience
+   for humans.
+4. **The reader enforces the limits the dialog advertises.** 2,000,000 bytes by UTF-8 length, JSON
+   only, parsed with `JSON.parse` (never `eval`), and failure categories (`empty`, `too-large`,
+   `not-json`, `unrecognised`, `unsupported-version`, `invalid-records`) come with the parser's
+   line/column or the failing field paths.
+5. **Conflicts are detected before anything is written, with defaults that favour safety.**
+   `same-id` and `same-content` (FNV-1a document hash) default to _skip_; `same-title` defaults to
+   _import_, because titles are not unique and hiding a new prompt is worse than a duplicate; _add as
+   a copy_ and _overwrite_ are always available on a conflict, and overwrite is applied only if the
+   target still exists at confirm time.
+6. **Planning is pure and complete.** `buildImportPlan(preview, decisions, library, deps)` returns
+   every record to create or update, the final ids and references, an `IdRemap` log, per-prompt
+   outcomes, and the warnings the summary reads. Free ids are kept (so importing into an empty library
+   reproduces the file), taken ids are regenerated, revisions continue after stored history, clashing
+   test-case names gain `(copy)`, and a folder with the same name under the same parent is reused
+   rather than duplicated. Preview and plan both run before the store is touched.
+7. **The write is transactional by compensation, not by an IndexedDB transaction.** `applyImport`
+   writes in dependency order (folders → collections → schemas → snippets → templates → prompts →
+   revisions → test cases) and pushes an undo closure for each write. On failure it unwinds in reverse,
+   re-hydrates from the repositories, and reports. Two details are load-bearing: undoing a prompt
+   _update_ re-reads the stored row and writes it at `current.version + 1`, because replaying the old
+   version trips the optimistic-concurrency check (`StaleWriteError`); and revisions are removed with
+   `deleteMany([id])` because the revision repository has no single-row delete.
+8. **Exports are activity events; files never carry activity.** Each export records one event
+   ("Exported a full backup (3 prompts)", "Exported 2 selected prompts", `Exported "…" as a prompt
+file`), and an import records one `imported` event built from `describePlanSummary`. The file itself
+   has no list for activity, preferences, recovery drafts, playground inputs, quality dismissals, or
+   storage metadata; `NON_TRANSFERRED_STATE` is the code-level list and a test asserts none of those
+   keys appear in a serialized backup.
+9. **Downloads are a Blob, an object URL, and a sanitized name.** `downloadJson` builds the Blob,
+   creates an object URL, clicks a detached anchor with `download`, and revokes the URL on a timer. The
+   name is a slug — NFKD, `[a-z0-9]` only, 48 characters, trailing dashes trimmed, falling back to
+   `prompt` — so no path separator, quote, or control character can reach the filesystem.
+
+**Consequences.**
+
+- A file that PromptForge writes is a file PromptForge reads back to the same records; the round trip
+  is a test, not a hope.
+- An import either lands completely or leaves nothing behind, and the summary distinguishes created,
+  overwritten, and skipped items.
+- Ids are not stable across libraries: an id that is taken is regenerated and reported, so a user who
+  needs to match records across libraries must read the remap list.
+- Compensating rollback is not free: a prompt that was updated and then restored can keep a bumped
+  version. Its document, metadata, and history are unchanged, and the caveat is documented.
+- Snippets and schemas are matched by id only, so a hand-edited file with fresh ids creates new
+  supporting records instead of linking to the stored ones.
+- Import is not resumable, and large libraries are serialized on the main thread. Neither is hidden.
+- An id generator that keeps returning a taken id cannot spin forever: after 100 attempts the allocator
+  suffixes the id instead of failing the import.
+- Out of scope, and therefore absent: ZIP archives, cloud transfer, drag-and-drop from other
+  applications, and share links.
+
+## Verification log — TASK-026
+
+**Scope verified:** envelope serialization and determinism; every per-record validation error
+(wrong types, unsupported status/format/version, unreadable variables, non-object records, missing
+manifest fields, unknown keys dropped); duplicate ids and duplicate revision numbers; dangling folder,
+collection, schema, snippet, prompt, test-case, and parent references; manifest count warnings;
+prompt-file and raw-document detection and normalization; the 2 MB limit and both directions of the
+limit message; malformed JSON with line/column; unsupported versions; conflict kinds, precedence, and
+defaults; per-item decisions including copy, repeated copies, overwrite, skip, and overwrite-offered-
+but-target-gone; id allocation against an occupied library, a repeating id generator, and the suffix
+fallback; folder and collection reuse with the prompt reference remapped; template-name clashes;
+revision renumbering on overwrite and appended history; test-case name clashes; a folder cycle; a plan
+with no prompts; the full round trip (backup → empty library, selection without extra records, import
+the same file twice); downloads (blob type, filename slug, click, revoke); the store's import write and
+its rollback of folders, records, prompts, an overwrite, and revisions; the dialog's stages (choose,
+preview with counts, per-item decisions, confirm, summary, error and retry); the Settings data card,
+the library bulk export, the editor export, and both palette commands.
+
+### Tests added (+29 cases this pass; 118 in `src/domain/transfer`)
+
+| File                                            | Cases | Covers                                                                                                                                                                                                                         |
+| ----------------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/domain/transfer/bundle.test.ts`            | 37    | Serialization, determinism, round trip, version, duplicates, dangling references, manifest warnings, and 17 validation cases (per-field errors, non-object records, missing envelope parts, tolerated absent fields)           |
+| `src/domain/transfer/export.test.ts`            | 25    | Folder chains, prompt/selection/backup contents, slugs, byte sizes, fingerprints                                                                                                                                               |
+| `src/domain/transfer/import.test.ts`            | 56    | Every error category, conflicts and defaults, copy/overwrite/skip, id allocation and remapping, revision renumbering, folder/collection/schema/snippet/template reuse, a repeating id generator, a folder cycle, an empty plan |
+| `src/domain/transfer/download.test.ts`          | 6     | Blob type and content, anchor name, click, URL revocation, control-character stripping                                                                                                                                         |
+| `src/store/dataStore.test.ts`                   | +4    | Import write with one activity event, rollback of every completed step, rollback of an overwrite, export notes                                                                                                                 |
+| `src/components/transfer/ImportDialog.test.tsx` | 12    | Preview without writes, confirm, conflicts and copy, skip-all, malformed JSON, wrong shape, oversized file, unsupported version, partially invalid bundle, retry, palette entry point                                          |
+| `src/routes/settings/SettingsRoute.test.tsx`    | +2    | The data card, the backup download, and the import trigger                                                                                                                                                                     |
+| `src/routes/library/LibraryRoute.test.tsx`      | +2    | Bulk export of a selection, its bundle contents, and its activity note                                                                                                                                                         |
+| `src/routes/editor/EditorRoute.test.tsx`        | +2    | Prompt-file download and its activity note, version untouched                                                                                                                                                                  |
+| `src/lib/commands/coreCommands.test.ts`         | +2    | Availability of import and export                                                                                                                                                                                              |
+
+### Gates executed
+
+| Gate                        | Result                                                                                                                                                                                                                                          |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npx tsc --noEmit`          | exit 0                                                                                                                                                                                                                                          |
+| `npx eslint .`              | exit 0, 0 warnings                                                                                                                                                                                                                              |
+| `npx vitest run`            | **109 files / 1,829 tests passed, 0 failures**                                                                                                                                                                                                  |
+| `npx vitest run --coverage` | exit 0, thresholds pass — all files 96.64/90.62/97.70/97.55; `src/domain/**` 91.49 flat and 91.95 in `domain/transfer` (gate 90); `bundle.ts` 98.01/94.97, `export.ts` 100/96.96, `import.ts` 97.75/87.79 (statements/branches/functions/lines) |
+| `npx prettier --check .`    | clean                                                                                                                                                                                                                                           |
+| `npm run check:contrast`    | 64 pairings verified across both themes                                                                                                                                                                                                         |
+| `npm run build`             | exit 0 — CSS 61.15 kB (14.21 kB gzip), app JS 1,190.57 kB (339.39 kB gzip), `JsonEditor` 427.66 kB; the pre-existing >500 kB chunk warning remains                                                                                              |
+
+### Not performed (stated, not hidden)
+
+- No browser binary exists in this environment, so the requested **manual export/import in a browser
+  with a seeded library was not performed by hand**, and there was no manual accessibility or visual
+  pass. Downloads are covered by tests that stub `URL.createObjectURL` and the anchor click in jsdom;
+  real-browser download behaviour is therefore unverified.
+- The staged-rollback test forces failures through the repository contract, not by killing the tab, so
+  a browser crash mid-import is untested (and, by design, unrecoverable).

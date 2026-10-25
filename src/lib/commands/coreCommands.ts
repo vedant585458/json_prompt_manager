@@ -10,6 +10,7 @@
 
 import { ALL_NAV } from '@/components/layout/navigation';
 import { hasPromptSnapshot, hasPromptValidation } from '@/lib/commands/promptActions';
+import { hasImportOpener, hasPromptExport } from '@/lib/commands/transferActions';
 import { commandRegistry, type CommandRegistry } from '@/lib/commands/registry';
 import type { CommandDefinition } from '@/lib/commands/types';
 
@@ -280,6 +281,26 @@ export function createCoreCommands(): readonly CommandDefinition[] {
       description: 'Opens the library filtered to documents the parser rejects.',
       keywords: searchTerms('invalid broken unparsable json library filter documents health'),
       run: (context) => context.navigate('/library?validation=unparsable'),
+    },
+    {
+      id: 'transfer.import',
+      title: 'Import from a file',
+      group: 'Workspace',
+      description:
+        'Read a PromptForge export or a prompt document, preview every record, and choose what to add.',
+      keywords: searchTerms('import restore upload file json bundle backup data'),
+      // Offered only when the shell can actually open the dialog.
+      when: () => hasImportOpener(),
+      run: (context) => context.importFile(),
+    },
+    {
+      id: 'transfer.export-prompt',
+      title: 'Export the open prompt',
+      group: 'Workspace',
+      description: 'Download the prompt on screen as a JSON file, with its history and references.',
+      keywords: searchTerms('export download save file json prompt backup data'),
+      when: (context) => /^\/prompts\/[^/]+$/.test(context.pathname) && hasPromptExport(),
+      run: (context) => context.exportPrompt(),
     },
     {
       id: 'development.design-gallery',

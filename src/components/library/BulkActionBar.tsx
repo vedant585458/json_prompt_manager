@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, Star, StarOff, Tags, Trash2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, Download, Star, StarOff, Tags, Trash2, X } from 'lucide-react';
 
 import { Button } from '@/components/ui';
 import { countPrompts } from '@/features/bulk/bulkActions';
@@ -16,6 +16,8 @@ export interface BulkActionBarProps {
   readonly onFavorite: () => void;
   readonly onUnfavorite: () => void;
   readonly onEditTags: () => void;
+  /** Downloads the selection as one JSON bundle (TASK-026). */
+  readonly onExport: () => void;
   readonly onArchive: () => void;
   readonly onRestore: () => void;
   readonly onDelete: () => void;
@@ -40,6 +42,7 @@ export function BulkActionBar({
   onFavorite,
   onUnfavorite,
   onEditTags,
+  onExport,
   onArchive,
   onRestore,
   onDelete,
@@ -85,6 +88,10 @@ export function BulkActionBar({
         <Button variant="secondary" size="sm" onClick={onEditTags} disabled={busy} className="h-7">
           <Tags aria-hidden="true" size={14} />
           Tags…
+        </Button>
+        <Button variant="secondary" size="sm" onClick={onExport} disabled={busy} className="h-7">
+          <Download aria-hidden="true" size={14} />
+          Export
         </Button>
         {archivedScope ? (
           <Button variant="secondary" size="sm" onClick={onRestore} disabled={busy} className="h-7">

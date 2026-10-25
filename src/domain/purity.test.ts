@@ -12,11 +12,25 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const DOMAIN_DIR = join(process.cwd(), 'src', 'domain');
+const TRANSFER_DIR = join(DOMAIN_DIR, 'transfer');
 
 function moduleNames(): string[] {
   return readdirSync(DOMAIN_DIR)
     .filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts'))
     .sort();
+}
+
+/** Modules in the one nested domain folder (TASK-026), path-relative. */
+function transferModuleNames(): string[] {
+  return readdirSync(TRANSFER_DIR)
+    .filter((file) => file.endsWith('.ts') && !file.endsWith('.test.ts'))
+    .map((file) => `transfer/${file}`)
+    .sort();
+}
+
+/** Every domain module, flat or nested, with its path from `src/domain`. */
+function allModuleNames(): string[] {
+  return [...moduleNames(), ...transferModuleNames()];
 }
 
 function sourceOf(file: string): string {
@@ -72,10 +86,16 @@ describe('domain layer purity', () => {
       'validation.ts',
       'variables.ts',
     ]);
+
+    expect(transferModuleNames()).toEqual([
+      'transfer/bundle.ts',
+      'transfer/export.ts',
+      'transfer/import.ts',
+    ]);
   });
 
   it('imports only from the domain layer', () => {
-    for (const file of moduleNames()) {
+    for (const file of allModuleNames()) {
       const foreign = importsOf(sourceOf(file)).filter(
         (specifier) => !specifier.startsWith('@/domain/'),
       );
@@ -87,7 +107,7 @@ describe('domain layer purity', () => {
     const forbidden =
       /^(react|react-dom|zustand|idb|@\/data|@\/store|@\/components|@\/routes|@\/app|@\/styles)/;
 
-    for (const file of moduleNames()) {
+    for (const file of allModuleNames()) {
       const offenders = importsOf(sourceOf(file)).filter((specifier) => forbidden.test(specifier));
       expect(offenders, `${file} must stay framework-free`).toEqual([]);
     }
@@ -105,7 +125,7 @@ describe('domain layer purity', () => {
       /\bindexedDB\b/,
     ];
 
-    for (const file of moduleNames()) {
+    for (const file of allModuleNames()) {
       const source = codeOf(file);
       for (const pattern of forbidden) {
         expect(pattern.test(source), `${file} must not use ${String(pattern)}`).toBe(false);
@@ -114,7 +134,7 @@ describe('domain layer purity', () => {
   });
 
   it('keeps the domain free of `any`', () => {
-    for (const file of moduleNames()) {
+    for (const file of allModuleNames()) {
       expect(/\bany\b/.test(codeOf(file)), `${file} must not use any`).toBe(false);
     }
   });
@@ -144,6 +164,9 @@ describe('domain layer purity', () => {
       '@/domain/serialization',
       '@/domain/templates',
       '@/domain/textDiff',
+      '@/domain/transfer/bundle',
+      '@/domain/transfer/export',
+      '@/domain/transfer/import',
       '@/domain/types',
       '@/domain/validation',
       '@/domain/variables',

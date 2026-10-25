@@ -1,10 +1,15 @@
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
+import { createInMemoryRepositories } from '@/data';
+import { createDefaultSettings } from '@/domain/factories';
 import { useDataStore } from '@/store/dataStore';
 import { usePreferencesStore } from '@/store/preferencesStore';
 import { renderAppAt } from '@/test/renderApp';
+import { renderAppWithData } from '@/test/renderAppWithData';
+import { stubDownloads } from '@/test/downloads';
+import { createTransferFixture } from '@/test/transferFixture';
 
 async function openSettings() {
   const user = userEvent.setup();
@@ -79,5 +84,64 @@ describe('settings route', () => {
 
     expect(screen.queryByRole('button', { name: /^save/i })).toBeNull();
     expect(screen.getByText(/there is no save button to forget/i)).toBeInTheDocument();
+  });
+
+  it('downloads a full backup that holds the library and nothing private', async () => {
+    const downloads = stubDownloads();
+    try {
+      const fixture = createTransferFixture();
+      const repositories = await createInMemoryRepositories({
+        prompts: fixture.prompts,
+        folders: fixture.folders,
+        collections: fixture.collections,
+        schemas: fixture.schemas,
+        snippets: fixture.snippets,
+        templates: fixture.templates,
+        testCases: fixture.testCases,
+        revisions: fixture.revisions,
+        settings: { ...createDefaultSettings(), onboardedAt: '2026-01-02T09:00:00.000Z' },
+      });
+
+      const { store } = renderAppWithData({ repositories, path: '/settings', mode: 'durable' });
+      const user = userEvent.setup();
+
+      expect(await screen.findByRole('heading', { name: 'Your data' })).toBeVisible();
+      expect(screen.getByText(/2 prompts and 2 snapshots/)).toBeVisible();
+
+      await user.click(screen.getByRole('button', { name: 'Download a backup' }));
+
+      expect(await screen.findByText('Backup downloaded')).toBeVisible();
+      expect(downloads.lastFileName()).toMatch(/^promptforge-backup-\d{4}-\d{2}-\d{2}\.json$/);
+
+      const blob = downloads.createObjectURL.mock.calls[0]?.[0];
+      const parsed = JSON.parse((await blob?.text()) ?? '{}') as {
+        manifest: { scope: string; counts: { prompts: number } };
+        prompts: unknown[];
+      };
+
+      expect(parsed.manifest.scope).toBe('library');
+      expect(parsed.manifest.counts.prompts).toBe(2);
+      expect(parsed.prompts).toHaveLength(2);
+
+      // The export is recorded, and it changed nothing else.
+      await waitFor(() => expect(store.getState().activity[0]?.type).toBe('exported'));
+      expect(store.getState().prompts).toHaveLength(2);
+    } finally {
+      downloads.restore();
+    }
+  });
+
+  it('opens the one import dialog from the data card', async () => {
+    const repositories = await createInMemoryRepositories({
+      settings: { ...createDefaultSettings(), onboardedAt: '2026-01-02T09:00:00.000Z' },
+    });
+
+    renderAppWithData({ repositories, path: '/settings', mode: 'durable' });
+    const user = userEvent.setup();
+
+    await screen.findByRole('heading', { name: 'Your data' });
+    await user.click(screen.getByRole('button', { name: 'Import from file' }));
+
+    expect(await screen.findByRole('heading', { name: 'Import from a file' })).toBeVisible();
   });
 });

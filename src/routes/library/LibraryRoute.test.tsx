@@ -29,6 +29,7 @@ import { LibraryRoute } from '@/routes/library/LibraryRoute';
 import { createDataStore, type DataStore } from '@/store/dataStore';
 import { useUiStore } from '@/store/uiStore';
 import { renderAppWithData } from '@/test/renderAppWithData';
+import { stubDownloads } from '@/test/downloads';
 
 /**
  * Library integration tests (TASK-011).
@@ -1401,5 +1402,62 @@ describe('schema mismatches in the library (TASK-016)', () => {
     // The document parses — the schema is what it fails, and the two badges say
     // so separately rather than collapsing into one verdict.
     expect(screen.getByText('Parses', { selector: 'span' })).toBeVisible();
+  });
+
+  describe('library export (TASK-026)', () => {
+    const prompts = [
+      makePrompt({ id: 'alpha', title: 'Alpha prompt' }),
+      makePrompt({ id: 'beta', title: 'Beta prompt' }),
+    ];
+
+    it('downloads the selection as one bundle and changes nothing', async () => {
+      const downloads = stubDownloads();
+      try {
+        const user = userEvent.setup();
+        const { repositories } = await openLibrary({ prompts });
+
+        await user.click(screen.getByRole('checkbox', { name: 'Select “Alpha prompt”' }));
+        await user.click(screen.getByRole('checkbox', { name: 'Select “Beta prompt”' }));
+        await user.click(screen.getByRole('button', { name: 'Export' }));
+
+        expect(await screen.findByText('Selection downloaded')).toBeVisible();
+        expect(downloads.lastFileName()).toMatch(
+          /^promptforge-selection-2-prompts-\d{4}-\d{2}-\d{2}\.json$/,
+        );
+
+        const [blob] = downloads.createObjectURL.mock.calls[0] as [Blob];
+        const parsed = JSON.parse(await blob.text()) as {
+          manifest: { scope: string; counts: { prompts: number } };
+          prompts: { id: string }[];
+        };
+
+        expect(parsed.manifest.scope).toBe('selection');
+        expect(parsed.prompts.map((prompt) => prompt.id)).toEqual(['alpha', 'beta']);
+        expect(parsed.manifest.counts.prompts).toBe(2);
+
+        // Exporting reads; it does not write prompts or clear the selection.
+        await expect(repositories.prompts.list()).resolves.toHaveLength(2);
+      } finally {
+        downloads.restore();
+      }
+    });
+
+    it('records the export in the activity log', async () => {
+      const downloads = stubDownloads();
+      try {
+        const user = userEvent.setup();
+        const { store } = await openLibrary({ prompts });
+
+        await user.click(screen.getByRole('checkbox', { name: 'Select “Alpha prompt”' }));
+        await user.click(screen.getByRole('button', { name: 'Export' }));
+
+        await screen.findByText('Selection downloaded');
+        await waitFor(() =>
+          expect(store.getState().activity[0]?.summary).toBe('Exported 1 selected prompt'),
+        );
+      } finally {
+        downloads.restore();
+      }
+    });
   });
 });

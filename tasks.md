@@ -4,7 +4,7 @@
 **Created:** 2026-10-24
 **Repository:** `vedant585458/json_prompt_manager`
 **Branch:** `arena/3b0d1d76-json-prompt-manager`
-**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-024 is the latest completed task.
+**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-026 is the latest completed task.
 **Authoritative status source:** This file. One status per task, maintained here only.
 
 ---
@@ -607,14 +607,14 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-023 — Blueprint dependency graph — Medium — deps: 016, 019
 - [x] TASK-024 — Quality inspector — Medium — deps: 016, 021
 - [x] TASK-025 — Health dashboard and activity timeline — Medium — deps: 016, 019
-- [ ] TASK-026 — Import and export — High — deps: 012, 019
+- [x] TASK-026 — Import and export — High — deps: 012, 019
 - [ ] TASK-027 — Responsive refinement pass — High — deps: 018, 020, 022, 023, 024, 025, 026
 - [ ] TASK-028 — Accessibility review and remediation — High — deps: 027
 - [ ] TASK-029 — Automated test suite expansion — High — deps: 027
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 25 of 31 tasks complete. TASK-001 through TASK-022 were completed on 2026-10-24; TASK-023, TASK-024, and TASK-025 on 2026-10-25.
+**Progress:** 26 of 31 tasks complete. TASK-001 through TASK-022 were completed on 2026-10-24; TASK-023, TASK-024, TASK-025, and TASK-026 on 2026-10-25.
 
 ---
 
@@ -1585,7 +1585,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-026 — Import and export
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-012, TASK-019
 - **Objective:** Make data portable and resilient: validated JSON import with conflict handling, and documented export for one prompt, a selection, or a full backup.
@@ -1605,6 +1605,20 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Unit tests for bundle serialization/deserialization, conflict detection, ID remapping; integration tests for full round-trip, partial-invalid bundle, oversized file, malformed JSON; manual export in browser with a seeded library; typecheck/lint/tests/build.
 - **Deliverables:** `src/domain/transfer/{bundle,import,export}.ts`, import/export dialogs and flows, settings data page, tests, `docs/IMPORT-EXPORT.md`.
 - **Out of scope:** ZIP archives, cloud import/export, drag-and-drop from other apps, share links.
+
+- **Completion record (2026-10-25):** Completed after explicit user authorization.
+  - **Format (`src/domain/transfer/bundle.ts`):** two envelopes read by one function — `promptforge.bundle` and `promptforge.prompt`, both `version: 1`, each with a `manifest` (app, appVersion, exportedAt, scope, counts, fidelity notes) and flat lists (`prompts`, `revisions`, `folders`, `collections`, `schemas`, `snippets`, `templates`, `testCases`). Serialization is deterministic (fixed key order, two-space indent). The reader validates every field, rebuilds records so unknown keys cannot ride along, re-parses each document with `parseDocument`, requires parseable timestamps, forces `isBuiltIn: false`, and rejects duplicate ids, duplicate `(promptId, revisionNumber)` pairs, and references that do not resolve inside the file; a manifest count mismatch is a warning because the lists are the truth.
+  - **Export (`src/domain/transfer/export.ts`):** `exportPrompt`, `exportSelection`, `exportLibrary` return the bundle, its JSON text, the filename, and the byte size. A prompt export carries the prompt's folder chain, collections, schema, snippets, revisions, and test cases; a selection adds the same for each selected prompt with no uninvolved records; a backup adds every record including unreferenced folders, schemas, snippets, and all templates. Filenames are `promptforge-prompt-<slug>-<date>.json`, `promptforge-selection-<n>-prompts-<date>.json`, and `promptforge-backup-<date>.json`, with an NFKD ASCII slug capped at 48 characters.
+  - **Import (`src/domain/transfer/import.ts`):** `readImportFile` enforces 2,000,000 bytes by UTF-8 length and JSON-only parsing (`JSON.parse`, never `eval`), detects bundle / prompt file / raw document (a document is wrapped as a one-prompt bundle with a warning), and fails with a category and message (`empty`, `too-large`, `not-json`, `unrecognised`, `unsupported-version`, `invalid-records`). `buildPreview` lists one row per prompt with its conflict (`same-id` → `same-content` → `same-title`), default decision (skip duplicates, import a title clash), allowed decisions, folder/collection/schema names, history and test-case counts. `buildImportPlan` is pure and materializes every record to write, keeping free ids, regenerating taken ones, continuing revision numbers after stored history, reusing same-name folders and collections, renaming clashing test-case names, skipping duplicate template names, and reporting an `IdRemap` for everything that changed.
+  - **Transactional write (`src/store/dataStore.ts`):** `applyImport(plan)` writes in dependency order and pushes an undo closure per write; a failure unwinds in reverse, re-hydrates from the repositories, and rethrows a `StorageError` that says nothing was left behind. Undoing a prompt update re-reads the row and writes it at `current.version + 1` (replaying the old version trips `StaleWriteError`); revisions are removed with `deleteMany`. One `imported` activity event is recorded on success, built from `describePlanSummary`. `noteExport` records one `exported` event per export.
+  - **UI:** `src/components/transfer/ImportDialog.tsx` (choose → preview with counts, per-prompt decisions, conflict details, overwrite warnings, confirm → result summary, error state with retry) driven by `ImportDialogProvider`; `src/features/transfer/useTransfer.ts` for the three exports with toasts and activity notes; the Settings data card (backup + import), the library bulk action (export selection), the editor toolbar (export prompt), and the palette commands `transfer.import` and `transfer.export-prompt`.
+  - **Docs:** `docs/IMPORT-EXPORT.md` (markers, preserved/regenerated/never-exported tables, export actions, import steps, rejection categories, conflict table, plan semantics, rollback caveat, limits, verification table) and ADR-111 in `docs/DECISIONS.md`.
+  - **Tests added (118 in `src/domain/transfer`; whole suite 109 files / 1,829 tests):** `bundle.test.ts` 37, `export.test.ts` 25, `import.test.ts` 56, `src/features/transfer/download.test.ts` 6, `ImportDialog.test.tsx` 12, `dataStore.test.ts` +4, `SettingsRoute.test.tsx` +2, `LibraryRoute.test.tsx` +2, `EditorRoute.test.tsx` +2, `coreCommands.test.ts` +2.
+  - **Validation executed:** `npx tsc --noEmit` exit 0; `npx eslint .` exit 0 with 0 warnings; `npx vitest run` — **109 files / 1,829 tests passed, 0 failures**; `npx vitest run --coverage` — exit 0, thresholds pass (all files 96.64/90.62/97.70/97.55; `src/domain/**` 91.49 flat and 91.95 in `domain/transfer` against the 90 branch gate; `bundle.ts` 98.01/94.97, `export.ts` 100/96.96, `import.ts` 97.75/87.79); `npx prettier --check .` clean; `npm run check:contrast` — 64 pairings verified in both themes; `npm run build` exit 0 — CSS 61.15 kB (14.21 kB gzip), app JS 1,190.57 kB (339.39 kB gzip), `JsonEditor` 427.66 kB, with the pre-existing >500 kB chunk warning.
+  - **Not performed (stated honestly):** no browser binary exists here, so the requested **manual export/import in a browser with a seeded library was not done by hand**, and there was no manual accessibility or visual pass. Downloads are covered by tests that stub `URL.createObjectURL` and the anchor click in jsdom; real-browser download behaviour is unverified. The rollback tests force failures through the repository contract, not by killing a tab.
+  - **Deviations recorded:** (1) a folder that is newly created no longer carries a `renamed` remap — the create path is only reached when no folder of that name exists under the parent, so the old `(imported)` suffix was unreachable and its branch was removed rather than left dead and untested; the documentation now describes reuse, which is what the code does. (2) The id allocator stops after 100 collisions and suffixes the id instead of looping forever, which is documented as a limitation. (3) Top-level envelope issue paths read `manifest.…` rather than `.manifest.…`.
+  - **Known limitations:** ids are not stable across libraries (remaps are reported); snippets and schemas are matched by id only; compensating rollback can leave a bumped version on a restored prompt; import is not resumable; large libraries are serialized on the main thread; no ZIP, cloud transfer, drag-and-drop, or share links.
+  - **Docs:** `docs/DECISIONS.md` gained ADR-111 and a TASK-026 verification log; `docs/IMPORT-EXPORT.md` is new; `tasks.md` updated.
 
 ---
 

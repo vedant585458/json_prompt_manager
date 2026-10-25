@@ -1,13 +1,17 @@
-import { AlertTriangle, CheckCircle2, SlidersHorizontal } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Download, SlidersHorizontal } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useTheme } from '@/app/providers/theme-context';
-import { Card, Field, RadioGroup, Select, StatusPill, Switch } from '@/components/ui';
+import { Button, Card, Field, RadioGroup, Select, StatusPill, Switch } from '@/components/ui';
+import { ImportTrigger } from '@/components/transfer/ImportDialog';
+import { useImportDialog } from '@/components/transfer/importDialogContext';
+import { useTransfer } from '@/features/transfer/useTransfer';
 import { HEALTH_THRESHOLD_OPTIONS, describeHealthThresholds } from '@/domain/health';
 import { AUTOSAVE_DELAY } from '@/domain/invariants';
 import type { HealthThresholds } from '@/domain/types';
 import { THEME_PREFERENCES, type ThemePreference } from '@/styles/theme';
-import { describeDataError, useDataStore } from '@/store/dataStore';
+import { describeDataError } from '@/store/dataStore';
+import { useDataStoreApi } from '@/store/dataStoreContext';
 import { usePreferencesStore } from '@/store/preferencesStore';
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'failed';
@@ -58,8 +62,16 @@ export function SettingsRoute() {
   const healthThresholds = usePreferencesStore((state) => state.healthThresholds);
   const setHealthThresholds = usePreferencesStore((state) => state.setHealthThresholds);
 
-  const mode = useDataStore((state) => state.mode);
-  const saveSettings = useDataStore((state) => state.saveSettings);
+  // Read through the context so a test (or an embedding screen) can inject the
+  // store; the app's singleton is the fallback.
+  const store = useDataStoreApi();
+  const mode = store((state) => state.mode);
+  const saveSettings = store((state) => state.saveSettings);
+  const promptCount = store((state) => state.prompts.length);
+  const revisionCount = store((state) => state.revisions.length);
+
+  const transfer = useTransfer();
+  const importDialog = useImportDialog();
 
   const [status, setStatus] = useState<SaveStatus>('idle');
   const [failure, setFailure] = useState<string | null>(null);
@@ -80,7 +92,7 @@ export function SettingsRoute() {
 
       void (async () => {
         try {
-          const base = useDataStore.getState().settings ?? undefined;
+          const base = store.getState().settings ?? undefined;
           await saveSettings(usePreferencesStore.getState().toSettings(base));
           if (mounted.current) setStatus('saved');
         } catch (error) {
@@ -90,7 +102,7 @@ export function SettingsRoute() {
         }
       })();
     },
-    [saveSettings],
+    [saveSettings, store],
   );
 
   const statusMessage: string =
@@ -300,6 +312,36 @@ export function SettingsRoute() {
           <p className="text-2xs leading-relaxed text-ink-muted">
             Day counts only — the health report compares them with the last save time of each
             prompt. Archived prompts are never counted as untouched.
+          </p>
+        </Card>
+        <Card as="section" aria-labelledby="settings-data" className="space-y-4">
+          <div>
+            <h2 id="settings-data" className="text-sm font-semibold text-ink">
+              Your data
+            </h2>
+            <p className="mt-1 text-xs text-ink-muted">
+              A backup is one JSON file: every prompt with its document and history, plus the
+              folders, collections, schemas, snippets, templates, and test cases around it.
+              Preferences, the activity log, and recovery drafts are never included.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              type="button"
+              onClick={() => void transfer.exportFullBackup()}
+              loading={transfer.busy}
+              loadingLabel="Preparing"
+            >
+              <Download aria-hidden="true" size={14} />
+              Download a backup
+            </Button>
+            <ImportTrigger onClick={importDialog.open} disabled={transfer.busy} />
+          </div>
+
+          <p className="text-2xs leading-relaxed text-ink-muted">
+            {`This browser holds ${promptCount} ${promptCount === 1 ? 'prompt' : 'prompts'} and ${revisionCount} ${revisionCount === 1 ? 'snapshot' : 'snapshots'}. An import is validated, previewed, and written in one go — it never half-lands.`}
           </p>
         </Card>
       </div>

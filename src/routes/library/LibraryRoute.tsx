@@ -44,6 +44,7 @@ import { getBrowserStorage } from '@/styles/theme';
 import { describeDataError } from '@/store/dataStore';
 import { useDataStoreApi } from '@/store/dataStoreContext';
 import { findDocumentProblems } from '@/store/dashboard';
+import { useTransfer } from '@/features/transfer/useTransfer';
 import {
   createLibrarySelector,
   selectTagCounts,
@@ -83,6 +84,7 @@ import type { Collection, Folder, Prompt } from '@/domain/types';
  */
 export function LibraryRoute() {
   const store = useDataStoreApi();
+  const transfer = useTransfer();
   const prompts = store((state) => state.prompts);
   const folders = store((state) => state.folders);
   const collections = store((state) => state.collections);
@@ -586,6 +588,11 @@ export function LibraryRoute() {
     }
   }
 
+  /** Downloads the selected prompts as one bundle (TASK-026). */
+  function handleBulkExport() {
+    void transfer.exportSelectedPrompts(selectedPromptIds);
+  }
+
   function handleBulkFavorite() {
     void applyBulk(() => setFavorite(selectedPromptIds, true), 'Added to favorites').catch(
       () => undefined,
@@ -896,6 +903,7 @@ export function LibraryRoute() {
               onFavorite={handleBulkFavorite}
               onUnfavorite={handleBulkUnfavorite}
               onEditTags={() => setBulkTagOpen(true)}
+              onExport={handleBulkExport}
               onArchive={handleBulkArchive}
               onRestore={handleBulkRestore}
               onDelete={() => setBulkDeleteOpen(true)}

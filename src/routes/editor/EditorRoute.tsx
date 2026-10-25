@@ -1,4 +1,4 @@
-import { Camera, FileJson, GitCompare, History } from 'lucide-react';
+import { Camera, Download, FileJson, GitCompare, History } from 'lucide-react';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
@@ -38,9 +38,11 @@ import { validateJsonText } from '@/domain/validation';
 import { applyDismissals, inspectQuality, type QualityReport } from '@/domain/quality';
 import { revisionsForPrompt } from '@/domain/revisions';
 import { useSavePipeline } from '@/features/save/useSavePipeline';
+import { useTransfer } from '@/features/transfer/useTransfer';
 import { findLineForPath, type ValidationIssue } from '@/domain/validation';
 import { offsetAtLineColumn } from '@/domain/jsonText';
 import { registerPromptFavoriteToggle } from '@/lib/commands/promptActions';
+import { registerPromptExport } from '@/lib/commands/transferActions';
 import { registerPromptSnapshot } from '@/lib/commands/promptActions';
 import { registerPromptValidation } from '@/lib/commands/promptActions';
 import { cn } from '@/lib/cn';
@@ -392,6 +394,22 @@ export function EditorRoute() {
     [prompt],
   );
 
+  // Command palette and the workspace header share one export action (TASK-026).
+  const transfer = useTransfer();
+  const exportPromptFile = transfer.exportPromptFile;
+
+  useEffect(
+    () =>
+      registerPromptExport(
+        prompt
+          ? () => {
+              void exportPromptFile(prompt.id);
+            }
+          : null,
+      ),
+    [exportPromptFile, prompt],
+  );
+
   const handleSnapshot = useCallback(
     async (label: string | null) => {
       const result = await save.snapshot(label);
@@ -500,6 +518,16 @@ export function EditorRoute() {
           <Button variant="ghost" size="sm" onClick={() => setSnapshotOpen(true)}>
             <Camera aria-hidden="true" size={12} />
             Save snapshot
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void exportPromptFile(prompt.id)}
+            loading={transfer.busy}
+            loadingLabel="Preparing"
+          >
+            <Download aria-hidden="true" size={12} />
+            Export
           </Button>
           <Link
             to={`/diff?prompt=${encodeURIComponent(prompt.id)}`}

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { PALETTE_SHORTCUT, createCoreCommands } from '@/lib/commands/coreCommands';
 import { registerPromptSnapshot, registerPromptValidation } from '@/lib/commands/promptActions';
+import { registerImportOpener, registerPromptExport } from '@/lib/commands/transferActions';
 import { createCommandRegistry, isCommandAvailable } from '@/lib/commands/registry';
 import { createTestContext } from '@/test/commandContext';
 
@@ -313,5 +314,48 @@ describe('core command behaviour', () => {
 
     expect(toggleTheme).toHaveBeenCalledTimes(1);
     expect(toggleRail).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers import only while the shell has mounted the dialog', () => {
+    const command = byId.get('transfer.import');
+    if (!command) throw new Error('Missing transfer.import');
+
+    expect(isCommandAvailable(command, createTestContext())).toBe(false);
+
+    const cleanup = registerImportOpener(() => undefined);
+    try {
+      expect(isCommandAvailable(command, createTestContext())).toBe(true);
+
+      const importFile = vi.fn();
+      run('transfer.import', { importFile });
+      expect(importFile).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
+
+    expect(isCommandAvailable(command, createTestContext())).toBe(false);
+  });
+
+  it('offers the open prompt export only from a prompt workspace', () => {
+    const command = byId.get('transfer.export-prompt');
+    if (!command) throw new Error('Missing transfer.export-prompt');
+
+    expect(isCommandAvailable(command, createTestContext({ pathname: '/prompts/abc' }))).toBe(
+      false,
+    );
+
+    const cleanup = registerPromptExport(() => undefined);
+    try {
+      expect(isCommandAvailable(command, createTestContext({ pathname: '/prompts/abc' }))).toBe(
+        true,
+      );
+      expect(isCommandAvailable(command, createTestContext({ pathname: '/library' }))).toBe(false);
+
+      const exportPrompt = vi.fn();
+      run('transfer.export-prompt', { pathname: '/prompts/abc', exportPrompt });
+      expect(exportPrompt).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+    }
   });
 });

@@ -20,6 +20,8 @@ export function createTestContext(overrides: Partial<CommandContext> = {}): Comm
     togglePromptFavorite: () => undefined,
     validatePrompt: () => undefined,
     saveSnapshot: () => undefined,
+    importFile: () => undefined,
+    exportPrompt: () => undefined,
     ...overrides,
   };
 }

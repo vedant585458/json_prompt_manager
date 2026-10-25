@@ -19,6 +19,7 @@ import {
   openPromptValidation,
   togglePromptFavorite,
 } from '@/lib/commands/promptActions';
+import { exportOpenPrompt, openImportDialog } from '@/lib/commands/transferActions';
 import { isWithinOverlay } from '@/lib/overlay';
 import {
   commandRegistry,
@@ -77,6 +78,12 @@ export function useCommandEnvironment(): CommandEnvironment {
       },
       saveSnapshot: () => {
         openPromptSnapshot();
+      },
+      importFile: () => {
+        openImportDialog();
+      },
+      exportPrompt: () => {
+        exportOpenPrompt();
       },
     };
   }, [navigate, pathname, platform, setPreference]);

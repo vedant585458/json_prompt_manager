@@ -17,6 +17,7 @@ import { createBlankDocument } from '@/domain/promptDocument';
 import { formatDocument } from '@/domain/serialization';
 import type { Prompt, PromptDocument } from '@/domain/types';
 import { renderAppWithData } from '@/test/renderAppWithData';
+import { stubDownloads } from '@/test/downloads';
 import { usePreferencesStore } from '@/store/preferences';
 import { useUiStore } from '@/store/uiStore';
 
@@ -931,5 +932,58 @@ describe('quality inspector tab (TASK-024)', () => {
     await user.click(screen.getByRole('tab', { name: 'Quality' }));
 
     expect(await screen.findByText(/The review needs valid JSON/)).toBeVisible();
+  });
+});
+
+describe('prompt export (TASK-026)', () => {
+  const prompt = makePrompt({ id: 'alpha', title: 'Invoice parser' });
+
+  it('downloads the open prompt as one file with its history', async () => {
+    const downloads = stubDownloads();
+    try {
+      const user = userEvent.setup();
+      await openEditor({ prompts: [prompt] });
+
+      await user.click(await screen.findByRole('button', { name: 'Export' }));
+
+      expect(await screen.findByText('Prompt file downloaded')).toBeVisible();
+      expect(downloads.lastFileName()).toMatch(
+        /^promptforge-prompt-invoice-parser-\d{4}-\d{2}-\d{2}\.json$/,
+      );
+
+      const [blob] = downloads.createObjectURL.mock.calls[0] as [Blob];
+      const parsed = JSON.parse(await blob.text()) as {
+        format: string;
+        manifest: { scope: string };
+        prompts: { id: string; title: string }[];
+      };
+
+      expect(parsed.format).toBe('promptforge.prompt');
+      expect(parsed.manifest.scope).toBe('prompt');
+      expect(parsed.prompts).toHaveLength(1);
+      expect(parsed.prompts[0]).toMatchObject({ id: 'alpha', title: 'Invoice parser' });
+    } finally {
+      downloads.restore();
+    }
+  });
+
+  it('records the export without touching the document', async () => {
+    const downloads = stubDownloads();
+    try {
+      const user = userEvent.setup();
+      const { store } = await openEditor({ prompts: [prompt] });
+
+      await user.click(await screen.findByRole('button', { name: 'Export' }));
+      await screen.findByText('Prompt file downloaded');
+
+      await waitFor(() =>
+        expect(store.getState().activity[0]?.summary).toBe(
+          'Exported “Invoice parser” as a prompt file',
+        ),
+      );
+      expect(store.getState().prompts[0]?.version).toBe(prompt.version);
+    } finally {
+      downloads.restore();
+    }
   });
 });

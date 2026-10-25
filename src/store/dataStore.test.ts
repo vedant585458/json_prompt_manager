@@ -8,6 +8,10 @@ import {
   StorageUnavailableError,
   type Repositories,
 } from '@/data';
+import { systemDependencies } from '@/domain/factories';
+import { readImportFile, buildImportPlan } from '@/domain/transfer/import';
+import { exportLibrary } from '@/domain/transfer/export';
+import { createTransferFixture } from '@/test/transferFixture';
 import { createDataStore, describeDataError, type DataStore } from '@/store/dataStore';
 import { RuleViolationError } from '@/domain/errors';
 import {
@@ -1162,6 +1166,231 @@ describe('dataStore test cases (TASK-022)', () => {
     await expect(store.getState().deleteTestCase(one.id)).rejects.toBeInstanceOf(
       RecordNotFoundError,
     );
+
+    await repositories.close();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Import and export (TASK-026)                                                */
+/* -------------------------------------------------------------------------- */
+
+const transferFixture = createTransferFixture();
+
+function fixtureLibrary() {
+  return {
+    prompts: transferFixture.prompts,
+    folders: transferFixture.folders,
+    collections: transferFixture.collections,
+    schemas: transferFixture.schemas,
+    snippets: transferFixture.snippets,
+    templates: transferFixture.templates,
+    testCases: transferFixture.testCases,
+    revisions: transferFixture.revisions,
+  };
+}
+
+const exportJson = exportLibrary(fixtureLibrary(), {
+  appVersion: '0.1.0',
+  exportedAt: '2026-10-25T09:30:00.000Z',
+}).json;
+
+/** The plan a confirmed import would hand to the store. */
+function importPlan(target: { prompts?: readonly unknown[] } = {}) {
+  const read = readImportFile(exportJson, {
+    deps: systemDependencies,
+    library: {
+      prompts: [],
+      folders: [],
+      collections: [],
+      schemas: [],
+      snippets: [],
+      templates: [],
+      testCases: [],
+      revisions: [],
+      ...(target as Record<string, never>),
+    },
+  });
+  if (!read.ok) throw new Error(read.failure.message);
+
+  return buildImportPlan(
+    read.value,
+    read.value.decisions,
+    {
+      prompts: [],
+      folders: [],
+      collections: [],
+      schemas: [],
+      snippets: [],
+      templates: [],
+      testCases: [],
+      revisions: [],
+    },
+    systemDependencies,
+  );
+}
+
+describe('dataStore.applyImport', () => {
+  it('writes every record in an import plan and records one activity event', async () => {
+    const { repositories, store } = await createHarness();
+    const plan = importPlan();
+
+    const outcome = await store.getState().applyImport(plan);
+
+    expect(outcome).toEqual({ created: 2, overwritten: 0, skipped: 0, remapped: 0 });
+    // Repository order: newest `updatedAt` first.
+    expect(store.getState().prompts.map((prompt) => prompt.title)).toEqual([
+      'Escalation summary',
+      'Invoice extractor',
+    ]);
+    expect(store.getState().folders).toHaveLength(3);
+    expect(store.getState().collections).toHaveLength(1);
+    expect(store.getState().schemas).toHaveLength(1);
+    expect(store.getState().snippets).toHaveLength(1);
+    expect(store.getState().templates).toHaveLength(1);
+    expect(store.getState().testCases).toHaveLength(1);
+    expect(store.getState().revisions).toHaveLength(2);
+
+    // One activity event for the whole import, of the documented type.
+    expect(store.getState().activity).toHaveLength(1);
+    expect(store.getState().activity[0]?.type).toBe('imported');
+    expect(store.getState().activity[0]?.summary).toContain('2 prompts added');
+
+    // Storage really holds them, not just the store's view.
+    await expect(repositories.prompts.list()).resolves.toHaveLength(2);
+
+    await repositories.close();
+  });
+
+  it('rolls every completed write back when one step fails', async () => {
+    const base = await createInMemoryRepositories();
+    const failing: Repositories = {
+      ...base,
+      testCases: {
+        ...base.testCases,
+        create: async () => {
+          throw new StorageError('unknown', 'The disk is full.');
+        },
+      },
+    };
+
+    const store = createDataStore({ now: createClock(), newId: createIds() });
+    store.getState().attach(failing, 'durable');
+    await store.getState().hydrate();
+
+    await expect(store.getState().applyImport(importPlan())).rejects.toThrow(
+      /The import stopped partway.*undone.*nothing was written/is,
+    );
+
+    // Every earlier step — folders, collections, schemas, snippets, templates,
+    // prompts, revisions — was undone, and the store re-read the truth.
+    await expect(base.prompts.list()).resolves.toEqual([]);
+    await expect(base.folders.list()).resolves.toEqual([]);
+    await expect(base.collections.list()).resolves.toEqual([]);
+    await expect(base.schemas.list()).resolves.toEqual([]);
+    await expect(base.snippets.list()).resolves.toEqual([]);
+    await expect(base.templates.list()).resolves.toEqual([]);
+    await expect(base.revisions.listByPrompt(transferFixture.prompts[0]!.id)).resolves.toEqual([]);
+
+    expect(store.getState().prompts).toEqual([]);
+    expect(store.getState().activity).toEqual([]);
+
+    await base.close();
+  });
+
+  it('restores an overwritten prompt when a later step fails', async () => {
+    const base = await createInMemoryRepositories();
+    await base.prompts.create(transferFixture.prompts[0]!);
+
+    const failing: Repositories = {
+      ...base,
+      testCases: {
+        ...base.testCases,
+        create: async () => {
+          throw new StorageError('unknown', 'The disk is full.');
+        },
+      },
+    };
+
+    const store = createDataStore({ now: createClock(), newId: createIds() });
+    store.getState().attach(failing, 'durable');
+    await store.getState().hydrate();
+
+    const read = readImportFile(exportJson, {
+      deps: systemDependencies,
+      library: {
+        prompts: [transferFixture.prompts[0]!],
+        folders: [],
+        collections: [],
+        schemas: [],
+        snippets: [],
+        templates: [],
+        testCases: [],
+        revisions: [],
+      },
+    });
+    if (!read.ok) throw new Error(read.failure.message);
+
+    const plan = buildImportPlan(
+      read.value,
+      { ...read.value.decisions, [transferFixture.prompts[0]!.id]: 'overwrite' },
+      {
+        prompts: [transferFixture.prompts[0]!],
+        folders: [],
+        collections: [],
+        schemas: [],
+        snippets: [],
+        templates: [],
+        testCases: [],
+        revisions: [],
+      },
+      systemDependencies,
+    );
+
+    await expect(store.getState().applyImport(plan)).rejects.toThrow(/stopped partway/);
+
+    const stored = await base.prompts.get(transferFixture.prompts[0]!.id);
+    if (!stored) throw new Error('expected the prompt to still exist');
+
+    // Every field is back to what it was. The version is not: the failed write
+    // and its compensating restore each moved it forward, which is what keeps
+    // the counter monotonic.
+    expect({ ...stored, version: 0 }).toEqual({ ...transferFixture.prompts[0]!, version: 0 });
+    expect(stored.version).toBeGreaterThan(transferFixture.prompts[0]!.version);
+
+    await base.close();
+  });
+});
+
+describe('dataStore.noteExport', () => {
+  it('records what was exported, for each scope', async () => {
+    const { repositories, store } = await createHarness();
+
+    await store.getState().noteExport({ scope: 'prompt', count: 1, label: 'Invoice extractor' });
+    await store.getState().noteExport({ scope: 'selection', count: 3 });
+    await store.getState().noteExport({ scope: 'backup', count: 2 });
+
+    const summaries = store.getState().activity.map((event) => event.summary);
+    expect(summaries[0]).toBe('Exported a full backup (2 prompts)');
+    expect(summaries[1]).toBe('Exported 3 selected prompts');
+    expect(summaries[2]).toBe('Exported “Invoice extractor” as a prompt file');
+    expect(store.getState().activity.every((event) => event.type === 'exported')).toBe(true);
+
+    await repositories.close();
+  });
+
+  it('uses a singular noun for a one-prompt backup and selection', async () => {
+    const { repositories, store } = await createHarness();
+
+    await store.getState().noteExport({ scope: 'backup', count: 1 });
+    await store.getState().noteExport({ scope: 'selection', count: 1 });
+    await store.getState().noteExport({ scope: 'prompt', count: 1 });
+
+    // Newest activity first.
+    const summaries = store.getState().activity.map((event) => event.summary);
+    expect(summaries[0]).toBe('Exported “a prompt” as a prompt file');
+    expect(summaries[1]).toBe('Exported 1 selected prompt');
+    expect(summaries[2]).toBe('Exported a full backup (1 prompt)');
 
     await repositories.close();
   });

@@ -75,6 +75,10 @@ export interface CommandContext {
   validatePrompt: () => void;
   /** Opens the snapshot dialog for the open prompt (TASK-019). */
   saveSnapshot: () => void;
+  /** Opens the import dialog (TASK-026); no-op when the shell is not mounted. */
+  importFile: () => void;
+  /** Exports the prompt on screen (TASK-026); no-op when none is open. */
+  exportPrompt: () => void;
 }
 
 export interface CommandDefinition {

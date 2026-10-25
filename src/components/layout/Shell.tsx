@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 
 import { CommandLayer } from '@/components/command-palette/CommandLayer';
+import { ImportDialogProvider } from '@/components/transfer/ImportDialogProvider';
 import { MobileNav } from '@/components/layout/MobileNav';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { SkipLink } from '@/components/layout/SkipLink';
@@ -44,32 +45,34 @@ export function Shell() {
   }, []);
 
   return (
-    <div className="flex min-h-dvh bg-canvas">
-      <SkipLink />
+    <ImportDialogProvider>
+      <div className="flex min-h-dvh bg-canvas">
+        <SkipLink />
 
-      <Sidebar collapsed={railCollapsed} onToggle={toggleSidebar} />
+        <Sidebar collapsed={railCollapsed} onToggle={toggleSidebar} />
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar onOpenNav={openDrawer} navOpen={mobileNavOpen} />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Topbar onOpenNav={openDrawer} navOpen={mobileNavOpen} />
 
-        <main
-          id="main-content"
-          ref={mainRef}
-          tabIndex={-1}
-          className="min-w-0 flex-1 px-4 py-8 focus:outline-none sm:px-6 lg:px-8 lg:py-10"
-        >
-          <Outlet />
-        </main>
+          <main
+            id="main-content"
+            ref={mainRef}
+            tabIndex={-1}
+            className="min-w-0 flex-1 px-4 py-8 focus:outline-none sm:px-6 lg:px-8 lg:py-10"
+          >
+            <Outlet />
+          </main>
+        </div>
+
+        <CommandLayer />
+
+        <MobileNav
+          open={mobileNavOpen}
+          onClose={dismissDrawer}
+          onNavigate={closeDrawerAfterNavigation}
+          restoreFocus={restoreDrawerFocus}
+        />
       </div>
-
-      <CommandLayer />
-
-      <MobileNav
-        open={mobileNavOpen}
-        onClose={dismissDrawer}
-        onNavigate={closeDrawerAfterNavigation}
-        restoreFocus={restoreDrawerFocus}
-      />
-    </div>
+    </ImportDialogProvider>
   );
 }

@@ -52,6 +52,7 @@ import {
   titleKey,
 } from '@/domain/invariants';
 import { RuleViolationError } from '@/domain/errors';
+import { describePlanSummary, type ImportPlan } from '@/domain/transfer/import';
 import { LAB_LIMITS } from '@/domain/lab';
 import { prunePlan } from '@/domain/revisions';
 import {
@@ -184,6 +185,24 @@ export interface RestoreResult {
   readonly restoredFrom: PromptRevision;
   /** Snapshot of the state the restore replaced, taken before any write. */
   readonly safetyRevision: PromptRevision;
+}
+
+/** What an import wrote (TASK-026), for the summary report. */
+export interface ImportOutcome {
+  readonly created: number;
+  readonly overwritten: number;
+  readonly skipped: number;
+  /** How many identifiers had to change to fit this library. */
+  readonly remapped: number;
+}
+
+/** What an export recorded in the activity log (TASK-026). */
+export interface ExportNote {
+  readonly scope: 'prompt' | 'selection' | 'backup';
+  /** Number of prompts in the file. */
+  readonly count: number;
+  /** Prompt title, for a single-prompt export. */
+  readonly label?: string;
 }
 
 /** What a prune removed and what it left behind. */
@@ -387,6 +406,21 @@ export interface DataState {
   useTemplate: (id: string, options?: UseTemplateOptions) => Promise<Prompt>;
 
   saveSettings: (settings: Settings) => Promise<Settings>;
+
+  /**
+   * Writes an import plan (TASK-026).
+   *
+   * The plan is complete — identifiers, references, and timestamps are already
+   * resolved — so this method only writes and reports. Writes happen in
+   * dependency order, and if any step fails every completed step is undone
+   * before the failure is rethrown, so a partial import cannot survive. This is
+   * not one database transaction (repositories each own theirs); it is a
+   * compensating rollback, and the message says so when a step cannot be undone.
+   */
+  applyImport: (plan: ImportPlan) => Promise<ImportOutcome>;
+
+  /** Records an export in the activity log, best effort (TASK-026). */
+  noteExport: (note: ExportNote) => Promise<void>;
 
   clearError: () => void;
 }
@@ -1835,6 +1869,117 @@ export function createDataStore(options: DataStoreOptions = {}) {
           });
           return saved;
         }),
+
+      applyImport: async (plan) =>
+        run(async (repos) => {
+          const undo: (() => Promise<void>)[] = [];
+          const rollback = async (): Promise<string[]> => {
+            const failures: string[] = [];
+            for (const step of [...undo].reverse()) {
+              try {
+                await step();
+              } catch (error) {
+                failures.push(describeDataError(error));
+              }
+            }
+            return failures;
+          };
+
+          try {
+            for (const folder of plan.folders) {
+              await repos.folders.create(folder);
+              undo.push(() => repos.folders.delete(folder.id));
+            }
+            for (const collection of plan.collections) {
+              await repos.collections.create(collection);
+              undo.push(() => repos.collections.delete(collection.id));
+            }
+            for (const schema of plan.schemas) {
+              await repos.schemas.create(schema);
+              undo.push(() => repos.schemas.delete(schema.id));
+            }
+            for (const snippet of plan.snippets) {
+              await repos.snippets.create(snippet);
+              undo.push(() => repos.snippets.delete(snippet.id));
+            }
+            for (const template of plan.templates) {
+              await repos.templates.create(template);
+              undo.push(() => repos.templates.delete(template.id));
+            }
+
+            for (const prompt of plan.promptsToCreate) {
+              await repos.prompts.create(prompt);
+              undo.push(() => repos.prompts.delete(prompt.id));
+            }
+
+            for (const prompt of plan.promptsToUpdate) {
+              // Remember what was there so a failed later step can put it back.
+              const previous = await repos.prompts.get(prompt.id);
+              await repos.prompts.update(prompt, { expectedVersion: prompt.version - 1 });
+              if (previous) {
+                undo.push(async () => {
+                  // The failed write already moved the stored version forward, so
+                  // the restore is a *new* write of the old fields: the version
+                  // stays monotonic instead of going backwards.
+                  const current = await repos.prompts.get(prompt.id);
+                  if (!current) return;
+                  await repos.prompts.update(
+                    { ...previous, version: current.version + 1 },
+                    { expectedVersion: current.version },
+                  );
+                });
+              }
+            }
+
+            for (const revision of plan.revisions) {
+              await repos.revisions.create(revision);
+              undo.push(() => repos.revisions.deleteMany([revision.id]));
+            }
+            for (const testCase of plan.testCases) {
+              await repos.testCases.create(testCase);
+              undo.push(() => repos.testCases.delete(testCase.id));
+            }
+          } catch (error) {
+            const failures = await rollback();
+            await get().hydrate();
+
+            const detail =
+              failures.length === 0
+                ? 'The import was undone, so nothing was written.'
+                : `${failures.length} step(s) could not be undone — check the library before retrying.`;
+            throw new StorageError(
+              'unknown',
+              `The import stopped partway: ${describeDataError(error)} ${detail}`,
+              { cause: error },
+            );
+          }
+
+          // The plan's writes are the truth; read state back rather than
+          // assuming the shape of what was written.
+          await get().hydrate();
+          await recordActivity({
+            type: 'imported',
+            summary: `Imported: ${describePlanSummary(plan)}`,
+          });
+
+          return {
+            created: plan.counts.create,
+            overwritten: plan.counts.overwrite,
+            skipped: plan.counts.skip,
+            remapped: plan.remaps.length,
+          };
+        }),
+
+      noteExport: async (note) => {
+        const summary =
+          note.scope === 'backup'
+            ? `Exported a full backup (${note.count} ${note.count === 1 ? 'prompt' : 'prompts'})`
+            : note.scope === 'selection'
+              ? `Exported ${note.count} selected ${note.count === 1 ? 'prompt' : 'prompts'}`
+              : `Exported “${note.label ?? 'a prompt'}” as a prompt file`;
+
+        await recordActivity({ type: 'exported', summary });
+      },
 
       saveSettings: async (settings) =>
         run(async (repos) => {

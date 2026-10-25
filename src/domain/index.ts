@@ -27,4 +27,7 @@ export * from '@/domain/renderDiff';
 export * from '@/domain/lab';
 export * from '@/domain/graph';
 export * from '@/domain/health';
+export * from '@/domain/transfer/bundle';
+export * from '@/domain/transfer/export';
+export * from '@/domain/transfer/import';
 export * from '@/domain/quality';

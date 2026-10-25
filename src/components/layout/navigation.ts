@@ -84,6 +84,18 @@ export const SECONDARY_NAV: readonly NavItem[] = [
 
 export const ALL_NAV: readonly NavItem[] = [...PRIMARY_NAV, ...SECONDARY_NAV];
 
+/**
+ * Screens that exist but are not in the rail (TASK-030).
+ *
+ * `/diff` is reached from the palette and from a prompt's history, so it has no
+ * rail entry — but it is a real screen, and a reader on it must not be told the
+ * page is missing. Anything added to the router without a rail entry belongs
+ * here, and the route matrix test fails if one is forgotten.
+ */
+export const OFF_NAV_LABELS: Readonly<Record<string, string>> = {
+  '/diff': 'Diff',
+};
+
 /** Label used for breadcrumbs and the document title. */
 export function routeLabel(pathname: string): string | null {
   const normalized = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
@@ -91,6 +103,9 @@ export function routeLabel(pathname: string): string | null {
   for (const item of ALL_NAV) {
     if (normalized === item.to) return item.label;
   }
+
+  const offNav = OFF_NAV_LABELS[normalized];
+  if (offNav) return offNav;
 
   if (normalized === '/prompts' || normalized.startsWith('/prompts/')) return 'Prompt';
   return null;

@@ -3697,3 +3697,45 @@ also had to decide what to do about the optional Playwright suite in an environm
   output, reflow) remain unproven by automation and are listed as such rather than implied.
 - Adding Playwright later is additive: install the package, fetch a browser, add a config,
   and the integration suite already covers the same flows at the store and screen level.
+
+---
+
+## ADR-115 — The integration matrix is automated in jsdom, and the build is smoked over HTTP
+
+**Date:** 2026-10-25 (TASK-030)
+**Status:** Accepted
+
+**Context.** TASK-030 asks for an integration verification pass over a manual matrix — routes,
+create-from-template, edit/validate/fix, save/recovery, organization, archive, snapshots, diff,
+variables, lab, graph, inspector, health, import/export, settings, theme, ephemeral mode — plus a
+production preview smoke test. There is no browser binary in this environment (ADR-114), so a
+manual click-through could not be performed, and a report claiming one would be fiction.
+
+**Decision.**
+
+1. The matrix is executed as **automated integration through the real router, shell, stores, and
+   repositories in jsdom**, in three new suites: a route matrix (every declared path, plus the
+   not-found path, link resolution, empty-library copy, first-run guide, seed idempotency), a
+   command matrix (catalogue structure, discovery, navigation targets, guard safety,
+   screen-scoped availability, help/palette agreement, global keyboard from six routes), and a
+   backup round trip (export → delete the IndexedDB database → import into a fresh install).
+2. The **production preview is smoked at the HTTP level**: `npm run build`, `npm run preview`, then
+   `curl` for all 16 route paths and the referenced assets. This proves the build serves, the SPA
+   fallback covers deep links, and the bundle references resolve; it does not prove rendering.
+3. **Every claim in `docs/VERIFICATION.md` names its evidence** — a test file with a case count, a
+   command with its output, or an explicit "not verified". Anything that needs paint, layout, or a
+   screen reader is listed in `docs/LIMITATIONS.md` §2 and not counted as verified.
+4. The verification pass **reports defects it fixes**. Two were found and fixed (an off-rail screen
+   that labelled itself "Not found"; a help overlay that hid its own binding), each with a
+   regression test, and both are documented rather than quietly patched.
+
+**Consequences.**
+
+- The verification report is reproducible: the same three suites run on every future change, so
+  the checks cannot rot the way a one-off manual pass would.
+- Structural verification is weaker than a browser session for exactly the things it cannot see
+  (layout, contrast, focus, motion). That gap is named, not implied.
+- Route and command additions are now self-guarding: a new route without a matrix case or a new
+  command that points at a non-existent path fails the suite.
+- The HTTP smoke found no app defect, but it did surface a deployment caveat (SPA fallback also
+  answers missing assets), recorded in `docs/LIMITATIONS.md` §4.

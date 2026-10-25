@@ -4,7 +4,7 @@ This file records **how the suite is run, what it covers, and what it does not**
 number below comes from a command that was executed in this repository; nothing here is an
 estimate. Where something could not be verified, it says so instead of implying coverage.
 
-Last refreshed: 2026-10-25 (TASK-029).
+Last refreshed: 2026-10-25 (TASK-030).
 
 ---
 
@@ -28,15 +28,15 @@ binary in this environment, so nothing here is an end-to-end browser test — se
 
 | Gate                    | Result                                                                                                             |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `npm run test:run`      | **119 files, 1,902 tests, all passing**, no skipped or `todo` tests                                                |
-| `npm run test:coverage` | Same suite; **91.48 % statements, 84.90 % branches, 89.46 % functions, 92.49 % lines** (258 measured source files) |
-| Determinism             | Two consecutive full runs produced identical counts and identical coverage figures                                 |
+| `npm run test:run`      | **123 files, 1,975 tests, all passing**, no skipped or `todo` tests                                                |
+| `npm run test:coverage` | Same suite; **91.57 % statements, 85.01 % branches, 89.69 % functions, 92.58 % lines** (258 measured source files) |
+| Determinism             | Repeated full runs produced identical counts and identical coverage figures                                        |
 | `npm run typecheck`     | 0 errors                                                                                                           |
 | `npm run lint`          | Clean                                                                                                              |
 | `npm run format:check`  | Clean                                                                                                              |
 | `npm run build`         | Exit 0                                                                                                             |
 
-Wall time on this machine: **237 s for `npm run test:run`** and **287 s for
+Wall time on this machine: **252.79 s for `npm run test:run`** and **299.85 s for
 `npm run test:coverage`** (the difference is instrumentation). In both runs the tests
 themselves are only about half of the time — jsdom environment setup and module import per
 file are the rest, which is why the suite is parallelised into workers rather than
@@ -44,7 +44,7 @@ optimised file by file.
 
 ## 3. Test inventory
 
-119 test files, grouped by where they live. Every module that holds logic has a sibling
+123 test files, grouped by where they live. Every module that holds logic has a sibling
 test; the two domain files without one (`src/domain/index.ts`, `src/domain/types.ts`) are a
 re-export barrel and type-only declarations, so there is nothing there to assert.
 
@@ -103,6 +103,18 @@ rest are covered by the screen suites that own those surfaces.
 | 9   | Command palette navigation and duplicate-execution guard                           | `components/command-palette/CommandPalette.test.tsx`, `app/router.test.tsx`                                                            | A chord or duplicate activation runs a command once, typing in a field does not trigger shortcuts, and commands navigate.                                                                                                                                                          |
 | 10  | Bulk archive with undo restores prior state                                        | `workflows/criticalFlows.test.ts` (§10.2.10), `routes/library/LibraryRoute.test.tsx` (bulk archive/delete undo)                        | Every archived prompt returns to its previous state, and the undo is persisted, not just repainted.                                                                                                                                                                                |
 
+### 4.1 Integration verification matrices (TASK-030)
+
+| File                                     | Cases | What it verifies beyond the flow list above                                                                                                                                                                                                                                                                                             |
+| ---------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workflows/routeMatrix.test.tsx`         | 41    | Every route in the router: one `main`, one `h1`, correct `document.title`, breadcrumb names the screen, no error boundary; every internal link on every screen resolves; empty-library copy and the first-run guide; seeding is idempotent; the matrix itself covers every declared path.                                               |
+| `workflows/commandMatrix.test.tsx`       | 22    | The palette as one catalogue: structure and uniqueness, discovery by title wherever a command is available, every navigation target resolves, guards never throw, screen-scoped commands appear only with their screen, the help overlay documents every advertised binding, and `Mod+K` / `?` / a `G L` sequence work from six routes. |
+| `workflows/persistenceRoundTrip.test.ts` | 3     | Export → delete the IndexedDB database → import into a fresh one, comparing documents, metadata, membership, history, and test cases; the documented omissions (activity log, preferences) are asserted, as is a rejected file leaving the library untouched.                                                                           |
+| `components/layout/navigation.test.ts`   | 7     | `routeLabel` / `crumbsForPath`, including the `/diff` regression.                                                                                                                                                                                                                                                                       |
+
+The results of that pass, including the two defects it found and fixed, are in
+`docs/VERIFICATION.md`.
+
 ## 5. Coverage policy
 
 Coverage is a **ratchet, not a target**. The floors in `vite.config.ts` sit a few points
@@ -141,6 +153,7 @@ but not asserted here.
 | TASK-027   | 112   | 1,844 | not re-recorded separately                                       |
 | TASK-028   | 116   | 1,879 | 96.62 / 90.59 / 97.78 / 97.55 — **domain, data, and store only** |
 | TASK-029   | 119   | 1,902 | 91.48 / 84.90 / 89.46 / 92.49 — **all application source**       |
+| TASK-030   | 123   | 1,975 | 91.57 / 85.01 / 89.69 / 92.58 — same measured set                |
 
 The TASK-029 figure is **lower on purpose**: from this task on, the measured set includes
 the UI trees (`components`, `features`, `routes`, `app`, `lib`, `styles`) that earlier tasks
@@ -151,6 +164,10 @@ Test cases added by TASK-029: 23 in 3 files (9 integration flows, 14 variables-e
 plus three shared utilities and the global network guard. One dead module
 (`src/routes/shared/RouteScaffold.tsx`, unreferenced once every route had been built) was
 removed rather than tested.
+
+Test cases added by TASK-030: 73 in 4 files — the route matrix (41), the command matrix (22),
+the backup round trip (3), and the navigation unit suite (7). Two defects were found and fixed
+during that pass; see `docs/VERIFICATION.md` §6.
 
 ## 7. End-to-end / browser tests: not available here
 

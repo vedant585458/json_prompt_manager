@@ -611,10 +611,10 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-027 — Responsive refinement pass — High — deps: 018, 020, 022, 023, 024, 025, 026
 - [x] TASK-028 — Accessibility review and remediation — High — deps: 027
 - [x] TASK-029 — Automated test suite expansion — High — deps: 027
-- [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
+- [x] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 29 of 31 tasks complete. TASK-001 through TASK-022 were completed on 2026-10-24; TASK-023 through TASK-029 on 2026-10-25.
+**Progress:** 30 of 31 tasks complete. TASK-001 through TASK-022 were completed on 2026-10-24; TASK-023 through TASK-030 on 2026-10-25.
 
 ---
 
@@ -1777,7 +1777,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-030 — Integration verification and defect pass
 
-- **Status:** Not Started
+- **Status:** Completed (2026-10-25)
 - **Priority:** High
 - **Dependencies:** TASK-028, TASK-029
 - **Objective:** Verify the application works as an integrated whole, fix defects found, and confirm no primary workflow is broken.
@@ -1796,6 +1796,46 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** The verification matrix itself plus recorded outputs of all quality scripts; production preview route check; typecheck/lint/tests/build.
 - **Deliverables:** defect fixes + regression tests, `docs/VERIFICATION.md`, updated `docs/LIMITATIONS.md`.
 - **Out of scope:** New features, redesigns, backend introduction.
+
+- **Completion record (2026-10-25):** Completed after explicit user authorization ("Start Task 030").
+  Full evidence is in **`docs/VERIFICATION.md`**; the summary is below.
+  - **Result:** no known broken primary workflow. **123 test files / 1,975 tests pass** (73 new cases in
+    four files this task), coverage 91.57 / 85.01 / 89.69 / 92.58 with every floor met, typecheck /
+    lint / format clean, `npm run build` exit 0, and all **16 route paths return `200 text/html`** from
+    `npm run preview` with their assets resolving.
+  - **How the matrix was executed:** as automated integration over the real router, shell, stores, and
+    repositories in jsdom (no browser exists here — ADR-114), plus an HTTP smoke of the production
+    build. New suites: `src/test/workflows/routeMatrix.test.tsx` (41 cases: every declared route, its
+    title and landmarks, no error boundary, every internal link resolved against the router, empty-library
+    copy, the first-run guide, and idempotent seeding), `src/test/workflows/commandMatrix.test.tsx`
+    (22 cases: catalogue structure and uniqueness, discovery by title, navigation targets, guard safety,
+    screen-scoped availability, palette/help agreement, and `Mod+K` / `?` / `G L` from six routes),
+    `src/test/workflows/persistenceRoundTrip.test.ts` (3 cases: export → **delete the database** →
+    import into a fresh install, compared field by field), and `src/components/layout/navigation.test.ts`
+    (7 cases).
+  - **Persistence integrity:** verified after reload (reopened connections in `criticalFlows.test.ts` and
+    `savePipeline.indexedDb.test.tsx`), after a refused write (`durableFailure.test.tsx`), and across a
+    full export/import round trip with the database deleted in between. The bundle's documented omissions
+    (activity log, preferences, drafts) are asserted, not assumed.
+  - **Defects found and fixed (2):**
+    1. **`/diff` reported itself as "Not found"** — the screen worked, but `document.title`, the top bar,
+       and the breadcrumb all said the page was missing, because `routeLabel()` only knew rail
+       destinations. Fixed with `OFF_NAV_LABELS` in `src/components/layout/navigation.ts`; regression
+       tests in `navigation.test.ts` and the route matrix.
+    2. **The shortcut help hid its own `?` binding** — the overlay promises "every shortcut this build
+       registers", but evaluated availability with `helpOpen: true`, so the self-hiding command filtered
+       itself out. Fixed in `src/components/layout/ShortcutHelpDialog.tsx`; regression test in the command
+       matrix.
+  - **Deployment caveat (not an app defect):** the SPA fallback answers missing `/assets/*` with
+    `200 text/html`, so a host must serve assets strictly and fall back only for extension-less routes.
+    Recorded in `docs/LIMITATIONS.md` §4.
+  - **Not verified (unchanged, stated in `docs/LIMITATIONS.md` §2):** rendered layout, pixel contrast,
+    target sizes, focus-ring visibility, motion, zoom/reflow, screen-reader output, real multi-tab
+    sessions, and browser-level journeys — there is no browser binary, and no Playwright suite exists
+    (ADR-114). Every screen was verified structurally, never visually.
+  - **Docs:** `docs/VERIFICATION.md` (new; summary, per-area evidence table, the matrices, gates, HTTP
+    smoke output, defect write-ups, and the "did not verify" list), `docs/TESTING.md` updated with the new
+    totals and §4.1, `docs/LIMITATIONS.md` extended, ADR-115.
 
 ---
 

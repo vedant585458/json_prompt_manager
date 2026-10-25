@@ -2,7 +2,7 @@
 
 This file lists what the product, the test suite, and this delivery **do not** do, with the
 evidence or reason for each. It exists so that no reader has to infer coverage from silence.
-Started in TASK-029 (E2E attempt); TASK-030 and TASK-031 extend it.
+Started in TASK-029 (E2E attempt); extended by TASK-030 (integration pass); TASK-031 closes it.
 
 Last updated: 2026-10-25.
 
@@ -55,6 +55,18 @@ therefore **not verified by any automated test**, and no test in this repository
 | CodeMirror widget internals                               | Third-party view code, no layout           | Hand-checked paths; integration assertions stop at the editor’s public surface                                         |
 | Cross-tab behaviour                                       | No second browsing context                 | Simulated with `BroadcastChannel`/storage events in the save pipeline tests                                            |
 
+## 2a. What the TASK-030 integration pass verified, and what it still could not
+
+`docs/VERIFICATION.md` records the pass in detail: every route renders with the right title and
+landmarks, every internal link resolves, every command is discoverable and points at a real
+route, the global keyboard works from six screens, and a full backup survives deleting the
+database and importing into a fresh install. Two defects were found and fixed there.
+
+What that pass **still** could not do is look at anything. Every screen was verified
+structurally (does the right markup, copy, and state exist?) rather than visually (does it look
+right at 360 px, is the focus ring visible, does the modal cover the right layer?). Those items
+stay in §2.
+
 ## 3. Product-scope limitations (by design)
 
 - **Single browser, single device.** All data lives in this browser’s IndexedDB. There is no
@@ -75,7 +87,16 @@ therefore **not verified by any automated test**, and no test in this repository
 - **No PWA / offline service worker.** The app is a static SPA that works once loaded; it is
   not installable and does not cache itself.
 
-## 4. Environment limitations of this delivery
+## 4. Environment and deployment limitations
+
+- **A host must not serve `index.html` for missing assets.** The local preview (`vite preview`,
+  SPA mode) answers `/assets/nope.js` with `200 text/html`. That is fine locally, but a static
+  host configured to fall back to `index.html` for every path would turn a stale asset reference
+  into a MIME-type error instead of a 404. Deploy with `/assets/*` served strictly (404 on miss)
+  and the fallback applied only to extension-less routes.
+- **No browser binary**, so the production bundle was verified by `npm run build` plus HTTP
+  checks against `npm run preview` (16/16 route paths return `200 text/html` with the app root,
+  and the referenced JS/CSS return 200). No page was executed in a browser during this delivery.
 
 - No browser binary, so the production build was verified by `npm run build` and route
   assertions, not by loading it in a browser (`npm run preview` was not exercised).
@@ -86,5 +107,8 @@ therefore **not verified by any automated test**, and no test in this repository
 
 ## 5. Accepted defects
 
-None known at the time of writing. TASK-030 is the pass that searches for them; anything
-found and not fixed will be listed here with its impact, instead of being left unmentioned.
+None known. The TASK-030 pass fixed the two defects it found (`/diff` reported itself as
+"Not found" in the title, top bar, and breadcrumb; the shortcut help omitted its own `?`
+binding) and added a regression test for each — see `docs/VERIFICATION.md` §6.
+
+Anything found later belongs here, with its impact, rather than in a commit message.

@@ -19,6 +19,11 @@ export interface ShortcutHelpDialogProps {
  * Generated from the command registry at open time — there is no hand-written
  * list that can drift out of date. Only available commands are shown, so a
  * shortcut cannot be advertised for something that would not run.
+ *
+ * One deliberate exception (TASK-030): availability is evaluated as if this
+ * overlay were closed. "Show keyboard shortcuts" hides itself while help is
+ * open, which would otherwise drop the `?` binding from the very list that
+ * promises to document every shortcut this build registers.
  */
 export function ShortcutHelpDialog({
   buildContext,
@@ -28,7 +33,7 @@ export function ShortcutHelpDialog({
   const setOpen = useUiStore((state) => state.setHelpOpen);
   const commands = useCommands(registry);
 
-  const context = buildContext();
+  const context = { ...buildContext(), helpOpen: false };
   const withShortcuts = commands.filter(
     (command) => parsedShortcutOf(command) !== null && isCommandAvailable(command, context),
   );

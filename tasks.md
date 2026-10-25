@@ -610,11 +610,11 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-026 — Import and export — High — deps: 012, 019
 - [x] TASK-027 — Responsive refinement pass — High — deps: 018, 020, 022, 023, 024, 025, 026
 - [x] TASK-028 — Accessibility review and remediation — High — deps: 027
-- [ ] TASK-029 — Automated test suite expansion — High — deps: 027
+- [x] TASK-029 — Automated test suite expansion — High — deps: 027
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 28 of 31 tasks complete. TASK-001 through TASK-022 were completed on 2026-10-24; TASK-023 through TASK-028 on 2026-10-25.
+**Progress:** 29 of 31 tasks complete. TASK-001 through TASK-022 were completed on 2026-10-24; TASK-023 through TASK-029 on 2026-10-25.
 
 ---
 
@@ -1703,7 +1703,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-029 — Automated test suite expansion
 
-- **Status:** Not Started
+- **Status:** Completed (2026-10-25)
 - **Priority:** High
 - **Dependencies:** TASK-027
 - **Objective:** Consolidate unit, integration, and (if feasible) end-to-end coverage for the critical workflows, replacing ad-hoc tests with a coherent, documented suite.
@@ -1722,6 +1722,56 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Run full suite and record pass counts and coverage summary; re-run twice to confirm determinism; typecheck/lint/build; document results.
 - **Deliverables:** expanded `src/**/*.test.ts(x)`, test utilities in `src/test/`, optional `e2e/` with config, `docs/TESTING.md`.
 - **Out of scope:** 100% coverage as a vanity target, load/performance testing, visual regression service setup.
+
+- **Completion record (2026-10-25):** Completed after explicit user authorization ("Start Task 029").
+  - **Result:** **119 test files / 1,902 tests, all passing**, no skipped or `todo` cases. Coverage is
+    now measured over **all 258 application source files**: 91.48 % statements, 84.90 % branches,
+    89.46 % functions, 92.49 % lines. Two consecutive full runs produced identical counts and
+    identical coverage.
+  - **Domain gap audit (§10.1):** every domain module already had a direct sibling test from its own
+    task; the only two without one are `src/domain/index.ts` (a re-export barrel) and
+    `src/domain/types.ts` (type-only). No test was added to those. The genuine unit gap found by
+    coverage was **`src/components/composer/VariablesEditor.tsx` at 21 % of lines** — only ever
+    exercised through the composer screen — which now has 14 direct cases (rows, type change,
+    required toggle, move/remove boundaries, name and default-value issues scoped to their own row,
+    unreadable entries, invalid-JSON blocking, read-only state).
+  - **Integration flows (§10.2):** all ten are covered and mapped in `docs/TESTING.md` §4. New:
+    `src/test/workflows/criticalFlows.test.ts` (7 cases — create → reconnect → one activity event;
+    stale write refused with the stored row untouched; snapshot/edit/restore leaves a
+    `restore-safety` revision holding the replaced text; bulk archive undo persisted; full bundle
+    import and rejected-file-writes-nothing; settings round trip) and
+    `src/test/workflows/durableFailure.test.tsx` (2 cases — a refused write over the real IndexedDB
+    adapter shows "Not saved", keeps the draft in the editor and in recovery storage, never renders
+    "Saved", and leaves the stored row at version 1; retry lands at version 2).
+  - **Test utilities (new `src/test/` files):** `clock.ts` (`fakeClock` — frozen time plus sequential
+    ids), `libraryFixture.ts` (`buildLibrary` / `buildTemplateFixture` — deterministic seeded
+    repositories), `networkGuard.ts` (replaces `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`,
+    `sendBeacon` with spies that throw and name the target). The guard is installed once in
+    `src/test/setup.ts`, reset before each test, and asserted after each test, so an accidental
+    outbound request now fails the suite instead of silently succeeding.
+  - **Coverage gate (`vite.config.ts`):** `include` widened from domain/data/store to
+    `src/**/*.{ts,tsx}` (excluding tests, `src/test/**`, `.d.ts`, `src/main.tsx`), with a global floor
+    (88/80/85/88) plus per-tree floors for `app`, `components`, `data`, `domain`, `features`, `lib`,
+    `routes`, `store`, each a few points below the measured value of its weakest module. Consequence
+    recorded in ADR-114: the headline number *fell* from 96.6 % to 91.5 % because the denominator now
+    contains the UI; no test was removed.
+  - **E2E (§10.3): attempted and unavailable.** `npm i -D @playwright/test` succeeded; `npx playwright
+    install chromium` failed with `ECONNRESET` against `cdn.playwright.dev`, which this sandbox cannot
+    reach. The package was uninstalled again, so no `e2e/`, config, or spec file exists and nothing is
+    presented as skipped coverage. Evidence and the replacement plan are in `docs/LIMITATIONS.md` §1.
+  - **Cleanup:** deleted `src/routes/shared/RouteScaffold.tsx` — the TASK-008 placeholder scaffold,
+    unreferenced since every route was built, and untestable dead code (it was the only file at 0 %).
+  - **Docs:** rewrote `docs/TESTING.md` (how to run, inventory, utilities, the §10.2 flow map, the
+    coverage policy table with measured values, growth history, E2E status, conventions, and what the
+    suite still cannot prove) and created `docs/LIMITATIONS.md` (E2E unavailability, what jsdom cannot
+    verify, product-scope limits, delivery limits). ADR-114 records the coverage-gate and E2E decisions.
+  - **Validation (executed):** `tsc --noEmit` 0 errors; `eslint .` clean; `prettier --check .` clean;
+    `npx vitest run --coverage` twice — **EXIT 0**, 119 files / 1,902 tests both times, coverage
+    91.48/84.90/89.46/92.49 both times, all thresholds met; `npm run build` exit 0.
+  - **Known limitations:** no browser binary, so the Playwright flows, rendered-pixel contrast,
+    target sizes, focus visibility, zoom/reflow, and screen-reader output remain unverified and are
+    listed in `docs/LIMITATIONS.md` §2; `src/routes/design/**` (developer gallery) sits at 43.9 % of
+    lines by choice; `JsonEditor`/`TreeView` pointer paths stop at ~65–70 % in jsdom.
 
 ---
 

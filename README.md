@@ -116,6 +116,12 @@ See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for layer rules, the design
 and architectural decisions, and [`docs/DECISIONS.md`](./docs/DECISIONS.md) for the decision log and
 the generated contrast table.
 
+Testing and limits have their own pages. [`docs/TESTING.md`](./docs/TESTING.md) records how to run
+the suite (`npm run test:run`, `npm run test:coverage`), the current inventory and measured coverage
+with the per-tree floors that gate it, which test covers each critical workflow, and what the suite
+provably cannot check. [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md) states the gaps plainly —
+including why there is no Playwright suite in this repository and what a jsdom test can never prove.
+
 Accessibility has its own page: [`docs/ACCESSIBILITY.md`](./docs/ACCESSIBILITY.md) records the
 three gates (an axe-core audit over every route and overlay, a keyboard and semantics suite, and
 the token contrast gate with composited disabled states), the findings that were fixed, the full

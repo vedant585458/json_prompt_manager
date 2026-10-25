@@ -3653,3 +3653,47 @@ suite that quietly disables half of axe's rules is worse than no suite, because 
   output. Those stay manual checks, recorded as open rather than as passes.
 - Raising disabled opacity makes disabled controls slightly more prominent. That is the
   intended trade: visible-but-inactive beats invisible-and-inactive.
+
+---
+
+## ADR-114 — Coverage gates every tree, with floors as ratchets; no browser suite is shipped
+
+**Date:** 2026-10-25 (TASK-029)
+**Status:** Accepted
+
+**Context.** Coverage was gated for `src/domain`, `src/data`, and `src/store` only. The UI
+trees (`app`, `components`, `features`, `routes`, `lib`, `styles`) were collected but not
+measured, so a screen could lose every test it had and the gate would not notice. TASK-029
+also had to decide what to do about the optional Playwright suite in an environment where
+`cdn.playwright.dev` is unreachable.
+
+**Decision.**
+
+1. Coverage `include` becomes `src/**/*.{ts,tsx}` (excluding tests, `src/test/**`,
+   declaration files, and `src/main.tsx`), so every application module is measured.
+2. Floors are set per tree — a global floor plus `app`, `components`, `data`, `domain`,
+   `features`, `lib`, `routes`, `store` — each a few points under the measured value of the
+   weakest module in that tree at the time of writing (recorded in `docs/TESTING.md` §5).
+   They are ratchets: raise them when a tree improves; never lower one to make a red build
+   green.
+3. No Playwright dependency, config, or spec file is kept. The browser binary cannot be
+   downloaded here, so the suite is omitted rather than committed in a permanently skipped
+   state. The attempt, its exact error, and what replaces it are documented in
+   `docs/LIMITATIONS.md` §1.
+4. Integration flows that touch storage use the real adapter (`fake-indexeddb`) rather than
+   a hand-written double, and drive the real store and screens; the only simulated part is
+   the browser.
+5. A global network guard in `src/test/setup.ts` makes any `fetch`, `XMLHttpRequest`,
+   `WebSocket`, `EventSource`, or `sendBeacon` call throw and fail the test that made it.
+
+**Consequences.**
+
+- The headline coverage number dropped from 96.6 % to 91.5 % without any test being deleted:
+  the denominator now contains the UI. The per-tree table is the meaningful record, and
+  `docs/TESTING.md` says so explicitly so the drop is not read as a regression.
+- Floors must be maintained by hand when a tree improves; a floor that no longer reflects
+  the codebase is worse than none, so the measured values are recorded next to it.
+- Browser-level guarantees (layout, contrast on pixels, focus visibility, screen-reader
+  output, reflow) remain unproven by automation and are listed as such rather than implied.
+- Adding Playwright later is additive: install the package, fetch a browser, add a config,
+  and the integration suite already covers the same flows at the store and screen level.

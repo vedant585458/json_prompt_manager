@@ -4,6 +4,11 @@ import { cleanup } from '@testing-library/react';
 import { afterEach, beforeEach } from 'vitest';
 
 import { mockMatchMedia, type MatchMediaController } from '@/test/matchMedia';
+import {
+  expectNoNetworkAttempts,
+  installNetworkGuard,
+  resetNetworkAttempts,
+} from '@/test/networkGuard';
 
 // React 19 requires this flag before `act()` can be used. Testing Library calls
 // `act()` internally, and Radix primitives schedule focus/portal work in
@@ -59,10 +64,23 @@ if (typeof Range !== 'undefined') {
   }
 }
 
+// Nothing may leave the browser (ADR-01), so the suite enforces it: every
+// outbound primitive throws and records, and each test fails if it tried to use
+// one (TASK-029).
+installNetworkGuard();
+
 // Testing Library only auto-registers cleanup when Vitest globals are enabled;
 // this project keeps globals off, so cleanup is explicit.
 afterEach(() => {
   cleanup();
+});
+
+beforeEach(() => {
+  resetNetworkAttempts();
+});
+
+afterEach(() => {
+  expectNoNetworkAttempts();
 });
 
 let media: MatchMediaController | undefined;

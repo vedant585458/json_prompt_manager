@@ -440,6 +440,61 @@ describe('schema mismatches on the dashboard (TASK-016)', () => {
     );
   });
 
+  it('puts structural findings in the attention list, after schema mismatches', () => {
+    const data = selectDashboardData({
+      prompts: [attached('a', 'Short one', 'nope'), makePrompt({ title: 'Needs a review' })],
+      collections: [],
+      templates: [],
+      revisions: [],
+      activity: [],
+      schemas: [schema],
+      quality: [
+        {
+          promptId: 'b',
+          title: 'Needs a review',
+          updatedAt: NOW.toISOString(),
+          errors: 0,
+          warnings: 2,
+        },
+      ],
+      now: NOW,
+    });
+
+    expect(data.attention.map((item) => item.kind)).toEqual([
+      'schema-mismatch',
+      'quality-findings',
+    ]);
+    expect(data.attention[1]).toMatchObject({
+      id: 'quality:b',
+      promptId: 'b',
+      title: 'Needs a review',
+      detail: '2 structural findings in the inspector',
+    });
+  });
+
+  it('keeps findings behind stale prompts only when there is no room', () => {
+    const data = selectDashboardData({
+      prompts: [],
+      collections: [],
+      templates: [],
+      revisions: [],
+      activity: [],
+      quality: [
+        {
+          promptId: 'b',
+          title: 'Needs a review',
+          updatedAt: NOW.toISOString(),
+          errors: 1,
+          warnings: 0,
+        },
+      ],
+      now: NOW,
+    });
+
+    expect(data.attention).toHaveLength(1);
+    expect(data.attention[0]?.detail).toBe('1 structural finding in the inspector');
+  });
+
   it('mentions schema failures in the header summary', () => {
     expect(
       describeDashboardSummary({

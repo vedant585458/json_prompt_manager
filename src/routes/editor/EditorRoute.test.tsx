@@ -15,7 +15,7 @@ import {
 } from '@/domain/factories';
 import { createBlankDocument } from '@/domain/promptDocument';
 import { formatDocument } from '@/domain/serialization';
-import type { Prompt } from '@/domain/types';
+import type { Prompt, PromptDocument } from '@/domain/types';
 import { renderAppWithData } from '@/test/renderAppWithData';
 import { usePreferencesStore } from '@/store/preferences';
 import { useUiStore } from '@/store/uiStore';
@@ -817,5 +817,119 @@ describe('blueprint tab (TASK-023)', () => {
 
     expect(await screen.findByText(/The blueprint needs valid JSON/)).toBeVisible();
     expect(document.querySelector('[data-blueprint-graph="true"]')).toBeNull();
+  });
+});
+
+describe('quality inspector tab (TASK-024)', () => {
+  function qualityPrompt(overrides: Partial<PromptDocument> = {}): Prompt {
+    return makePrompt({
+      id: 'alpha',
+      title: 'Invoice parser',
+      content: createBlankDocument({
+        name: 'Invoice parser',
+        role: '',
+        objective: '',
+        instructions: ['Classify {{ghost}}.'],
+        examples: [],
+        ...overrides,
+      }),
+    });
+  }
+
+  beforeEach(() => {
+    usePreferencesStore.setState({ autosaveEnabled: false });
+    window.localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  it('reviews the draft from a Quality tab and counts the findings in the header', async () => {
+    const user = userEvent.setup();
+    await openEditor({ prompts: [qualityPrompt()] });
+
+    await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
+    const chip = screen.getByRole('button', { name: /Quality review: 2 errors/ });
+    await user.click(chip);
+
+    expect(await screen.findByText('No objective is stated')).toBeVisible();
+    expect(screen.getByText('“ghost” is used but never declared')).toBeVisible();
+    expect(screen.getByText('No role is given')).toBeVisible();
+    expect(screen.getByText(/This review follows the draft/)).toBeVisible();
+    expect(screen.getByRole('tab', { name: 'Quality' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('opens the tab from a ?panel= link and clears the parameter', async () => {
+    const harness = await openEditor({
+      prompts: [qualityPrompt()],
+      path: '/prompts/alpha?panel=quality',
+    });
+
+    expect(await screen.findByText('No objective is stated')).toBeVisible();
+    await waitFor(() => expect(harness.router.state.location.search).toBe(''));
+  });
+
+  it('presents, dismisses, resolves, and re-renders a document with three findings', async () => {
+    const user = userEvent.setup();
+    const harness = await openEditor({
+      prompts: [qualityPrompt()],
+      path: '/prompts/alpha?panel=quality',
+    });
+
+    // 1. Present: two errors and a suggestion, each naming its field.
+    expect(await screen.findByText('No objective is stated')).toBeVisible();
+    expect(screen.getByText('“ghost” is used but never declared')).toBeVisible();
+    expect(screen.getByText('No role is given')).toBeVisible();
+
+    // 2. Dismiss the suggestion with a reason.
+    const roleCard = screen
+      .getAllByRole('article')
+      .find((article) => within(article).queryByText('No role is given') !== null);
+    if (!roleCard) throw new Error('Missing the role card');
+    await user.click(within(roleCard).getByRole('button', { name: 'Dismiss…' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(
+      within(dialog).getByLabelText(/Why is it acceptable\?/),
+      'This prompt is deliberately voice-neutral.',
+    );
+    await user.click(within(dialog).getByRole('button', { name: 'Dismiss the finding' }));
+
+    expect(screen.queryByText('No role is given')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Quality review: 2 errors/ })).toBeVisible();
+
+    // Nothing about the prompt itself changed.
+    const stored = await harness.repositories.prompts.get('alpha');
+    expect(stored?.version).toBe(1);
+    expect(stored?.content.objective).toBe('');
+    expect(stored?.content.role).toBe('');
+
+    // 3. Resolve one error and re-run by remounting the same prompt.
+    harness.unmount();
+    window.localStorage.removeItem(draftStorageKey('alpha'));
+    const fixed = qualityPrompt({
+      objective: 'Classify each invoice.',
+      instructions: ['Read it.'],
+    });
+    await openEditor({ prompts: [fixed], path: '/prompts/alpha?panel=quality' });
+
+    expect(await screen.findByText(/1 finding: 1 suggestion|1 finding/)).toBeVisible();
+    expect(screen.queryByText('No objective is stated')).not.toBeInTheDocument();
+    expect(screen.queryByText('“ghost” is used but never declared')).not.toBeInTheDocument();
+    // The dismissal survived the remount, so the suggestion stays hidden.
+    expect(screen.queryByText('No role is given')).not.toBeInTheDocument();
+  });
+
+  it('says why it cannot review an invalid draft', async () => {
+    const user = userEvent.setup();
+    await openEditor({ prompts: [qualityPrompt()] });
+
+    const editor = await screen.findByRole('textbox', {
+      name: 'JSON document for Invoice parser',
+    });
+    await user.click(editor);
+    await user.keyboard('x');
+    await screen.findByText(/This is not valid JSON/);
+
+    await user.click(screen.getByRole('tab', { name: 'Quality' }));
+
+    expect(await screen.findByText(/The review needs valid JSON/)).toBeVisible();
   });
 });

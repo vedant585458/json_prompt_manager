@@ -42,7 +42,7 @@ export interface DocumentProblem {
   readonly updatedAt: string;
 }
 
-export type AttentionKind = 'invalid-document' | 'schema-mismatch' | 'stale';
+export type AttentionKind = 'invalid-document' | 'schema-mismatch' | 'quality-findings' | 'stale';
 
 export interface AttentionItem {
   readonly id: string;
@@ -51,6 +51,20 @@ export interface AttentionItem {
   readonly title: string;
   readonly detail: string;
   readonly updatedAt: string;
+}
+
+/**
+ * A prompt the quality inspector has something to say about (TASK-024).
+ *
+ * Counts only: the dashboard says how many findings a prompt has and links to
+ * the inspector, where the findings and their dismissals live.
+ */
+export interface QualityAttentionSource {
+  readonly promptId: string;
+  readonly title: string;
+  readonly updatedAt: string;
+  readonly errors: number;
+  readonly warnings: number;
 }
 
 export interface DashboardCounts {
@@ -87,6 +101,8 @@ export interface DashboardInput {
   readonly activity: readonly ActivityEvent[];
   /** Stored schemas; when omitted, no schema check is attempted (TASK-016). */
   readonly schemas?: readonly PromptSchema[];
+  /** Quality findings per prompt, already filtered by dismissals (TASK-024). */
+  readonly quality?: readonly QualityAttentionSource[];
   readonly now?: Date;
 }
 
@@ -138,6 +154,7 @@ export function selectAttention(
   problems: readonly DocumentProblem[],
   now: Date,
   schemaProblems: readonly PromptSchemaProblem[] = [],
+  quality: readonly QualityAttentionSource[] = [],
   limit: number = DASHBOARD_LIMITS.attention,
 ): AttentionItem[] {
   const invalid: AttentionItem[] = problems.map((problem) => ({
@@ -174,7 +191,22 @@ export function selectAttention(
     updatedAt: prompts.find((prompt) => prompt.id === problem.promptId)?.updatedAt ?? '',
   }));
 
-  return [...invalid, ...mismatched, ...stale].slice(0, Math.max(0, limit));
+  // Findings are advisory, so they follow the two problems that actually block
+  // reading a document, and they precede "not touched recently".
+  const findings: AttentionItem[] = quality.map((item) => {
+    const total = item.errors + item.warnings;
+
+    return {
+      id: `quality:${item.promptId}`,
+      kind: 'quality-findings',
+      promptId: item.promptId,
+      title: item.title,
+      detail: `${total} structural ${total === 1 ? 'finding' : 'findings'} in the inspector`,
+      updatedAt: item.updatedAt,
+    };
+  });
+
+  return [...invalid, ...mismatched, ...findings, ...stale].slice(0, Math.max(0, limit));
 }
 
 /** Every dashboard value, derived once from stored records. */
@@ -222,7 +254,7 @@ export function selectDashboardData(input: DashboardInput): DashboardData {
     pinned,
     favorites,
     templates,
-    attention: selectAttention(input.prompts, problems, now, schemaProblems),
+    attention: selectAttention(input.prompts, problems, now, schemaProblems, input.quality ?? []),
     activity,
     isEmpty: input.prompts.length === 0,
   };

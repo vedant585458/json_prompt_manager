@@ -99,7 +99,7 @@ src/
   components/playground/  variable form and rendered preview, shared by the route and the editor
   lib/commands/   registry, shortcut parsing/matching, core commands, React bindings
   components/     ui primitives, layout, and domain components
-  features/       feature modules (organization, save pipeline, revisions, diff, lab, blueprint, ...)
+  features/       feature modules (organization, save pipeline, revisions, diff, lab, blueprint, quality, ...)
   domain/         pure TypeScript domain logic and types (no React, no storage)
   data/           repository interfaces, IndexedDB + in-memory adapters, migrations,
                   typed storage errors, write queue, cross-tab announcements
@@ -340,6 +340,32 @@ the repeatable version of the playground: the values are stored with the prompt 
   are reported, not dropped.
 - **What it is not.** Local rendering only: no AI model provider is connected, nothing is sent anywhere,
   nothing is scored, and no count is called a token count. The banner saying so is permanent.
+
+## Quality inspector
+
+The **Quality** tab in the prompt workspace (and the `quality.inspect` command) reviews the draft against
+fifteen written rules and reports what they find. It is not a score and it never edits your prompt.
+
+- **Rules, not opinions.** Every finding names the rule that produced it and says whether it is
+  **deterministic** (a fact: a placeholder with no declaration, a JSON key that is silently discarded, an
+  included snippet that no longer exists, a schema reference that points at nothing) or **heuristic** (a rule
+  of thumb: no role, no worked example, a field past a length threshold). A rule of thumb can be wrong, and it
+  is never presented as a defect.
+- **Missing inputs are admitted, not guessed.** A rule that needs the snippet library, the schema list, the
+  prompt record, or the raw draft says it was skipped and why, rather than assuming the worst.
+- **Each finding explains itself.** The field it names, a clipped excerpt of the evidence, why the rule fired,
+  and a suggested fix you can ignore. `Go to the field` puts the editor caret on that key; `Copy finding` copies
+  the whole finding as text.
+- **Dismiss with a reason.** A dismissal hides one finding for this prompt, in this browser, with a reason
+  stored beside it (never in the prompt or its history). It is tied to the exact content it was about, so an
+  unrelated edit leaves it alone and an edit to that field brings the finding back — and the stale dismissal is
+  reported rather than silently forgotten. Dismissed findings can be restored one at a time or all at once.
+- **The thresholds are on the screen.** The oversized-content rule states every length it uses (objective
+  800, each instruction 400, context description 1,000, notes 800, whole document 8,000 characters) — as
+  guidance, never as a limit.
+- **Honest scope.** No model is called, nothing is scored, nothing is rewritten. The full rule reference is in
+  `docs/QUALITY-RULES.md`, and the dashboard escalates only the five rules that describe an actual
+  inconsistency — an unfinished draft is a draft, not a defect.
 
 ## Prompt blueprint
 

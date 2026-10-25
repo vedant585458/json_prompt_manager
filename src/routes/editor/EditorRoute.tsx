@@ -11,6 +11,9 @@ import { JsonErrorPanel } from '@/components/editor/JsonErrorPanel';
 import { TreeView } from '@/components/editor/TreeView';
 import { PlaygroundPanel } from '@/components/playground/PlaygroundPanel';
 import { BlueprintPanel } from '@/features/blueprint/BlueprintPanel';
+import { QualityChip } from '@/features/quality/QualityChip';
+import { QualityPanel } from '@/features/quality/QualityPanel';
+import { useQualityDismissals } from '@/features/quality/useQualityDismissals';
 import { PromptSummaryCard } from '@/components/prompts/PromptSummaryCard';
 import { SnapshotDialog } from '@/components/revisions/SnapshotDialog';
 import {
@@ -32,6 +35,7 @@ import type { JsonSyntaxError } from '@/domain/jsonText';
 import { formatJsonText, minifyJsonText } from '@/domain/jsonText';
 import { parseDocument } from '@/domain/serialization';
 import { validateJsonText } from '@/domain/validation';
+import { applyDismissals, inspectQuality, type QualityReport } from '@/domain/quality';
 import { revisionsForPrompt } from '@/domain/revisions';
 import { useSavePipeline } from '@/features/save/useSavePipeline';
 import { findLineForPath, type ValidationIssue } from '@/domain/validation';
@@ -65,10 +69,10 @@ const JsonEditor = lazy(() => import('@/components/editor/JsonEditor'));
 
 const EMPTY_CARET = { line: 1, column: 1 };
 
-/** The editor's tabs. `?panel=blueprint` can select the last one (TASK-023). */
-type EditorView = 'raw' | 'tree' | 'preview' | 'blueprint';
+/** The editor's tabs. `?panel=` can select any of them (TASK-023, TASK-024). */
+type EditorView = 'raw' | 'tree' | 'preview' | 'blueprint' | 'quality';
 
-const VIEWS: readonly EditorView[] = ['raw', 'tree', 'preview', 'blueprint'];
+const VIEWS: readonly EditorView[] = ['raw', 'tree', 'preview', 'blueprint', 'quality'];
 
 function isEditorView(value: string | null): value is EditorView {
   return value !== null && (VIEWS as readonly string[]).includes(value);
@@ -141,6 +145,41 @@ export function EditorRoute() {
   const revisionCount = useMemo(
     () => (prompt ? revisionsForPrompt(revisions, prompt.id).length : 0),
     [prompt, revisions],
+  );
+
+  // The Quality tab reviews the draft, and its header chip must show the same
+  // findings as the tab, so the report and the dismissals are derived here and
+  // passed to both (TASK-024).
+  const snippetIds = useMemo(() => snippets.map((snippet) => snippet.id), [snippets]);
+  const schemaIds = useMemo(() => schemas.map((schema) => schema.id), [schemas]);
+  // Only the draft is reviewed: showing findings for the stored prompt while the
+  // draft is broken would describe a document the reader is not looking at.
+  const qualityDocument = draftDocument;
+  const promptDescription = prompt?.description ?? '';
+
+  const qualityReport = useMemo<QualityReport | null>(
+    () =>
+      qualityDocument === null
+        ? null
+        : inspectQuality({
+            document: qualityDocument,
+            record: { description: promptDescription },
+            snippetIds,
+            schemaIds,
+            // The saved document has no raw text of its own, and its keys are
+            // unique by construction; only the draft can repeat one.
+            rawText: draftDocument === null ? null : save.text,
+          }),
+    [draftDocument, promptDescription, qualityDocument, save.text, schemaIds, snippetIds],
+  );
+
+  const qualityDismissals = useQualityDismissals(prompt?.id ?? '');
+  const qualityFindings = useMemo(
+    () =>
+      qualityReport === null
+        ? []
+        : applyDismissals(qualityReport.findings, qualityDismissals.dismissals).visible,
+    [qualityDismissals.dismissals, qualityReport],
   );
 
   const handleToggleFavorite = useCallback(() => {
@@ -291,6 +330,13 @@ export function EditorRoute() {
   // as free text, so a mention of the word inside a sentence is not a match.
   const openDocumentPath = useCallback(
     (path: string) => {
+      // The empty path names the document as a whole (the oversized-document
+      // rule), so the caret goes to the top rather than hunting for a key.
+      if (path.length === 0) {
+        focusOffset(0);
+        return;
+      }
+
       const root = path.split(/[.[]/)[0] ?? path;
       const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const index = save.text.search(new RegExp(`"${escaped}"\\s*:`));
@@ -448,6 +494,9 @@ export function EditorRoute() {
           </li>
         </ol>
         <div className="flex flex-wrap items-center gap-1.5">
+          {qualityReport ? (
+            <QualityChip findings={qualityFindings} onOpen={() => setView('quality')} />
+          ) : null}
           <Button variant="ghost" size="sm" onClick={() => setSnapshotOpen(true)}>
             <Camera aria-hidden="true" size={12} />
             Save snapshot
@@ -568,6 +617,7 @@ export function EditorRoute() {
               <TabsTrigger value="tree">Tree view</TabsTrigger>
               <TabsTrigger value="preview">Preview</TabsTrigger>
               <TabsTrigger value="blueprint">Blueprint</TabsTrigger>
+              <TabsTrigger value="quality">Quality</TabsTrigger>
             </TabsList>
 
             <TabsContent value="raw" className="space-y-3">
@@ -668,6 +718,31 @@ export function EditorRoute() {
                   <p className="text-xs leading-relaxed">
                     {syntaxError
                       ? 'The blueprint needs valid JSON, and the draft currently has a syntax error. Fix it and this tab fills in.'
+                      : 'The draft parses as JSON but does not match the prompt document shape, so its sections and variables cannot be read.'}
+                  </p>
+                </Alert>
+              )}
+            </TabsContent>
+
+            <TabsContent value="quality">
+              {qualityReport ? (
+                <div className="space-y-3">
+                  <p className="text-2xs leading-relaxed text-ink-muted">
+                    This review follows the draft, not the saved prompt. It is derived from the text
+                    on every render and cannot edit anything.
+                  </p>
+                  <QualityPanel
+                    report={qualityReport}
+                    promptId={prompt.id}
+                    dismissals={qualityDismissals}
+                    onOpenPath={openDocumentPath}
+                  />
+                </div>
+              ) : (
+                <Alert tone="info" title="There is nothing to review yet">
+                  <p className="text-xs leading-relaxed">
+                    {syntaxError
+                      ? 'The review needs valid JSON, and the draft currently has a syntax error. Fix it and this tab fills in.'
                       : 'The draft parses as JSON but does not match the prompt document shape, so its sections and variables cannot be read.'}
                   </p>
                 </Alert>

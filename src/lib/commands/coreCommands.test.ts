@@ -202,6 +202,21 @@ describe('TASK-013 commands', () => {
     expect(navigate).toHaveBeenCalledWith('/prompts/abc?panel=blueprint');
   });
 
+  it('opens the quality inspector from a prompt', () => {
+    const quality = byId.get('quality.inspect');
+    if (!quality) throw new Error('Missing quality command');
+
+    expect(isCommandAvailable(quality, createTestContext({ pathname: '/prompts/abc' }))).toBe(true);
+    expect(isCommandAvailable(quality, createTestContext({ pathname: '/library' }))).toBe(false);
+    expect(isCommandAvailable(quality, createTestContext({ pathname: '/prompts/abc/lab' }))).toBe(
+      false,
+    );
+
+    const navigate = vi.fn();
+    run('quality.inspect', { pathname: '/prompts/abc', navigate });
+    expect(navigate).toHaveBeenCalledWith('/prompts/abc?panel=quality');
+  });
+
   it('opens the laboratory and a new test case from a prompt', () => {
     const open = byId.get('lab.open');
     const newCase = byId.get('lab.new-case');

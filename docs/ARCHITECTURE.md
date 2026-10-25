@@ -718,6 +718,43 @@ nodes for keyboard and narrow-screen use.
   graph reports how many nodes and edges it dropped, and a dangling template id is shown as unresolved rather
   than guessed from the document.
 
+## Quality inspector (TASK-024)
+
+The **Quality** tab in the prompt workspace reviews the draft document against fifteen written rules and lists
+what they find. It is a review, not a score, and it cannot edit anything.
+
+| Piece                                          | Responsibility                                                                       |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `src/domain/quality.ts`                        | The rule definitions, the engine, findings, thresholds, fingerprints, and dismissals |
+| `src/features/quality/QualityPanel.tsx`        | The tab: banner, summary, filters, grouped findings, dismissed list, disclosures     |
+| `src/features/quality/FindingCard.tsx`         | One finding: severity, classification, path, evidence, why, suggestion, actions      |
+| `src/features/quality/DismissDialog.tsx`       | Dismissing a finding, with a required reason                                         |
+| `src/features/quality/QualityChip.tsx`         | The editor header count and the way into the tab                                     |
+| `src/features/quality/dismissalStorage.ts`     | `localStorage` persistence per prompt; fails softly and reports a refused write      |
+| `src/features/quality/useQualityDismissals.ts` | The dismissal state the tab and the chip share                                       |
+| `src/features/quality/qualityAttention.ts`     | The dashboard feed: defect findings only, dismissals respected                       |
+| `src/routes/editor/EditorRoute.tsx`            | The tab, `?panel=quality`, the chip, and the caret jump for "Go to the field"        |
+| `docs/QUALITY-RULES.md`                        | The rule reference: what each rule checks, why, and when it cannot run               |
+
+**Rules the inspector follows.**
+
+- **Two classifications with different promises.** `deterministic` findings are facts about the document;
+  `heuristic` ones are rules of thumb and are never `error`s (ADR-109). Both are labelled on every card, and
+  the banner explains what each promise is.
+- **No guessing.** A rule that needs an input the caller did not supply is reported as skipped with the reason
+  (`report.skipped`), and the panel lists those under a disclosure. "No snippets were supplied" never reads as
+  "your snippet is missing".
+- **Everything is derived.** The report is a pure function of the document, the record, the snippet and schema
+  ids, and the raw text. Nothing is stored except dismissals, and findings therefore cannot go stale.
+- **Dismissals are content-keyed and local.** A dismissal stores a reason and the fingerprint of the finding
+  (rule + path + full offending content) in `localStorage`, per prompt. Editing the field re-surfaces the
+  finding and orphans the dismissal; unrelated edits do not. A refused write is reported and nothing is hidden
+  (ADR-109).
+- **The dashboard escalates defects, not drafts.** `QUALITY_ATTENTION_RULES` is the five-rule subset that
+  describes an inconsistency; an unfinished document or a suggestion never appears in "Needs attention".
+- **No mutation, no score.** The actions are "go to the field", "copy", and "dismiss". There is no rewrite, no
+  auto-fix, and no number that claims to measure quality.
+
 ## Commands and keyboard
 
 Everything a shortcut can do is declared once, in `src/lib/commands/`:

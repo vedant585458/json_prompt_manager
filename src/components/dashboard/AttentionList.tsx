@@ -1,4 +1,4 @@
-import { AlertTriangle, Clock, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, Clock, ListChecks, ShieldAlert } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 import { DashboardSection, SectionEmpty } from '@/components/dashboard/DashboardSection';
@@ -15,6 +15,11 @@ const KIND_META = {
     icon: ShieldAlert,
     label: 'Fails its schema',
     hint: 'The document parses but does not meet the schema attached to it.',
+  },
+  'quality-findings': {
+    icon: ListChecks,
+    label: 'Structural findings',
+    hint: 'The rule-based inspector has findings for this prompt.',
   },
   stale: {
     icon: Clock,
@@ -40,13 +45,13 @@ export function AttentionList({ items, now }: AttentionListProps) {
     <DashboardSection
       id="dashboard-attention"
       title="Needs attention"
-      description="Documents that will not parse, then schema mismatches, then prompts that have gone quiet."
+      description="Documents that will not parse, then schema mismatches, then structural findings, then prompts that have gone quiet."
       action={{ label: 'Validation', to: '/validation' }}
     >
       {items.length === 0 ? (
         <SectionEmpty
           title="Nothing needs attention"
-          description={`Every stored document parses and meets its attached schema, and nothing has been idle for more than ${STALE_AFTER_DAYS} days.`}
+          description={`Every stored document parses, meets its attached schema, and has no structural findings waiting in the inspector — and nothing has been idle for more than ${STALE_AFTER_DAYS} days.`}
         />
       ) : (
         <ul className="divide-y divide-line">
@@ -57,7 +62,11 @@ export function AttentionList({ items, now }: AttentionListProps) {
             return (
               <li key={item.id} className="min-w-0">
                 <Link
-                  to={`/prompts/${item.promptId}`}
+                  to={
+                    item.kind === 'quality-findings'
+                      ? `/prompts/${item.promptId}?panel=quality`
+                      : `/prompts/${item.promptId}`
+                  }
                   className="group flex min-w-0 items-start gap-3 px-4 py-3 transition-colors duration-[var(--pf-duration-fast)] hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent sm:px-5"
                 >
                   <span
@@ -80,7 +89,9 @@ export function AttentionList({ items, now }: AttentionListProps) {
                       </span>
                     </span>
                     <span className="mt-0.5 block truncate text-xs leading-relaxed text-ink-muted">
-                      {item.kind === 'invalid-document' ? item.detail : meta.hint}
+                      {item.kind === 'invalid-document' || item.kind === 'quality-findings'
+                        ? item.detail
+                        : meta.hint}
                     </span>
                   </span>
                   <time

@@ -3138,3 +3138,121 @@ tab via click, via `?panel=blueprint`, via the palette command, and its invalid-
 | `npm run check:contrast`    | 64 pairings pass in both themes                                                                                                                                     |
 | `npm run build`             | exit 0 — CSS 59.48 kB (13.93 kB gzip), app JS 1,072.69 kB (307.24 kB gzip); the pre-existing >500 kB chunk warning remains                                          |
 | network spy                 | no new network code: the panel takes documents, snippets, and schemas as props and calls no `fetch`                                                                 |
+
+## ADR-109 — Quality findings are written rules, split by what they can promise, and dismissals are content-keyed
+
+**Context.** TASK-024 asks for transparent, rule-based structural feedback on a prompt. Three shortcuts were
+available. The first is a score: one number, easy to display, and meaningless — nobody can say what 7/10 means
+or how to move it. The second is a model: ask something to judge the prompt. That contradicts the product
+boundary (ADR-01: client-only, no provider) and produces advice that cannot be reproduced or explained. The
+third is a flat list of "issues" with one severity, which makes a broken reference indistinguishable from a
+style preference, so a reader either ignores the list or treats every suggestion as a defect.
+
+**Decision.** `src/domain/quality.ts` implements fifteen rules, each written down once in `QUALITY_RULES`
+and documented in `docs/QUALITY-RULES.md`. The engine is a pure function of
+`(document, record?, snippetIds?, schemaIds?, rawText?)` and returns findings, counts, the rules that ran, the
+rules that could not run, and how many findings the per-rule cap suppressed.
+
+- **Two classifications, with a promise attached.** `deterministic` means a fact about the document: a
+  placeholder with no declaration, a key that is discarded, an id that no longer resolves. `heuristic` means a
+  rule of thumb about prompt writing (no role, no example, a field past a length threshold). A test enforces
+  that a heuristic is never an `error`, and the screen prints what each classification promises above the
+  findings.
+- **Rules that cannot run say so.** `description-missing` needs the prompt record, `missing-snippet` needs the
+  snippet library, `missing-schema-reference` needs the stored schema ids, `duplicate-json-key` needs the raw
+  text. Without the input the rule is reported as skipped with the reason, never fired on an assumption — "no
+  snippets were supplied" must not read as "your snippet is missing".
+- **A dismissal is keyed by content, not by rule.** The fingerprint is a hash of the rule id, the path, and the
+  full offending value, and reasons are mandatory. That gives the behaviour the screen promises without any
+  invalidation step: an unrelated edit leaves the dismissal alone, an edit to the field it was about produces a
+  new fingerprint, the finding returns, and the stale dismissal is _reported_ as orphaned rather than quietly
+  dropped. The reason is what makes the list auditable later; a dismissal without one is indistinguishable from
+  forgetting the finding existed.
+- **Dismissals are browser-local.** They live in `localStorage` next to the editor's recovery drafts, per
+  prompt, and are never written to the prompt, its revisions, or the database. Dismissing a suggestion is not
+  editing a prompt, and the finding itself is derived — storing it would create a second source of truth that
+  goes stale on the next keystroke.
+- **The dashboard escalates defects only.** Its attention list uses `QUALITY_ATTENTION_RULES`: the five rules
+  that describe an inconsistency (undefined variable, duplicate key, output/example mismatch, missing snippet,
+  missing schema reference). An unfinished draft is a draft, not a defect, and a suggestion is not a reason to
+  interrupt somebody. Without that line, every newly created prompt would appear in "Needs attention" for
+  having no objective yet, and the list would stop meaning anything.
+- **Nothing is edited, ever.** The screen's actions are "go to the field" (moves the caret), "copy finding", and
+  "dismiss". There is no rewrite, no auto-fix, and no score. The banner says all three, and a test asserts the
+  prompt record's version and content are unchanged after a dismissal.
+
+**One rule needed raw text.** `duplicate-json-key` cannot be answered from a parsed document: `JSON.parse`
+keeps the last value, so by the time a `PromptDocument` exists the duplicate is gone. The rule therefore takes
+the draft text when the editor has it and runs a small key scanner over it (only on text that already parses);
+without text it is listed as skipped. This is the one rule that reads something other than the document, and it
+is documented as such.
+
+**Alternatives rejected.** A single quality score (unexplainable, not actionable); a model-based reviewer
+(contradicts the boundary, irreproducible); one flat severity scale (a broken reference and a missing role are
+not the same kind of statement); storing findings as records (they are derived from the draft and would go
+stale); dismissing by rule id alone (that would hide future, unrelated findings of the same kind).
+
+### Known limitations and honesty notes
+
+- **No browser binary exists in this environment**, so the requested manual accessibility pass over the
+  findings list was **not performed**: no screen-reader session, no keyboard walkthrough on a device, no zoom or
+  contrast check by eye. The accessibility claims rest on native controls, labelled `<select>`s, `<details>`/`<summary>`
+  disclosures, semantic `<ul>`/`<article>`/`<section>` structure, word-plus-icon statuses, and the jsdom tests
+  that drive them.
+- **`name-missing` and `description-missing` are narrow.** The parser refuses an empty `name`, so the first can
+  only fire on a corrupt row or a document built in code; the second only runs when the prompt record is
+  supplied (the editor and the dashboard do, the playground does not).
+- **`duplicate-instruction` is case/spacing based.** Near-duplicates that differ in wording are not detected;
+  that would need a similarity heuristic with a threshold nobody could defend.
+- **`unexpected-property` overlaps the validation studio.** The parser already warns about unknown top-level
+  keys. The inspector repeats it as `info` with a suggested fix, because the inspector is about the composed
+  document rather than its validity — the duplication is deliberate and visible in both places.
+- **Thresholds are one size.** 800 / 400 / 1,000 / 800 / 8,000 characters are fixed in `QUALITY_THRESHOLDS`,
+  not configurable in settings, and they are heuristic judgements rather than limits.
+- **A dismissal survives a rename, not a rewrite.** Because the fingerprint covers the full offending content,
+  editing that field — even by one character — brings the finding back and orphans the dismissal. That is the
+  documented behaviour, not a bug, but it does mean long fields are easy to un-dismiss by accident.
+- **The dashboard reads localStorage for every live prompt** on each render of its data hook. It is a small
+  number of synchronous reads of a small value, but it is a browser dependency in a hook that is otherwise
+  pure, and it is why `collectQualityAttention` takes `dismissedFor` as an injectable parameter.
+- **Findings are per render.** Nothing is cached, stored, or incremented; opening the tab twice on the same
+  draft produces the same findings with the same ids.
+
+## Verification log — TASK-024
+
+**Scope verified:** every rule in §2 of `docs/QUALITY-RULES.md` positively and negatively (including the
+threshold boundaries, a rule that cannot fire, and a rule whose input is missing); the duplicate-key scanner
+over nested objects, arrays, escapes, repeats, and truncated text; finding identity, ordering, per-rule capping,
+evidence clipping, and copy text; dismissal validation, application, orphaning, re-surfacing after an edit, the
+storage cap, corrupt-storage tolerance, and a refused write; the panel's banner, grouping, filters, disclosure,
+dismiss dialog (required reason), dismissed list with restore, thresholds disclosure, skipped-check list,
+empty state, and record-level findings; the editor's tab, `?panel=quality` deep link, header chip, invalid-draft
+state, and a present → dismiss → resolve → re-run cycle against the real route; the palette command; and the
+dashboard's attention row with its link to the inspector.
+
+### Tests added (100 cases)
+
+| File                                            | Cases | Covers                                                                                                                                                                                                                                                                                                               |
+| ----------------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/quality.test.ts`                    | 56    | The rule catalogue (completeness, classification split, stated thresholds), all fifteen rules with positive and negative cases, threshold boundaries, the duplicate-key scanner, evidence clipping, ordering, capping, copy text, immutability, and dismissal creation/application/orphaning/restore/caps/validation |
+| `src/features/quality/dismissalStorage.test.ts` | 8     | Per-prompt keys, empty-list cleanup, corrupt JSON, invalid entries, refused writes, missing storage, probe hygiene                                                                                                                                                                                                   |
+| `src/features/quality/qualityAttention.test.ts` | 9     | Defect-only filtering, unfinished drafts ignored, archived and unparseable prompts skipped, dismissal respect, ordering, wording                                                                                                                                                                                     |
+| `src/features/quality/QualityPanel.test.tsx`    | 15    | Banner and classification notes, empty state, grouped findings, explanation disclosure, go-to-field, filters and clear, dismiss with reason, reason required, dismissed list and restore, re-surfacing after an edit, thresholds disclosure, skipped checks, refused storage, repeated keys, record-level finding    |
+| `src/routes/editor/EditorRoute.test.tsx`        | +4    | Quality tab and header chip, `?panel=quality` deep link cleared afterwards, present → dismiss → resolve → re-run with the prompt unchanged in storage, invalid draft explanation                                                                                                                                     |
+| `src/store/dashboard.test.ts`                   | +2    | Quality attention ordering after schema mismatches, wording, and the truncated single-item case                                                                                                                                                                                                                      |
+| `src/routes/dashboard/DashboardRoute.test.tsx`  | +2    | A broken reference appears as "Structural findings" linking to `?panel=quality`; an unfinished draft does not                                                                                                                                                                                                        |
+| `src/lib/commands/coreCommands.test.ts`         | +1    | `quality.inspect` availability and its `?panel=quality` destination                                                                                                                                                                                                                                                  |
+| `src/domain/purity.test.ts`                     | +0    | `quality.ts` registered as a pure module and exported from the barrel                                                                                                                                                                                                                                                |
+
+### Gates executed
+
+| Gate                        | Result                                                                                                                                                                                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npx tsc --noEmit`          | exit 0                                                                                                                                                                                                                                     |
+| `npx eslint .`              | exit 0, 0 warnings                                                                                                                                                                                                                         |
+| `npx vitest run`            | **100 files / 1,601 tests passed, 0 failures**                                                                                                                                                                                             |
+| `npx vitest run --coverage` | thresholds pass — all files 96.33/90.33/97.39/97.29; `src/domain` 96.58/91.44/98.58/97.31 (`quality.ts` 96.93/89.25/100/99.21); `src/store` 96.16/89.51/97.6/97.68; `src/data` 96.51/87.03/100/97.22 (statements/branches/functions/lines) |
+| `npx prettier --check .`    | clean                                                                                                                                                                                                                                      |
+| `npm run check:contrast`    | 64 pairings pass in both themes                                                                                                                                                                                                            |
+| `npm run build`             | exit 0 — CSS 59.89 kB (14.01 kB gzip), app JS 1,111.77 kB (318.32 kB gzip, +39.08 kB over TASK-023's 1,072.69 kB); the pre-existing >500 kB chunk warning remains                                                                          |
+| no mutation check           | the editor test asserts the stored prompt's `version`, `objective`, and `role` are unchanged after a dismissal and a "go to the field" jump                                                                                                |

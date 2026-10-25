@@ -248,6 +248,16 @@ export function createCoreCommands(): readonly CommandDefinition[] {
       run: (context) => context.navigate(`${context.pathname}?panel=blueprint`),
     },
     {
+      id: 'quality.inspect',
+      title: 'Inspect the prompt structure',
+      group: 'Workspace',
+      description:
+        'Reviews the draft for missing pieces, broken references, and rule-of-thumb issues.',
+      keywords: searchTerms('quality inspect review findings rules structure lint audit'),
+      when: (context) => /^\/prompts\/[^/]+$/.test(context.pathname),
+      run: (context) => context.navigate(`${context.pathname}?panel=quality`),
+    },
+    {
       id: 'library.favorites',
       title: 'Show favorite prompts',
       group: 'Workspace',

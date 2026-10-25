@@ -4,7 +4,7 @@
 **Created:** 2026-10-24
 **Repository:** `vedant585458/json_prompt_manager`
 **Branch:** `arena/3b0d1d76-json-prompt-manager`
-**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-023 is the latest completed task.
+**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-024 is the latest completed task.
 **Authoritative status source:** This file. One status per task, maintained here only.
 
 ---
@@ -605,7 +605,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-021 — Variable playground and prompt preview — High — deps: 015
 - [x] TASK-022 — Prompt laboratory with saved test cases — Medium — deps: 021
 - [x] TASK-023 — Blueprint dependency graph — Medium — deps: 016, 019
-- [ ] TASK-024 — Quality inspector — Medium — deps: 016, 021
+- [x] TASK-024 — Quality inspector — Medium — deps: 016, 021
 - [ ] TASK-025 — Health dashboard and activity timeline — Medium — deps: 016, 019
 - [ ] TASK-026 — Import and export — High — deps: 012, 019
 - [ ] TASK-027 — Responsive refinement pass — High — deps: 018, 020, 022, 023, 024, 025, 026
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 23 of 31 tasks complete. TASK-001 through TASK-022 were completed on 2026-10-24; TASK-023 on 2026-10-25.
+**Progress:** 24 of 31 tasks complete. TASK-001 through TASK-022 were completed on 2026-10-24; TASK-023 and TASK-024 on 2026-10-25.
 
 ---
 
@@ -1506,7 +1506,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-024 — Quality inspector
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** Medium
 - **Dependencies:** TASK-016, TASK-021
 - **Objective:** Offer transparent, rule-based structural feedback that explains itself, separates deterministic from heuristic findings, and never rewrites content.
@@ -1526,6 +1526,21 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Unit tests for the full rule set; integration test for a document with three known issues (present, dismiss, resolve, re-run); manual accessibility pass over the findings list; typecheck/lint/tests/build.
 - **Deliverables:** `src/domain/quality.ts` + tests, quality rules documentation (`docs/QUALITY-RULES.md`), `src/features/quality/*`, editor tab, dashboard integration.
 - **Out of scope:** ML scoring, automatic prompt rewriting, cross-prompt style guide enforcement.
+
+- **Completion record (2026-10-25):** Completed after explicit user authorization.
+  - **Rules engine (`src/domain/quality.ts`):** `inspectQuality({ document, record?, snippetIds?, schemaIds?, rawText? })` is pure and returns `{ findings, counts, ran, skipped, dropped, thresholds }`. Fifteen rules are declared once in `QUALITY_RULES` (id, title, severity, classification, what it checks, why, caveat, and the inputs it needs) and documented in `docs/QUALITY-RULES.md`. Twelve are **deterministic** (a fact about the document): `name-missing`, `objective-missing`, `instructions-empty`, `description-missing`, `undefined-variable`, `unused-variable`, `duplicate-instruction`, `duplicate-json-key`, `unexpected-property`, `output-example-mismatch`, `missing-snippet`, `missing-schema-reference`. Three are **heuristic**: `role-missing`, `examples-missing`, `oversized-content`. A heuristic is never an `error`, and a test enforces it.
+  - **Honesty in the engine:** a rule whose input was not supplied is reported in `skipped` with the reason instead of firing on an assumption; findings past the 20-per-rule cap are counted in `dropped`; every finding carries a path, whether that path is inside the document, a clipped evidence excerpt, an explanation, and a suggestion. Findings are sorted by severity, rule, and path, and the document is never mutated.
+  - **Raw-text rule:** `duplicate-json-key` cannot be answered from a parsed document (`JSON.parse` keeps the last value), so it scans the draft text with a small key scanner and only when that text already parses; without text it is skipped.
+  - **Dismissals:** `createDismissal` requires a reason (3–300 characters) and builds `{ ruleId, fingerprint, reason, dismissedAt }`, where the fingerprint hashes the rule, the path, and the **full** offending content. `applyDismissals` returns visible findings, dismissed findings with their reasons, and *orphaned* dismissals whose content changed — so an edit to the field brings the finding back and the stale dismissal is reported, never silently dropped. Stored per prompt in `localStorage` (`promptforge.quality.dismissals.<id>`), capped at 200, validated on read, and a refused write is surfaced instead of pretending success.
+  - **Screen (`src/features/quality/*`):** `QualityPanel` renders a permanent "Rule-based review, not a score" banner with both classification promises, a summary line, severity and rule-kind filters with a way back, findings grouped into Errors/Warnings/Suggestions, an expandable "why this was flagged" with a suggested fix, "Go to the field", "Copy finding", and "Dismiss…". Dismissing opens `DismissDialog` (reason required, dialog stays open and reports a refused write). A dismissed list keeps the reasons with `Restore` and `Restore all`; stale dismissals are reported with a button to forget them; skipped checks and the fifteen rules with their thresholds are in disclosures; an empty state links to the validation studio.
+  - **Integration:** the workspace gained a **Quality** tab (a fifth tab, with a note that it follows the draft) and a header chip (`Quality · 2 errors`) that opens it; `?panel=quality` selects the tab and is cleared from the URL; the palette gained `quality.inspect`; the dashboard's attention list gained a `quality-findings` kind that escalates only the five *defect* rules (`undefined-variable`, `duplicate-json-key`, `output-example-mismatch`, `missing-snippet`, `missing-schema-reference`) and links to `?panel=quality` — an unfinished draft and a suggestion never reach it.
+  - **Tests added (100 cases; whole suite 100 files / 1,601 tests):** `src/domain/quality.test.ts` 56, `src/features/quality/QualityPanel.test.tsx` 15, `qualityAttention.test.ts` 9, `dismissalStorage.test.ts` 8, `src/routes/editor/EditorRoute.test.tsx` +4, `src/store/dashboard.test.ts` +2, `src/routes/dashboard/DashboardRoute.test.tsx` +2, `src/lib/commands/coreCommands.test.ts` +1.
+  - **Validation executed:** `npx tsc --noEmit` exit 0; `npx eslint .` exit 0 with 0 warnings; `npx vitest run` — **100 files / 1,601 tests passed, 0 failures**; `npx vitest run --coverage` — thresholds pass (all files 96.33/90.33/97.39/97.29; `src/domain` 96.58/91.44/98.58/97.31 with `quality.ts` at 96.93/89.25/100/99.21; `src/store` 96.16/89.51/97.6/97.68; `src/data` 96.51/87.03/100/97.22); `npx prettier --check .` clean; `npm run check:contrast` — 64 pairings pass in both themes; `npm run build` exit 0 — CSS 59.89 kB (14.01 kB gzip), app JS 1,111.77 kB (318.32 kB gzip, +39.08 kB over TASK-023's 1,072.69 kB) with the pre-existing >500 kB chunk warning. The no-mutation requirement is a test: after a dismissal and a "go to the field" jump the stored prompt's `version`, `objective`, and `role` are unchanged.
+  - **Not performed (stated honestly):** no browser binary exists in this environment, so the requested **manual accessibility pass over the findings list did not happen** — no screen-reader session, no keyboard walkthrough on a device, no visual contrast or zoom check. The claims rest on native `<select>`/`<details>`/`<summary>` controls, labelled filters, `<ul>`/`<article>`/`<section>` structure, word-plus-icon statuses, and jsdom tests that drive them.
+  - **Deviations recorded:** (1) the scope's "duplicate metadata keys" cannot be observed on a parsed document — `JSON.parse` keeps the last value and the parser normalizes tag duplicates — so the rule was implemented as `duplicate-json-key` over the raw draft text, which is where a duplicate actually survives. (2) `description-missing` is about the **prompt record**, not the document (which has no description field), so it only runs where a record is supplied and has no "go to the field" action. (3) The dashboard escalates a five-rule **defect** subset rather than every finding, because otherwise every newly created prompt would appear in "Needs attention" for having no objective yet (ADR-109). (4) `alert`-style statuses stay `info`-toned rather than coloured by severity, because severity is carried by a text pill on each card.
+  - **Known limitations:** `name-missing` can only fire on a corrupt row or a code-built document (the parser refuses an empty name); `duplicate-instruction` catches case/spacing variants only, not paraphrases; `unexpected-property` deliberately repeats the parser's own unknown-key warning; thresholds are fixed, not configurable; a dismissal is un-dismissed by a one-character edit to the field it named; the dashboard reads `localStorage` for every live prompt on each render of its data hook.
+  - **Docs:** `docs/QUALITY-RULES.md` added (the full rule reference, thresholds, findings, and dismissal semantics); `docs/DECISIONS.md` gained ADR-109 and a TASK-024 verification log; `docs/ARCHITECTURE.md` gained a "Quality inspector (TASK-024)" section; `README.md` gained a "Quality inspector" section and a `features/` entry; `tasks.md` updated.
+
 
 ---
 

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 
+import { collectQualityAttention } from '@/features/quality/qualityAttention';
 import { useDataStoreApi } from '@/store/dataStoreContext';
 import { selectDashboardData, type DashboardData } from '@/store/dashboard';
 
@@ -19,6 +20,18 @@ export function useDashboardData(): DashboardData {
   const revisions = store((state) => state.revisions);
   const activity = store((state) => state.activity);
   const schemas = store((state) => state.schemas);
+  const snippets = store((state) => state.snippets);
+
+  // Quality findings are derived from the same stored documents the rest of the
+  // dashboard reads, and filtered by this browser's dismissals (TASK-024).
+  const quality = useMemo(
+    () =>
+      collectQualityAttention(prompts, {
+        snippetIds: snippets.map((snippet) => snippet.id),
+        schemaIds: schemas.map((schema) => schema.id),
+      }),
+    [prompts, schemas, snippets],
+  );
 
   return useMemo(
     () =>
@@ -29,8 +42,9 @@ export function useDashboardData(): DashboardData {
         revisions,
         activity,
         schemas,
+        quality,
         now: new Date(),
       }),
-    [prompts, collections, templates, revisions, activity, schemas],
+    [prompts, collections, templates, revisions, activity, schemas, quality],
   );
 }

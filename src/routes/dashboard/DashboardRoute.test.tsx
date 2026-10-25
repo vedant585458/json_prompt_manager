@@ -272,6 +272,47 @@ describe('dashboard lists', () => {
   });
 });
 
+describe('quality findings on the dashboard (TASK-024)', () => {
+  it('lists a prompt with a broken reference and links to the inspector tab', async () => {
+    const dangling = prompt({
+      title: 'Needs a look',
+      content: createBlankDocument({
+        name: 'Needs a look',
+        role: 'Support lead',
+        objective: 'Classify {{ghost}}.',
+        instructions: ['Read it.'],
+        examples: [{ input: 'A', output: 'B' }],
+      }),
+    });
+
+    await openDashboard({ prompts: [dangling] });
+
+    const attention = screen.getByRole('region', { name: 'Needs attention' });
+    const row = within(attention).getByRole('link', { name: /Needs a look/ });
+
+    expect(row).toHaveAttribute('href', '/prompts/fixture-1?panel=quality');
+    expect(within(row).getByText('Structural findings')).toBeVisible();
+    expect(within(row).getByText('1 structural finding in the inspector')).toBeVisible();
+  });
+
+  it('leaves an unfinished draft alone', async () => {
+    const draft = prompt({
+      title: 'Just started',
+      content: createBlankDocument({
+        name: 'Just started',
+        role: '',
+        objective: '',
+        instructions: [],
+      }),
+    });
+
+    await openDashboard({ prompts: [draft] });
+
+    const attention = screen.getByRole('region', { name: 'Needs attention' });
+    expect(within(attention).getByText('Nothing needs attention')).toBeVisible();
+  });
+});
+
 describe('document problems', () => {
   it('reports a document that does not parse instead of calling it valid', async () => {
     const healthy = prompt({ title: 'Healthy prompt' });

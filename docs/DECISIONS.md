@@ -3556,7 +3556,22 @@ for a mouse, and the editor's inspector was always a second column.
 1023px`) renders the inspector once, inside the existing `Sheet`, opened from an
    "Inspector" button in the header; the grid's second column is not rendered at
    all. Rendering it twice would have duplicated ids and ARIA landmarks.
-6. **The main column clears the home indicator.**
+6. **The library's filters move into a sheet, not into a horizontal scroll.** On a
+   phone the filter bar is three wrapped rows of controls above the results. Below
+   `sm` it becomes one row — search, view toggle, "Filters" — and a `Sheet` holds
+   sorting, the three selects, and the two checkboxes. The applied-filter chips stay
+   outside the sheet, because a chip is how a filter is undone and hiding it would
+   make the only way back a second tap. The sheet and the wide bar render the _same_
+   controls with the same handlers (`searchField`, `sortField`, `filterSelects`,
+   `filterChecks` are shared fragments), so there is no second filter implementation
+   to drift.
+7. **The rail's collapsed state is the one persisted piece of interface state.**
+   `uiStore` still holds everything else per session, but `sidebarOpen` is read from
+   and written to `localStorage` (`promptforge.sidebar-collapsed`) through a
+   try/catch that treats blocked storage as "no preference". This narrows the
+   TASK-007 decision that nothing in that store is persisted; the theme was already
+   remembered outside the data record, and a rail width is the same kind of fact.
+8. **The main column clears the home indicator.**
    `pb-[max(2rem,env(safe-area-inset-bottom))]` replaces the symmetric `py-8`, so
    content never sits under an iPhone's home bar.
 
@@ -3567,7 +3582,14 @@ for a mouse, and the editor's inspector was always a second column.
 - The test helper `mockMatchMedia` now answers only `prefers-color-scheme`; every
   other query reports `false`, so existing screen tests keep rendering the wide
   layout and a test that wants a phone stubs `matchMedia` itself.
-- Not yet done in this pass, and therefore not claimed: the library's filters as a
-  sheet, the editor toolbar's overflow menu, the diff/lab/blueprint/validation
-  stacked reviews, and persisting the rail's collapsed state. They are listed in
-  `tasks.md` as the remainder of TASK-027.
+- No editor toolbar overflow menu was added. The toolbar already drops its labels
+  below `sm`, wraps, and keeps every action (format, minify, undo, redo, find, copy)
+  reachable as an icon with an accessible name; an overflow menu would have added a
+  second interaction to controls that already fit. Recorded as a deviation from the
+  task's wording rather than hidden.
+- The stacked reviews the task asked for (diff, laboratory, blueprint, validation)
+  were already single-column at narrow widths; this pass verified that by reading
+  the markup instead of rewriting working layouts.
+- The 360–1920 px audit itself is **not** measured: jsdom has no layout engine and
+  this environment has no browser binary, so horizontal overflow is unverified. It
+  is recorded as an open check for TASK-030.

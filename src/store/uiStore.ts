@@ -2,13 +2,46 @@
  * Ephemeral interface state (TASK-007).
  *
  * Which panels are open, which row is selected, and what the command palette is
- * doing. None of it is persisted — reloading the app should return to a clean
- * workspace — and none of it is derived from storage.
+ * doing. None of it is derived from storage, and almost none of it is persisted:
+ * a reload returns to a clean workspace.
+ *
+ * The one exception is the rail (TASK-027). Collapsing the sidebar is a layout
+ * preference a person states once on a small laptop, so it is remembered in
+ * `localStorage` — the same place the theme lives — and not in the settings
+ * record, which belongs to the data being managed. Everything else here stays
+ * per-session by design.
  */
 
 import { create } from 'zustand';
 
 export type RightPanel = 'none' | 'inspector' | 'activity';
+
+/** `localStorage` key for the remembered rail state. */
+export const SIDEBAR_COLLAPSED_KEY = 'promptforge.sidebar-collapsed';
+
+/** The remembered rail state, or `null` when nothing (readable) is stored. */
+export function readStoredSidebarOpen(): boolean | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY);
+    if (raw === '1') return false;
+    if (raw === '0') return true;
+    return null;
+  } catch {
+    // Private modes and blocked storage throw on access; the rail then stays at
+    // its default instead of breaking the shell.
+    return null;
+  }
+}
+
+function storeSidebarOpen(open: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, open ? '0' : '1');
+  } catch {
+    // Nothing to do: the preference simply does not survive the reload.
+  }
+}
 
 export interface UiState {
   /** Library sidebar; collapses to a drawer on small screens (TASK-008). */
@@ -55,7 +88,7 @@ export interface InitialUiState {
 /** Wide screens start with the sidebar visible; the shell adapts on resize. */
 export function createUiStore(initial: InitialUiState = {}) {
   return create<UiState>()((set) => ({
-    sidebarOpen: initial.sidebarOpen ?? true,
+    sidebarOpen: initial.sidebarOpen ?? readStoredSidebarOpen() ?? true,
     rightPanel: initial.rightPanel ?? 'none',
     paletteOpen: initial.paletteOpen ?? false,
     helpOpen: initial.helpOpen ?? false,
@@ -63,8 +96,16 @@ export function createUiStore(initial: InitialUiState = {}) {
     selectedPromptId: initial.selectedPromptId ?? null,
     selectedPromptIds: [...(initial.selectedPromptIds ?? [])],
 
-    setSidebarOpen: (open) => set({ sidebarOpen: open }),
-    toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+    setSidebarOpen: (open) => {
+      storeSidebarOpen(open);
+      set({ sidebarOpen: open });
+    },
+    toggleSidebar: () =>
+      set((state) => {
+        const next = !state.sidebarOpen;
+        storeSidebarOpen(next);
+        return { sidebarOpen: next };
+      }),
     setRightPanel: (panel) => set({ rightPanel: panel }),
     setPaletteOpen: (open) => set({ paletteOpen: open }),
     togglePalette: () => set((state) => ({ paletteOpen: !state.paletteOpen })),

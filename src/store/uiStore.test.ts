@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createUiStore } from '@/store/uiStore';
+import { SIDEBAR_COLLAPSED_KEY, createUiStore } from '@/store/uiStore';
 
 describe('uiStore', () => {
   it('starts with the sidebar open and nothing selected', () => {
@@ -79,5 +79,41 @@ describe('uiStore', () => {
     ids.push('p2');
 
     expect(store.getState().selectedPromptIds).toEqual(['p1']);
+  });
+});
+
+describe('remembered rail state (TASK-027)', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('starts open when nothing is stored', () => {
+    const store = createUiStore();
+    expect(store.getState().sidebarOpen).toBe(true);
+  });
+
+  it('remembers a collapsed rail across stores', () => {
+    const first = createUiStore();
+    first.getState().toggleSidebar();
+
+    expect(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY)).toBe('1');
+    expect(createUiStore().getState().sidebarOpen).toBe(false);
+
+    first.getState().toggleSidebar();
+    expect(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY)).toBe('0');
+    expect(createUiStore().getState().sidebarOpen).toBe(true);
+  });
+
+  it('ignores an unreadable value and survives blocked storage', () => {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, 'maybe');
+    expect(createUiStore().getState().sidebarOpen).toBe(true);
+
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError');
+    });
+    const store = createUiStore();
+    expect(() => store.getState().toggleSidebar()).not.toThrow();
+    expect(store.getState().sidebarOpen).toBe(false);
+    setItem.mockRestore();
   });
 });

@@ -4,7 +4,7 @@
 **Created:** 2026-10-24
 **Repository:** `vedant585458/json_prompt_manager`
 **Branch:** `arena/3b0d1d76-json-prompt-manager`
-**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-026 is the latest completed task.
+**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-027 is the latest completed task.
 **Authoritative status source:** This file. One status per task, maintained here only.
 
 ---
@@ -608,13 +608,13 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-024 — Quality inspector — Medium — deps: 016, 021
 - [x] TASK-025 — Health dashboard and activity timeline — Medium — deps: 016, 019
 - [x] TASK-026 — Import and export — High — deps: 012, 019
-- [ ] TASK-027 — Responsive refinement pass — High — deps: 018, 020, 022, 023, 024, 025, 026
+- [x] TASK-027 — Responsive refinement pass — High — deps: 018, 020, 022, 023, 024, 025, 026
 - [ ] TASK-028 — Accessibility review and remediation — High — deps: 027
 - [ ] TASK-029 — Automated test suite expansion — High — deps: 027
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 26 of 31 tasks complete. TASK-001 through TASK-022 were completed on 2026-10-24; TASK-023, TASK-024, TASK-025, and TASK-026 on 2026-10-25.
+**Progress:** 27 of 31 tasks complete. TASK-001 through TASK-022 were completed on 2026-10-24; TASK-023 through TASK-027 on 2026-10-25.
 
 ---
 
@@ -1624,7 +1624,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-027 — Responsive refinement pass
 
-- **Status:** In Progress (cycle 1 of the pass — see the progress record)
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-018, TASK-020, TASK-022, TASK-023, TASK-024, TASK-025, TASK-026
 - **Objective:** Make every completed workspace genuinely usable from 360 px to 2560 px, replacing desktop shrink-wrap with deliberate small-screen layouts.
@@ -1651,6 +1651,14 @@ Each task follows the required template. **No task may begin without explicit us
   - **Tests:** `src/lib/useMediaQuery.test.ts` (5) and `src/components/ui/responsive.test.tsx` (3): match/no-match, change events, unsubscribe, legacy API, missing `matchMedia`, the bottom-sheet class contract, coarse-pointer targets, safe-area padding, and the editor's single-pane inspector sheet.
   - **Still open in this task (not claimed as done):** library filters collapsed into a sheet; editor toolbar overflow menu; diff, laboratory, blueprint, and validation stacked layouts and table-to-card transformations; persisted rail-collapse and density preferences; the 360–1920 px audit itself, including a real horizontal-overflow measurement, which this environment cannot perform (no browser binary).
   - **Validation so far:** `npx tsc --noEmit` exit 0; targeted suites green (editor, ui, layout); full-suite and build results recorded in the completion record when the pass finishes.
+  - **Cycle 2 (2026-10-25):** library filter bar collapses below `sm` into search + view toggle + a "Filters" button with the remaining controls in a sheet, while the applied-filter chips stay outside it (`FilterBar.tsx`, shared fragments so the sheet and the wide bar use the same controls and handlers); the rail's collapsed state is remembered across reloads in `localStorage` with a blocked-storage fallback (`uiStore.ts`, `SIDEBAR_COLLAPSED_KEY`); `docs/TESTING.md` records the viewport matrix, the automated contracts, and the honest gap; ADR-112 extended. Tests: `src/components/library/FilterBar.compact.test.tsx` (4) and `src/store/uiStore.test.ts` +3.
+  - **Completion record (2026-10-25):** Completed after explicit user authorization, in two cycles.
+  - **Done:** breakpoint hook (`src/lib/useMediaQuery.ts`); dialogs as bottom sheets below 640 px with safe-area padding; 44 px touch targets under `pointer: coarse`; safe-area aware main column; single-pane editor with the inspector in a sheet; compact library filter bar with a filter sheet; persisted rail state; viewport matrix in `docs/TESTING.md`; ADR-112.
+  - **Verified as already responsive, not rewritten:** diff (`lg:grid-cols-2`, `lg:grid-cols-[…22rem]`), laboratory (`xl:` split), blueprint (`md` grid with a list fallback), validation summary (`grid-cols-2 sm:grid-cols-4`).
+  - **Tests:** 15 new cases across 4 files — `useMediaQuery.test.ts` 5, `src/components/ui/responsive.test.tsx` 3, `FilterBar.compact.test.tsx` 4, `uiStore.test.ts` +3. Whole suite **112 files / 1,844 tests**.
+  - **Validation executed:** `npx tsc --noEmit` exit 0; `npx eslint .` exit 0, 0 warnings; `npx prettier --check .` clean; `npx vitest run --coverage` — **112 files / 1,844 tests passed**, exit 0, thresholds pass (all files 96.60/90.59/97.71/97.53); `npm run check:contrast` 64 pairings; `npm run build` exit 0 — CSS 62.29 kB (14.46 kB gzip), app JS 1,193.46 kB (340.40 kB gzip), `JsonEditor` 427.66 kB, pre-existing >500 kB chunk warning; the 64-pairing contrast gate passes.
+  - **Deviations recorded:** (1) no editor toolbar overflow menu — the toolbar already collapses labels below `sm`, wraps, and keeps every action reachable; an overflow menu would add a tap to controls that already fit. (2) "tabbed inspector" became a sheet-hosted inspector: the editor's view switcher is already tabbed, and the inspector renders once, in a sheet, rather than being duplicated into a second tab stop. (3) The rail's persisted state lives in `localStorage`, not in the settings record, so it is not part of an export.
+  - **Known limitations:** the 360–1920 px audit and any horizontal-overflow measurement were **not** performed — this environment has no browser binary and jsdom has no layout engine, so the automated tests pin classes and behaviour rather than pixels; touch-target sizing is a CSS contract verified by class, not by measuring a rendered control. Both are recorded in `docs/TESTING.md` as open checks for TASK-030 (manual integration verification).
 
 ---
 

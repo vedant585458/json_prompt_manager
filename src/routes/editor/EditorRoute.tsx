@@ -1,4 +1,4 @@
-import { Camera, Download, FileJson, GitCompare, History } from 'lucide-react';
+import { Camera, Download, FileJson, GitCompare, History, PanelRight } from 'lucide-react';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
@@ -22,6 +22,7 @@ import {
   ConfirmDialog,
   EmptyState,
   ErrorState,
+  Sheet,
   SkeletonCard,
   Tabs,
   TabsContent,
@@ -31,6 +32,7 @@ import {
   useToast,
 } from '@/components/ui';
 import type { JsonEditorHandle } from '@/components/editor/JsonEditor';
+import { useSinglePaneLayout } from '@/lib/useMediaQuery';
 import type { JsonSyntaxError } from '@/domain/jsonText';
 import { formatJsonText, minifyJsonText } from '@/domain/jsonText';
 import { parseDocument } from '@/domain/serialization';
@@ -122,6 +124,11 @@ export function EditorRoute() {
   const [view, setView] = useState<EditorView>('raw');
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [snapshotOpen, setSnapshotOpen] = useState(false);
+  // Below `lg` the inspector cannot sit beside the editor, so it moves into a
+  // sheet (a bottom sheet on a phone) and stays out of the editing column
+  // (TASK-027).
+  const singlePane = useSinglePaneLayout();
+  const [inspectorSheetOpen, setInspectorSheetOpen] = useState(false);
   const [caret, setCaret] = useState(EMPTY_CARET);
   const editorRef = useRef<JsonEditorHandle>(null);
 
@@ -494,6 +501,21 @@ export function EditorRoute() {
 
   const syntaxError: JsonSyntaxError | null = save.parse.error;
 
+  const inspectorPane = (
+    <EditorInspector
+      open={inspectorOpen}
+      onToggle={() => setInspectorOpen((open) => !open)}
+      stats={save.stats}
+      value={save.parse.value}
+      error={syntaxError}
+      report={report}
+      schemaName={attachedSchema?.name ?? null}
+      promptId={prompt.id}
+      onRevalidate={() => setRecheckToken((token) => token + 1)}
+      onFocusPath={focusIssuePath}
+    />
+  );
+
   return (
     <div className="mx-auto flex w-full max-w-6xl min-w-0 flex-col gap-4">
       <nav
@@ -512,6 +534,12 @@ export function EditorRoute() {
           </li>
         </ol>
         <div className="flex flex-wrap items-center gap-1.5">
+          {singlePane ? (
+            <Button variant="ghost" size="sm" onClick={() => setInspectorSheetOpen(true)}>
+              <PanelRight aria-hidden="true" size={12} />
+              Inspector
+            </Button>
+          ) : null}
           {qualityReport ? (
             <QualityChip findings={qualityFindings} onOpen={() => setView('quality')} />
           ) : null}
@@ -789,18 +817,7 @@ export function EditorRoute() {
           />
         </div>
 
-        <EditorInspector
-          open={inspectorOpen}
-          onToggle={() => setInspectorOpen((open) => !open)}
-          stats={save.stats}
-          value={save.parse.value}
-          error={syntaxError}
-          report={report}
-          schemaName={attachedSchema?.name ?? null}
-          promptId={prompt.id}
-          onRevalidate={() => setRecheckToken((token) => token + 1)}
-          onFocusPath={focusIssuePath}
-        />
+        {singlePane ? null : inspectorPane}
       </div>
 
       <SaveConflictDialog
@@ -819,6 +836,18 @@ export function EditorRoute() {
         onSaveDraft={() => save.saveNow('manual')}
         onSnapshot={handleSnapshot}
       />
+
+      {singlePane ? (
+        <Sheet
+          open={inspectorSheetOpen}
+          onOpenChange={setInspectorSheetOpen}
+          title="Inspector"
+          description="Structure, variables, and validation for the current draft. On a narrow screen it opens from the bottom."
+          side="right"
+        >
+          {inspectorPane}
+        </Sheet>
+      ) : null}
 
       <ConfirmDialog
         open={blocker.state === 'blocked'}

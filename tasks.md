@@ -1624,7 +1624,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-027 — Responsive refinement pass
 
-- **Status:** Not Started
+- **Status:** In Progress (cycle 1 of the pass — see the progress record)
 - **Priority:** High
 - **Dependencies:** TASK-018, TASK-020, TASK-022, TASK-023, TASK-024, TASK-025, TASK-026
 - **Objective:** Make every completed workspace genuinely usable from 360 px to 2560 px, replacing desktop shrink-wrap with deliberate small-screen layouts.
@@ -1645,6 +1645,12 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Scripted viewport screenshot review for each route; manual mobile emulation pass of the primary workflows; automated check for `document.documentElement.scrollWidth > clientWidth` in key routes; typecheck/lint/tests/build.
 - **Deliverables:** responsive layout fixes across shell, routes, and feature components; documented breakpoint matrix in `docs/TESTING.md`; any new responsive helpers.
 - **Out of scope:** Native mobile app, tablet-specific gestures, new features.
+
+- **Progress record (2026-10-25, cycle 1):** partially implemented; the task is **not** complete.
+  - **Done:** the responsive media-query hook (`src/lib/useMediaQuery.ts`, `useCompactLayout` / `useSinglePaneLayout`, SSR- and jsdom-safe, follows `change`, supports legacy `addListener`); dialogs become bottom sheets below 640 px with safe-area padding (`Dialog.tsx`); buttons and icon buttons grow to a 44 px target under `pointer: coarse` (`buttonVariants.ts`, `IconButton.tsx`); the shell's main column keeps clear of the home indicator (`Shell.tsx`); the editor keeps a single pane below 1024 px, rendering its inspector once inside the existing `Sheet` opened from an "Inspector" button (`EditorRoute.tsx`); `mockMatchMedia` answers only `prefers-color-scheme` so width queries default to the wide layout; a viewport matrix and the honest verification status recorded in the new `docs/TESTING.md`; ADR-112.
+  - **Tests:** `src/lib/useMediaQuery.test.ts` (5) and `src/components/ui/responsive.test.tsx` (3): match/no-match, change events, unsubscribe, legacy API, missing `matchMedia`, the bottom-sheet class contract, coarse-pointer targets, safe-area padding, and the editor's single-pane inspector sheet.
+  - **Still open in this task (not claimed as done):** library filters collapsed into a sheet; editor toolbar overflow menu; diff, laboratory, blueprint, and validation stacked layouts and table-to-card transformations; persisted rail-collapse and density preferences; the 360–1920 px audit itself, including a real horizontal-overflow measurement, which this environment cannot perform (no browser binary).
+  - **Validation so far:** `npx tsc --noEmit` exit 0; targeted suites green (editor, ui, layout); full-suite and build results recorded in the completion record when the pass finishes.
 
 ---
 

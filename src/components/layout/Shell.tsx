@@ -58,7 +58,7 @@ export function Shell() {
             id="main-content"
             ref={mainRef}
             tabIndex={-1}
-            className="min-w-0 flex-1 px-4 py-8 focus:outline-none sm:px-6 lg:px-8 lg:py-10"
+            className="min-w-0 flex-1 px-4 pt-8 pb-[max(2rem,env(safe-area-inset-bottom))] focus:outline-none sm:px-6 lg:px-8 lg:pt-10 lg:pb-[max(2.5rem,env(safe-area-inset-bottom))]"
           >
             <Outlet />
           </main>

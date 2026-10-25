@@ -8,6 +8,8 @@ const iconButtonVariants = cva(
     'inline-flex shrink-0 items-center justify-center rounded-sm',
     'transition-colors duration-[var(--pf-duration-fast)] ease-[var(--pf-ease-out)]',
     'select-none disabled:cursor-not-allowed disabled:opacity-55',
+    // 44 × 44 on a touch screen; unchanged on a mouse (TASK-027).
+    'pointer-coarse:min-h-11 pointer-coarse:min-w-11',
   ],
   {
     variants: {

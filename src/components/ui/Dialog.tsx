@@ -47,6 +47,20 @@ export const DialogClose = DialogPrimitive.Close;
 
 export type DialogSize = 'sm' | 'md' | 'lg';
 
+/**
+ * Below `sm` a centred dialog is a cramped box floating in the middle of a phone
+ * screen. These classes turn it into a bottom sheet instead: full width, flush
+ * with the bottom edge, square at the bottom, rounded at the top, and clear of
+ * the home-indicator safe area. CSS only, so no JavaScript media query has to
+ * run before the first paint (TASK-027).
+ */
+const COMPACT_SHEET_CLASS = cn(
+  'max-sm:top-auto max-sm:bottom-0 max-sm:left-0 max-sm:w-full max-sm:max-w-none',
+  'max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-b-none max-sm:rounded-t-xl',
+  'max-sm:border-x-0 max-sm:border-b-0 max-sm:max-h-[85dvh]',
+  'max-sm:pb-[max(1.25rem,env(safe-area-inset-bottom))]',
+);
+
 const SIZE_CLASS: Record<DialogSize, string> = {
   sm: 'max-w-sm',
   md: 'max-w-lg',
@@ -113,6 +127,7 @@ export function DialogContent({
           'fixed top-1/2 left-1/2 z-modal w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2',
           'max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-lg border border-line bg-surface-1 p-5 shadow-panel',
           'data-[state=open]:animate-fade-in focus:outline-none',
+          COMPACT_SHEET_CLASS,
           SIZE_CLASS[size],
           className,
         )}

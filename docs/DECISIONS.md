@@ -3523,3 +3523,51 @@ the library bulk export, the editor export, and both palette commands.
   real-browser download behaviour is therefore unverified.
 - The staged-rollback test forces failures through the repository contract, not by killing the tab, so
   a browser crash mid-import is untested (and, by design, unrecoverable).
+
+---
+
+## ADR-112 — Responsiveness comes from CSS first, and the two panes move instead of shrinking
+
+**Context.** TASK-027 asks every screen to work from 360 px to 2560 px. The build
+already had a responsive shell (rail below `lg`, drawer below `lg`, `min-w-0` main
+column, `Sheet` that becomes a bottom sheet automatically) but three things were
+still desktop-shaped: dialogs stayed centred boxes on a phone, controls were sized
+for a mouse, and the editor's inspector was always a second column.
+
+**Decision.**
+
+1. **CSS does the layout; JavaScript only moves content.** Hiding and reflowing is
+   expressed in classes (`max-sm:`, `lg:`, `pointer-coarse:`) so the first paint is
+   correct without a media-query read. A hook (`src/lib/useMediaQuery.ts`, built on
+   `useSyncExternalStore`) is used only where a node must be _relocated_ rather than
+   hidden, because moving a node between two containers cannot be done in CSS.
+2. **The hook assumes the wide layout when it cannot ask.** Without `matchMedia`
+   (server rendering, jsdom, an old browser) every query reports `false`, which is
+   the layout the app already renders. Nothing is hidden because a capability is
+   missing, and hydration cannot move a control.
+3. **A dialog is a bottom sheet below 640 px.** `DialogContent` gained `max-sm:`
+   classes: full width, flush to the bottom, square bottom corners, rounded top,
+   `max-h-[85dvh]`, and `padding-bottom: max(1.25rem, env(safe-area-inset-bottom))`.
+   Focus behaviour is untouched — Radix still owns the trap and the restore.
+4. **Touch targets grow on coarse pointers, not everywhere.** `Button` and
+   `IconButton` carry `pointer-coarse:min-h-11` (and `min-w-11` on the square icon
+   button), so a finger gets 44 px while desktop density is unchanged.
+5. **The editor keeps one pane below `lg`.** `useSinglePaneLayout()` (`max-width:
+1023px`) renders the inspector once, inside the existing `Sheet`, opened from an
+   "Inspector" button in the header; the grid's second column is not rendered at
+   all. Rendering it twice would have duplicated ids and ARIA landmarks.
+6. **The main column clears the home indicator.**
+   `pb-[max(2rem,env(safe-area-inset-bottom))]` replaces the symmetric `py-8`, so
+   content never sits under an iPhone's home bar.
+
+**Consequences.**
+
+- Layout behaviour is testable as a class contract even without a layout engine; the
+  real overflow measurement remains a manual check (recorded in `docs/TESTING.md`).
+- The test helper `mockMatchMedia` now answers only `prefers-color-scheme`; every
+  other query reports `false`, so existing screen tests keep rendering the wide
+  layout and a test that wants a phone stubs `matchMedia` itself.
+- Not yet done in this pass, and therefore not claimed: the library's filters as a
+  sheet, the editor toolbar's overflow menu, the diff/lab/blueprint/validation
+  stacked reviews, and persisting the rail's collapsed state. They are listed in
+  `tasks.md` as the remainder of TASK-027.

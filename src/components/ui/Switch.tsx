@@ -40,7 +40,7 @@ export function Switch({ label, hint, className, id, ...props }: SwitchProps) {
           'relative inline-flex h-5 w-9 shrink-0 items-center rounded-pill border border-line-control bg-surface-3',
           'transition-colors duration-[var(--pf-duration-fast)]',
           'data-[state=checked]:border-accent data-[state=checked]:bg-accent-soft',
-          'disabled:cursor-not-allowed disabled:opacity-55',
+          'disabled:cursor-not-allowed disabled:opacity-70',
         )}
         {...props}
       >

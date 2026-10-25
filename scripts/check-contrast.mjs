@@ -17,7 +17,14 @@ import { fileURLToPath } from 'node:url';
 
 const tokensPath = fileURLToPath(new URL('../src/styles/tokens.css', import.meta.url));
 
-/** @typedef {{ label: string, fg: string, bg: string, min: number, role: 'text' | 'ui' }} Pair */
+/**
+ * @typedef {{ label: string, fg: string, bg: string, min: number, role: 'text' | 'ui', alpha?: number }} Pair
+ *
+ * `alpha` composites the foreground over the background before measuring, which
+ * is how a disabled control is actually drawn (`disabled:opacity-70`). WCAG
+ * exempts inactive controls, but a control nobody can read is still a control
+ * nobody can use, so the product holds them to 3:1 (TASK-028).
+ */
 
 const PAIRS = /** @type {Pair[]} */ ([
   { label: 'Primary text on canvas', fg: 'ink', bg: 'canvas', min: 4.5, role: 'text' },
@@ -128,6 +135,82 @@ const PAIRS = /** @type {Pair[]} */ ([
     role: 'ui',
   },
   { label: 'Strong boundary on surface-1', fg: 'line-strong', bg: 'surface-1', min: 3, role: 'ui' },
+
+  /* Accent on the raised surfaces it actually sits on (TASK-028). */
+  { label: 'Accent text on surface-2', fg: 'accent', bg: 'surface-2', min: 4.5, role: 'text' },
+  { label: 'Accent text on surface-3', fg: 'accent', bg: 'surface-3', min: 4.5, role: 'text' },
+  {
+    label: 'Accent text on accent-soft over canvas',
+    fg: 'accent',
+    bg: 'accent-soft',
+    min: 4.5,
+    role: 'text',
+  },
+  {
+    label: 'Primary text on surface-sunken',
+    fg: 'ink',
+    bg: 'surface-sunken',
+    min: 4.5,
+    role: 'text',
+  },
+  {
+    label: 'Secondary text on surface-sunken',
+    fg: 'ink-secondary',
+    bg: 'surface-sunken',
+    min: 4.5,
+    role: 'text',
+  },
+  {
+    label: 'Muted text on surface-sunken',
+    fg: 'ink-muted',
+    bg: 'surface-sunken',
+    min: 4.5,
+    role: 'text',
+  },
+
+  /* Disabled controls, composited at the opacity the components use. */
+  {
+    label: 'Disabled secondary button label',
+    fg: 'ink',
+    bg: 'surface-2',
+    min: 3,
+    role: 'ui',
+    alpha: 0.7,
+  },
+  {
+    label: 'Disabled primary button label',
+    fg: 'accent-foreground',
+    bg: 'accent-fill',
+    min: 3,
+    role: 'ui',
+    alpha: 0.7,
+  },
+  {
+    label: 'Disabled ghost button label',
+    fg: 'ink-secondary',
+    bg: 'surface-1',
+    min: 3,
+    role: 'ui',
+    alpha: 0.7,
+  },
+  {
+    label: 'Disabled muted helper text',
+    fg: 'ink-muted',
+    bg: 'surface-1',
+    min: 3,
+    role: 'ui',
+    alpha: 0.7,
+  },
+
+  /* Status text on its own soft surface, which is how alerts are drawn. */
+  {
+    label: 'Danger text on danger-soft over canvas',
+    fg: 'danger',
+    bg: 'danger-soft',
+    min: 4.5,
+    role: 'text',
+  },
+  { label: 'Inverse text on danger fill', fg: 'ink-inverse', bg: 'danger', min: 4.5, role: 'text' },
   { label: 'Focus ring on canvas', fg: 'focus-ring', bg: 'canvas', min: 3, role: 'ui' },
   { label: 'Focus ring on surface-1', fg: 'focus-ring', bg: 'surface-1', min: 3, role: 'ui' },
 ]);
@@ -171,6 +254,34 @@ function channelLuminance(hex) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+/**
+ * The colour a semi-transparent foreground actually produces over its
+ * background, channel by channel (no gamma correction: CSS composites in
+ * sRGB, which is what a browser and an eye both see).
+ */
+function composite(fgHex, bgHex, alpha) {
+  const parse = (hex) => {
+    const value = hex.replace('#', '');
+    const full =
+      value.length === 3
+        ? value
+            .split('')
+            .map((char) => char + char)
+            .join('')
+        : value;
+    return [0, 2, 4].map((index) => parseInt(full.slice(index, index + 2), 16));
+  };
+
+  const [fr, fg, fb] = parse(fgHex);
+  const [br, bg, bb] = parse(bgHex);
+  const channel = (front, back) =>
+    Math.round(front * alpha + back * (1 - alpha))
+      .toString(16)
+      .padStart(2, '0');
+
+  return `#${channel(fr, br)}${channel(fg, bg)}${channel(fb, bb)}`;
+}
+
 function contrastRatio(fgHex, bgHex) {
   const [lighter, darker] = [channelLuminance(fgHex), channelLuminance(bgHex)].sort(
     (a, b) => b - a,
@@ -198,10 +309,11 @@ for (const { theme, palette } of themes) {
       failures += 1;
       continue;
     }
-    const ratio = contrastRatio(fg, bg);
+    const drawn = pair.alpha === undefined ? fg : composite(fg, bg, pair.alpha);
+    const ratio = contrastRatio(drawn, bg);
     const pass = ratio >= pair.min;
     if (!pass) failures += 1;
-    rows.push({ theme, pair, ratio, pass, fg, bg });
+    rows.push({ theme, pair, ratio, pass, fg: drawn, bg });
   }
 }
 

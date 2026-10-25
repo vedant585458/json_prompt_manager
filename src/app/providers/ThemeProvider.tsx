@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, type ReactNode } from 'react';
 import { ThemeContext, type ThemeContextValue } from '@/app/providers/theme-context';
 import { usePreferencesStore } from '@/store/preferences';
 import {
+  applyReducedMotion,
   applyResolvedTheme,
   getBrowserStorage,
   getSystemThemeQuery,
@@ -19,15 +20,27 @@ import {
  * The initial paint is handled by the inline boot script in index.html, so this
  * provider never causes a flash of the wrong theme; it re-applies the same
  * resolution on mount and owns every later change.
+ *
+ * It also owns the reduced-motion attribute. `global.css` already honoured
+ * `[data-reduced-motion='true']`, but nothing ever set it, so the in-app
+ * preference was a switch that did nothing — the OS setting worked and the
+ * product's own did not (TASK-028). The attribute is set from the stored
+ * preference, which means a person who cannot tolerate motion gets that from
+ * choosing it here as well as from their operating system.
  */
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const preference = usePreferencesStore((state) => state.themePreference);
   const resolved = usePreferencesStore((state) => state.resolvedTheme);
   const setTheme = usePreferencesStore((state) => state.setTheme);
+  const reducedMotion = usePreferencesStore((state) => state.reducedMotion);
 
   useEffect(() => {
     applyResolvedTheme(document.documentElement, resolved);
   }, [resolved]);
+
+  useEffect(() => {
+    applyReducedMotion(document.documentElement, reducedMotion);
+  }, [reducedMotion]);
 
   useEffect(() => {
     if (preference !== 'system') return;

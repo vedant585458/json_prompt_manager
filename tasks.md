@@ -4,7 +4,7 @@
 **Created:** 2026-10-24
 **Repository:** `vedant585458/json_prompt_manager`
 **Branch:** `arena/3b0d1d76-json-prompt-manager`
-**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-027 is the latest completed task.
+**Current phase:** Phase 2 — Implementation, one authorized task per cycle. Planning is complete; TASK-028 is the latest completed task.
 **Authoritative status source:** This file. One status per task, maintained here only.
 
 ---
@@ -609,12 +609,12 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-025 — Health dashboard and activity timeline — Medium — deps: 016, 019
 - [x] TASK-026 — Import and export — High — deps: 012, 019
 - [x] TASK-027 — Responsive refinement pass — High — deps: 018, 020, 022, 023, 024, 025, 026
-- [ ] TASK-028 — Accessibility review and remediation — High — deps: 027
+- [x] TASK-028 — Accessibility review and remediation — High — deps: 027
 - [ ] TASK-029 — Automated test suite expansion — High — deps: 027
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 27 of 31 tasks complete. TASK-001 through TASK-022 were completed on 2026-10-24; TASK-023 through TASK-027 on 2026-10-25.
+**Progress:** 28 of 31 tasks complete. TASK-001 through TASK-022 were completed on 2026-10-24; TASK-023 through TASK-028 on 2026-10-25.
 
 ---
 
@@ -1664,7 +1664,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-028 — Accessibility review and remediation
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** High
 - **Dependencies:** TASK-027
 - **Objective:** Meet the WCAG 2.2 AA target on all implemented surfaces, with verified keyboard and screen-reader semantics.
@@ -1685,6 +1685,19 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** axe test suite run and reported; manual keyboard walkthrough of all primary workflows; contrast table recorded; screen-reader spot check (VoiceOver/NVDA if available, otherwise documented as a limitation); typecheck/lint/tests/build.
 - **Deliverables:** accessibility fixes across components/routes, `src/test/a11y.ts` helpers, accessibility tests, `docs/ACCESSIBILITY.md`.
 - **Out of scope:** WCAG AAA, full manual screen-reader certification, localization.
+
+- **Completion record (2026-10-25):** Completed after explicit user authorization.
+  - **axe-core integration:** `axe-core@4.14.0` added as a dev dependency (the audit engine the task names; no wrapper package). `src/test/a11y.ts` is a ~60-line runner exposing `runAxe`, `seriousProblems`, `expectNoSeriousViolations`, and `UNSUPPORTED_IN_JSDOM` — the five rules that need a rendering engine (`color-contrast`, `color-contrast-enhanced`, `target-size`, `scrollable-region-focusable`, `label-content-name-mismatch`, `region`) are disabled in one place with the reason beside them, so "not checked" cannot read as "passed".
+  - **Audit results (`src/test/a11y.routes.test.tsx`, 12 cases):** zero critical/serious violations on dashboard, library, editor, composer (`/composer` and `/prompts/:id/compose`), validation, templates, health, settings, diff, the command palette (empty and with results), shortcut help, the import dialog, a destructive confirmation, a dropdown menu, and a sheet. A probe across every route returned no findings at any impact, so no `moderate`/`minor` baseline was needed. A sanity case appends an unnamed button and asserts axe catches it (`button-name`), proving the suite scans.
+  - **Remediation (four real defects and one gap):** (1) `aria-label` on a generic `<span>` in `EditorStatusBar` (aria-prohibited-attr, serious) → the abbreviation is `aria-hidden` and an `sr-only` span carries "Line 3, column 12"; (2) `aria-label` on a `<pre>` in `ComposerPreview` → `role="region"`, which may be named; (3) `ComposerFields` "Snippets used" was an `h4` under an `h1` (heading-order, moderate) → `h2`; (4) `Field` errors were associated but never announced → the error paragraph is `role="alert"`; (5) the skip link now focuses its target explicitly and only calls `scrollIntoView` when it exists (it was also the one unhandled-rejection in the suite).
+  - **Contrast gate widened (64 → 88 pairings):** `scripts/check-contrast.mjs` gained per-pairing `alpha`, so disabled controls are measured as drawn. That caught `disabled:opacity-55` leaving muted text at 2.31–2.52:1; the fade is now `opacity-70` across `buttonVariants`, `IconButton`, `controlStyles`, `Checkbox`, `RadioGroup`, `Switch`, `Tabs`, `DropdownMenu`, and `ContextMenu`, giving a worst case of 3.06:1. New pairs also cover accent on surface-2/3, the sunken surface, danger-on-soft, and inverse-on-danger.
+  - **Reduced motion gap closed:** `[data-reduced-motion='true']` existed in CSS and `reducedMotion` existed in the preferences store, but nothing connected them, so the in-app switch was inert while the OS setting worked. `applyReducedMotion` in `src/styles/theme.ts` plus an effect in `ThemeProvider` now set and clear the attribute; two tests pin both directions.
+  - **Keyboard and semantics suite:** `src/components/layout/shell.a11y.test.tsx` (7) — skip link is the first tab stop and moves focus into `main`; one `main`, one `h1`, and labelled navigations on six routes; no control hidden behind a hover (source scan); palette traps focus and restores the opener; two-key chords do not fire while typing; focus-ring and reduced-motion contracts in the stylesheet; live regions exist for status. `src/components/ui/forms.a11y.test.tsx` (7) — label/hint/error association, `aria-invalid`, `required`, `role="alert"`, "Optional" wording, hidden labels, checkbox/select/switch/radio roles and names.
+  - **Docs:** `docs/ACCESSIBILITY.md` is new — the three gates, the axe results per surface, the fix table, the full 44-pair contrast table (both themes, generated by `npm run check:contrast -- --markdown`), motion and keyboard tables, and explicit "not verified" and "known gaps" sections. ADR-113 in `docs/DECISIONS.md`.
+  - **Tests added (35 cases, 4 new files):** `src/test/a11y.routes.test.tsx` 12, `src/test/a11y.overlays.test.tsx` 7, `src/components/layout/shell.a11y.test.tsx` 7, `src/components/ui/forms.a11y.test.tsx` 7, plus `ThemeProvider.test.tsx` +2. Four existing editor tests were updated where the caret's accessible text changed.
+  - **Validation executed:** `npx tsc --noEmit` exit 0; `npx eslint .` exit 0; `npx prettier --check .` clean; `npx vitest run --coverage` exit 0 — **116 files / 1,879 tests passed**, thresholds pass (all files 96.62/90.59/97.78/97.55); `npm run check:contrast` — **88 pairings verified across both themes**; `npm run build` exit 0 — CSS 62.85 kB (14.53 kB gzip), app JS 1,193.89 kB (340.51 kB gzip), pre-existing >500 kB chunk warning. One new dev dependency: `axe-core@4.14.0`.
+  - **Not performed (stated honestly):** no browser binary and no screen reader exist in this environment, so there was no VoiceOver/NVDA pass, no manual tab-through of a rendered page, no screenshot review, no zoom/reflow check at 400 %, and no observed focus-ring or motion behaviour. Contrast is verified on token pairings, not on rendered pixels; target size is a CSS contract verified by class, not by measuring. All of this is listed in `docs/ACCESSIBILITY.md` under "Not verified".
+  - **Known gaps:** the CodeMirror surface's third-party widget markup is only audited as far as axe can see it; the palette renders every group (correct ids, larger DOM); health distribution bars are decorative duplicates of the table beneath them; toasts time out and never take focus.
 
 ---
 

@@ -38,6 +38,10 @@ export function ComposerPreview({
 
       <pre
         tabIndex={0}
+        // A scrollable block needs to be reachable by keyboard *and* named, and
+        // a bare `pre` is `role=generic`, where a name is prohibited. A region
+        // accepts a name and tells assistive technology what the scroller holds.
+        role="region"
         aria-label="Current prompt document"
         className="max-h-[28rem] min-w-0 overflow-auto rounded-md border border-line bg-surface-sunken p-3 font-mono text-2xs leading-relaxed text-ink-secondary"
       >

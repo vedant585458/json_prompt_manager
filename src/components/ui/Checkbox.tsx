@@ -33,7 +33,7 @@ export function Checkbox({ label, hint, className, id, ...props }: CheckboxProps
           'transition-colors duration-[var(--pf-duration-fast)]',
           'data-[state=checked]:border-accent data-[state=checked]:bg-accent-fill',
           'data-[state=indeterminate]:border-accent data-[state=indeterminate]:bg-accent-soft',
-          'disabled:cursor-not-allowed disabled:opacity-55',
+          'disabled:cursor-not-allowed disabled:opacity-70',
         )}
         {...props}
       >

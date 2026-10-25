@@ -82,7 +82,7 @@ export function ContextMenuItem({
       className={cn(
         'flex cursor-pointer items-center gap-2 rounded-xs px-2 py-1.5 text-sm text-ink-secondary outline-none select-none',
         'data-[highlighted]:bg-surface-3 data-[highlighted]:text-ink',
-        'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+        'data-[disabled]:pointer-events-none data-[disabled]:opacity-70',
         destructive && 'text-danger',
         className,
       )}

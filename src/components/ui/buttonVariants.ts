@@ -8,7 +8,7 @@ export const buttonVariants = cva(
   [
     'inline-flex shrink-0 items-center justify-center gap-2 rounded-sm font-medium whitespace-nowrap',
     'transition-colors duration-[var(--pf-duration-fast)] ease-[var(--pf-ease-out)]',
-    'select-none disabled:cursor-not-allowed disabled:opacity-55',
+    'select-none disabled:cursor-not-allowed disabled:opacity-70',
     // A finger is not a mouse: on a touch screen every button grows to the
     // 44 px target the pointer guidelines ask for, without changing desktop
     // density (TASK-027).

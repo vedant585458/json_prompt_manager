@@ -8,7 +8,7 @@ export const controlVariants = cva(
   [
     'w-full rounded-sm border bg-surface-2 text-ink placeholder:text-ink-muted',
     'transition-colors duration-[var(--pf-duration-fast)]',
-    'disabled:cursor-not-allowed disabled:opacity-55',
+    'disabled:cursor-not-allowed disabled:opacity-70',
     'aria-invalid:border-danger',
   ],
   {

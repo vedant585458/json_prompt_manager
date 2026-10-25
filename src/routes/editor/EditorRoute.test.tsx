@@ -214,7 +214,7 @@ describe('JSON workspace (TASK-014)', () => {
     ).toMatch(/^x\{/);
 
     await user.click(screen.getByRole('button', { name: 'Go to line 1' }));
-    expect(screen.getByLabelText(/Caret at line 1/)).toBeVisible();
+    expect(screen.getByText(/^Line 1, column \d+$/)).toBeVisible();
   });
 
   it('formats and minifies the draft from the toolbar, idempotently', async () => {
@@ -570,14 +570,14 @@ describe('validation in the workspace (TASK-016)', () => {
     await user.click(await screen.findByRole('button', { name: 'Find $.objective in the editor' }));
 
     // `objective` is the fifth line of the canonical document; the caret follows it.
-    await waitFor(() => expect(screen.getByLabelText(/^Caret at line 5/)).toBeVisible());
+    await waitFor(() => expect(screen.getByText(/^Line 5, column \d+$/)).toBeVisible());
   });
 
   it('honours a line link from the validation studio', async () => {
     renderWithSchema({}, '/prompts/alpha?line=3');
 
     await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
-    await waitFor(() => expect(screen.getByLabelText(/^Caret at line 3/)).toBeVisible());
+    await waitFor(() => expect(screen.getByText(/^Line 3, column \d+$/)).toBeVisible());
   });
 });
 
@@ -792,14 +792,16 @@ describe('blueprint tab (TASK-023)', () => {
     await user.click(within(structure).getByRole('button', { name: /Objective/ }));
     await user.click(screen.getByRole('button', { name: /Jump to “Objective” in the editor/ }));
 
-    // The caret lands on the line holding the objective, which the status bar reports.
+    // The caret lands on the line holding the objective, which the status bar
+    // reports. CodeMirror is lazy, so wait for its lines before reading them.
+    await waitFor(() => expect(document.querySelectorAll('.cm-line').length).toBeGreaterThan(1));
     const lines = Array.from(document.querySelectorAll('.cm-line')).map(
       (line) => line.textContent ?? '',
     );
     const objectiveLine = lines.findIndex((line) => line.includes('"objective"')) + 1;
     expect(objectiveLine).toBeGreaterThan(1);
     expect(
-      await screen.findByLabelText(new RegExp(`^Caret at line ${objectiveLine}, column \\d+$`)),
+      await screen.findByText(new RegExp(`^Line ${objectiveLine}, column \\d+$`)),
     ).toBeVisible();
   });
 

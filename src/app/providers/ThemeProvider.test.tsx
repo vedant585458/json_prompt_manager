@@ -103,4 +103,32 @@ describe('ThemeProvider', () => {
 
     consoleError.mockRestore();
   });
+
+  /**
+   * Reduced motion (TASK-028).
+   *
+   * The stylesheet honoured `[data-reduced-motion='true']` from TASK-002, but
+   * nothing set the attribute, so the in-app switch was inert while the OS
+   * setting worked. These two cases pin the wiring.
+   */
+  it('sets the reduced-motion attribute from the stored preference', () => {
+    mockMatchMedia(true);
+    usePreferencesStore.setState({ reducedMotion: true });
+
+    renderProvider();
+    expect(document.documentElement).toHaveAttribute('data-reduced-motion', 'true');
+  });
+
+  it('removes the attribute when the preference is off', () => {
+    mockMatchMedia(true);
+    usePreferencesStore.setState({ reducedMotion: true });
+    renderProvider();
+    expect(document.documentElement).toHaveAttribute('data-reduced-motion', 'true');
+
+    act(() => {
+      usePreferencesStore.getState().setReducedMotion(false);
+    });
+
+    expect(document.documentElement).not.toHaveAttribute('data-reduced-motion');
+  });
 });

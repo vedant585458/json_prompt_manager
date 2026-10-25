@@ -81,7 +81,14 @@ export function Field({
         </p>
       ) : null}
       {error ? (
-        <p id={errorId} className={cn(fieldMessageVariants({ tone: 'error' }), 'flex gap-1.5')}>
+        // `role="alert"` so a message that appears after a submit is announced,
+        // not just attached. The icon is decorative — the words already say what
+        // went wrong, and colour is never the only signal (TASK-028).
+        <p
+          id={errorId}
+          role="alert"
+          className={cn(fieldMessageVariants({ tone: 'error' }), 'flex gap-1.5')}
+        >
           <span aria-hidden="true">✕</span>
           <span>{error}</span>
         </p>

@@ -3593,3 +3593,63 @@ for a mouse, and the editor's inspector was always a second column.
 - The 360–1920 px audit itself is **not** measured: jsdom has no layout engine and
   this environment has no browser binary, so horizontal overflow is unverified. It
   is recorded as an open check for TASK-030.
+
+---
+
+## ADR-113 — Accessibility is three gates, and axe runs with its limits written down
+
+**Context.** TASK-028 asks for a WCAG 2.2 AA target "with verified keyboard and
+screen-reader semantics". Three things are true at once: an automated audit cannot see
+contrast or focus order, this environment has no browser and no screen reader, and a
+suite that quietly disables half of axe's rules is worse than no suite, because it turns
+"not checked" into "passed".
+
+**Decision.**
+
+1. **Three gates, each named for what it proves.** axe-core for markup
+   (`src/test/a11y.routes.test.tsx`, `src/test/a11y.overlays.test.tsx`), a keyboard and
+   semantics suite for behaviour (`src/components/layout/shell.a11y.test.tsx`,
+   `src/components/ui/forms.a11y.test.tsx`), and the token contrast gate
+   (`npm run check:contrast`) for the palette. Each document — `docs/ACCESSIBILITY.md` —
+   states what the gate cannot see.
+2. **Rule exclusions live in one constant.** `UNSUPPORTED_IN_JSDOM` lists the rules that
+   need a rendering engine (`color-contrast`, `target-size`,
+   `scrollable-region-focusable`, `label-content-name-mismatch`, `region`, and the
+   enhanced-contrast variant). They are disabled in `runAxe` rather than sprinkled through
+   tests, so the gap is greppable and the reason is next to the rule.
+3. **The audit proves it is running.** A sanity case appends an unnamed button and asserts
+   axe reports `button-name`. A suite whose context selector broke would fail that case
+   instead of reporting a clean sweep.
+4. **Only `critical` and `serious` fail a test.** That is the task's bar, and it is the
+   bar the suites assert. In practice no `moderate` or `minor` finding remains either — a
+   probe run across every route returned none — and the two `moderate` findings that did
+   exist (heading order in the composer, and two prohibited-ARIA attributes) were fixed
+   rather than baselined.
+5. **One dependency was added.** `axe-core` (dev-only, 4.14.0) is the audit engine the
+   task names. No wrapper package: a 60-line runner in `src/test/a11y.ts` builds the
+   options, filters by impact, and prints the rule, the impact, and the failing selectors,
+   which is all a wrapper would have done.
+6. **Contrast is gated on composited values, not just token pairs.** `check-contrast.mjs`
+   gained an `alpha` per pairing, so a disabled control is measured as it is drawn. That
+   immediately caught a real defect: `disabled:opacity-55` put muted text at 2.3–2.6:1.
+   The component classes moved to `opacity-70` (worst case 3.06:1) and the gate now
+   enforces it, so the next person cannot quietly fade a control out of legibility.
+7. **A switch that does nothing is a bug.** `[data-reduced-motion='true']` had been in the
+   stylesheet since TASK-002 and `reducedMotion` had been in the preferences store since
+   TASK-007, but nothing connected them: the OS setting worked, the product's own toggle
+   did not. `ThemeProvider` now applies the attribute, and two tests pin both directions.
+8. **The skip link moves focus itself.** Fragment navigation moves focus in some browsers
+   for some targets; a skip link that only scrolls leaves the next Tab press at the top of
+   the page. The handler calls `focus()` and only calls `scrollIntoView` when the
+   environment implements it.
+
+**Consequences.**
+
+- Every accessibility claim in `docs/ACCESSIBILITY.md` traces to a command that was run,
+  and the unverified list is as specific as the verified one.
+- The suites are slower (axe takes ~0.3–1 s per surface) and are worth it: they would have
+  caught both prohibited-ARIA attributes before they shipped.
+- jsdom cannot check target size, contrast of rendered pixels, zoom/reflow, or speech
+  output. Those stay manual checks, recorded as open rather than as passes.
+- Raising disabled opacity makes disabled controls slightly more prominent. That is the
+  intended trade: visible-but-inactive beats invisible-and-inactive.

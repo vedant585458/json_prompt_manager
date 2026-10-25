@@ -109,12 +109,18 @@ src/
   lib/            small framework-agnostic utilities
   styles/         tokens and global styles
   test/           test setup and shared fixtures
-docs/             architecture, data model, persistence, validation, testing, limits
+docs/             architecture, data model, persistence, validation, testing, limits, accessibility
 ```
 
 See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for layer rules, the design-system contract,
 and architectural decisions, and [`docs/DECISIONS.md`](./docs/DECISIONS.md) for the decision log and
 the generated contrast table.
+
+Accessibility has its own page: [`docs/ACCESSIBILITY.md`](./docs/ACCESSIBILITY.md) records the
+three gates (an axe-core audit over every route and overlay, a keyboard and semantics suite, and
+the token contrast gate with composited disabled states), the findings that were fixed, the full
+44-pair contrast table, and — in the same detail — what was **not** verified, because this
+environment has no browser or screen reader.
 
 ## Dashboard
 

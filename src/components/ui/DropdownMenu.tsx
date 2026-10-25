@@ -50,7 +50,7 @@ export function DropdownMenuItem({
       className={cn(
         'flex cursor-pointer items-center gap-2 rounded-xs px-2 py-1.5 text-sm outline-none select-none',
         'data-[highlighted]:bg-surface-3 data-[highlighted]:text-ink',
-        'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+        'data-[disabled]:pointer-events-none data-[disabled]:opacity-70',
         destructive ? 'text-danger data-[highlighted]:text-danger' : 'text-ink-secondary',
         className,
       )}
@@ -76,7 +76,7 @@ export function DropdownMenuCheckboxItem({
       className={cn(
         'flex cursor-pointer items-center gap-2 rounded-xs py-1.5 pr-2 pl-7 text-sm text-ink-secondary outline-none select-none',
         'data-[highlighted]:bg-surface-3 data-[highlighted]:text-ink',
-        'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+        'data-[disabled]:pointer-events-none data-[disabled]:opacity-70',
         className,
       )}
       {...props}

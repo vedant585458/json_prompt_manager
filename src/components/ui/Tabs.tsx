@@ -35,7 +35,7 @@ export function TabsTrigger({
         'text-ink-muted transition-colors duration-[var(--pf-duration-fast)]',
         'hover:text-ink',
         'data-[state=active]:border-accent data-[state=active]:text-ink',
-        'disabled:cursor-not-allowed disabled:opacity-55',
+        'disabled:cursor-not-allowed disabled:opacity-70',
         className,
       )}
       {...props}

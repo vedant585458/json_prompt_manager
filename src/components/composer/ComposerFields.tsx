@@ -325,7 +325,12 @@ export function ComposerFields({
         </Field>
 
         <div className="space-y-2">
-          <h4 className="text-xs font-medium tracking-wide text-ink uppercase">Snippets used</h4>
+          {/*
+            h2, not h4: this section sits directly under the page's h1, and a
+            1 → 4 jump is a heading-order violation that also makes the outline
+            useless in a screen reader's heading list (TASK-028).
+          */}
+          <h2 className="text-xs font-medium tracking-wide text-ink uppercase">Snippets used</h2>
           {view.includes.length === 0 ? (
             <p className="text-2xs text-ink-muted">
               No snippets are recorded in this document. Inserting one from the panel above records

@@ -56,7 +56,7 @@ export function RadioGroup({
                 'mt-0.5 grid size-4.5 shrink-0 place-items-center rounded-pill border border-line-control bg-surface-2',
                 'transition-colors duration-[var(--pf-duration-fast)]',
                 'data-[state=checked]:border-accent',
-                'disabled:cursor-not-allowed disabled:opacity-55',
+                'disabled:cursor-not-allowed disabled:opacity-70',
               )}
             >
               <RadioGroupPrimitive.Indicator className="block size-2 rounded-pill bg-accent" />

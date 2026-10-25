@@ -37,8 +37,20 @@ export function EditorStatusBar({
       aria-label="Editor status"
       role="status"
     >
-      <span aria-label={`Caret at line ${caret.line}, column ${caret.column}`}>
-        Ln {caret.line}, Col {caret.column}
+      {/*
+        The visible text is abbreviated for width. Screen readers get the
+        expanded words from a hidden span; the abbreviation itself is hidden so
+        it is not read twice. `aria-label` on a bare `span` is prohibited by
+        ARIA 1.2 (`role=generic`), which axe reports as a serious violation
+        (TASK-028).
+      */}
+      <span>
+        <span aria-hidden="true">
+          Ln {caret.line}, Col {caret.column}
+        </span>
+        <span className="sr-only">
+          Line {caret.line}, column {caret.column}
+        </span>
       </span>
       <span>
         {stats.lines} {stats.lines === 1 ? 'line' : 'lines'}

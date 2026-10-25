@@ -73,6 +73,17 @@ export function writeThemePreference(
   }
 }
 
+/**
+ * Applies the reduced-motion preference to the document (TASK-028).
+ *
+ * The stylesheet rule is `[data-reduced-motion='true'] *`, so removing the
+ * attribute is how "off" is expressed — no inline styles, nothing to unwind.
+ */
+export function applyReducedMotion(root: HTMLElement, reduced: boolean): void {
+  if (reduced) root.setAttribute('data-reduced-motion', 'true');
+  else root.removeAttribute('data-reduced-motion');
+}
+
 /** Applies the theme before paint (boot script) or on change. */
 export function applyResolvedTheme(root: HTMLElement, theme: ResolvedTheme): void {
   root.setAttribute('data-theme', theme);

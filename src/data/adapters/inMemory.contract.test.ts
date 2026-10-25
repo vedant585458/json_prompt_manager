@@ -24,6 +24,7 @@ describe('in-memory adapter specifics', () => {
         autosaveEnabled: false,
         autosaveDelayMs: 900,
         density: 'comfortable',
+        healthThresholds: { attentionDays: 30, staleDays: 60, dormantDays: 90 },
         onboardedAt: null,
         seedVersion: 7,
       },

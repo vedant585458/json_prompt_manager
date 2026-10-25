@@ -274,6 +274,14 @@ export function createCoreCommands(): readonly CommandDefinition[] {
       run: (context) => context.navigate('/library?archived=1'),
     },
     {
+      id: 'library.invalid-prompts',
+      title: 'Show prompts that will not parse',
+      group: 'Workspace',
+      description: 'Opens the library filtered to documents the parser rejects.',
+      keywords: searchTerms('invalid broken unparsable json library filter documents health'),
+      run: (context) => context.navigate('/library?validation=unparsable'),
+    },
+    {
       id: 'development.design-gallery',
       title: 'Open the design system gallery',
       group: 'Development',

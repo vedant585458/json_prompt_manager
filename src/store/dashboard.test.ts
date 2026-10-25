@@ -8,6 +8,7 @@ import {
   createRevision,
   createTemplate,
 } from '@/domain/factories';
+import { computeHealth } from '@/domain/health';
 import { createBlankDocument } from '@/domain/promptDocument';
 import type {
   ActivityEvent,
@@ -511,5 +512,39 @@ describe('schema mismatches on the dashboard (TASK-016)', () => {
     ).toBe(
       '1 prompt and no collections yet. Every stored document parses. 1 document fails an attached schema.',
     );
+  });
+});
+
+describe('dashboard and health agree (TASK-025)', () => {
+  it('counts the same unreadable documents as the health report', () => {
+    const prompts = [
+      makePrompt({ title: 'Fine' }),
+      makePrompt({ title: 'Broken', content: { schemaVersion: 'nope' } }),
+      makePrompt({ title: 'Archived broken', archived: true, content: { schemaVersion: 'nope' } }),
+    ];
+
+    const dashboard = selectDashboardData({
+      prompts,
+      collections: [],
+      templates: [],
+      revisions: [],
+      activity: [],
+      now: NOW,
+    });
+    const health = computeHealth({
+      prompts,
+      collections: [],
+      folders: [],
+      revisions: [],
+      schemas: [],
+      activity: [],
+      now: NOW,
+    });
+
+    expect(dashboard.counts.invalidDocuments).toBe(health.invalidDocuments.length);
+    expect(dashboard.counts.invalidDocuments).toBe(1);
+    expect(dashboard.counts.archived).toBe(health.totals.archived);
+    expect(dashboard.counts.total).toBe(health.totals.active);
+    expect(findDocumentProblems(prompts).length).toBe(2);
   });
 });

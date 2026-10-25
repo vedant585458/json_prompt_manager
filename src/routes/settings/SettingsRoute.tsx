@@ -3,7 +3,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useTheme } from '@/app/providers/theme-context';
 import { Card, Field, RadioGroup, Select, StatusPill, Switch } from '@/components/ui';
+import { HEALTH_THRESHOLD_OPTIONS, describeHealthThresholds } from '@/domain/health';
 import { AUTOSAVE_DELAY } from '@/domain/invariants';
+import type { HealthThresholds } from '@/domain/types';
 import { THEME_PREFERENCES, type ThemePreference } from '@/styles/theme';
 import { describeDataError, useDataStore } from '@/store/dataStore';
 import { usePreferencesStore } from '@/store/preferencesStore';
@@ -20,6 +22,15 @@ const DENSITY_OPTIONS = [
   { value: 'comfortable', label: 'Comfortable' },
   { value: 'compact', label: 'Compact' },
 ] as const;
+
+/** Day choices for one threshold, with the current value added if it is unusual. */
+function thresholdOptions(key: keyof HealthThresholds, current: number) {
+  const choices = HEALTH_THRESHOLD_OPTIONS[key];
+  const values = choices.includes(current)
+    ? [...choices]
+    : [...choices, current].sort((a, b) => a - b);
+  return values.map((days) => ({ value: String(days), label: `${days} days` }));
+}
 
 const DELAY_OPTIONS = [
   { value: '500', label: '0.5 seconds' },
@@ -44,6 +55,8 @@ export function SettingsRoute() {
   const setDensity = usePreferencesStore((state) => state.setDensity);
   const setAutosaveEnabled = usePreferencesStore((state) => state.setAutosaveEnabled);
   const setAutosaveDelay = usePreferencesStore((state) => state.setAutosaveDelay);
+  const healthThresholds = usePreferencesStore((state) => state.healthThresholds);
+  const setHealthThresholds = usePreferencesStore((state) => state.setHealthThresholds);
 
   const mode = useDataStore((state) => state.mode);
   const saveSettings = useDataStore((state) => state.saveSettings);
@@ -215,6 +228,79 @@ export function SettingsRoute() {
               />
             )}
           </Field>
+        </Card>
+        <Card as="section" aria-labelledby="settings-health" className="space-y-4">
+          <div>
+            <h2 id="settings-health" className="text-sm font-semibold text-ink">
+              Health thresholds
+            </h2>
+            <p className="mt-1 text-xs text-ink-muted">
+              The ages at which the health dashboard calls a prompt untouched (
+              {describeHealthThresholds(healthThresholds)}). The buckets are cumulative, and every
+              report prints the values it used.
+            </p>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field label="Attention after" hint="Surfaced for a look.">
+              {(control) => (
+                <Select
+                  {...control}
+                  options={thresholdOptions('attentionDays', healthThresholds.attentionDays)}
+                  value={String(healthThresholds.attentionDays)}
+                  onChange={(event) =>
+                    persist(() =>
+                      setHealthThresholds({
+                        ...healthThresholds,
+                        attentionDays: Number(event.target.value),
+                      }),
+                    )
+                  }
+                />
+              )}
+            </Field>
+
+            <Field label="Stale after" hint="Second bucket, counted separately.">
+              {(control) => (
+                <Select
+                  {...control}
+                  options={thresholdOptions('staleDays', healthThresholds.staleDays)}
+                  value={String(healthThresholds.staleDays)}
+                  onChange={(event) =>
+                    persist(() =>
+                      setHealthThresholds({
+                        ...healthThresholds,
+                        staleDays: Number(event.target.value),
+                      }),
+                    )
+                  }
+                />
+              )}
+            </Field>
+
+            <Field label="Dormant after" hint="Longest bucket.">
+              {(control) => (
+                <Select
+                  {...control}
+                  options={thresholdOptions('dormantDays', healthThresholds.dormantDays)}
+                  value={String(healthThresholds.dormantDays)}
+                  onChange={(event) =>
+                    persist(() =>
+                      setHealthThresholds({
+                        ...healthThresholds,
+                        dormantDays: Number(event.target.value),
+                      }),
+                    )
+                  }
+                />
+              )}
+            </Field>
+          </div>
+
+          <p className="text-2xs leading-relaxed text-ink-muted">
+            Day counts only — the health report compares them with the last save time of each
+            prompt. Archived prompts are never counted as untouched.
+          </p>
         </Card>
       </div>
 

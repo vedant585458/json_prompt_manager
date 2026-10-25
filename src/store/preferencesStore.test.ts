@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { DEFAULT_HEALTH_THRESHOLDS } from '@/domain/health';
 import { AUTOSAVE_DELAY } from '@/domain/invariants';
 import { createDefaultSettings } from '@/domain/factories';
 import { createPreferencesStore, DEFAULT_AUTOSAVE_DELAY } from '@/store/preferencesStore';
@@ -19,6 +20,54 @@ describe('preferencesStore', () => {
     expect(state.autosaveEnabled).toBe(true);
     expect(state.autosaveDelayMs).toBe(DEFAULT_AUTOSAVE_DELAY);
     expect(state.reducedMotion).toBe(false);
+    expect(state.healthThresholds).toEqual(DEFAULT_HEALTH_THRESHOLDS);
+  });
+
+  it('keeps health thresholds in range and falls back per field', () => {
+    const store = createPreferencesStore(initial);
+
+    store.getState().setHealthThresholds({
+      attentionDays: 45,
+      staleDays: 0,
+      dormantDays: 99_999,
+    });
+
+    expect(store.getState().healthThresholds).toEqual({
+      attentionDays: 45,
+      staleDays: DEFAULT_HEALTH_THRESHOLDS.staleDays,
+      dormantDays: 3_650,
+    });
+  });
+
+  it('adopts stored thresholds, and defaults when an older record has none', () => {
+    const store = createPreferencesStore(initial);
+    const stored = createDefaultSettings({
+      healthThresholds: { attentionDays: 14, staleDays: 30, dormantDays: 45 },
+    });
+
+    store.getState().applySettings(stored);
+    expect(store.getState().healthThresholds).toEqual({
+      attentionDays: 14,
+      staleDays: 30,
+      dormantDays: 45,
+    });
+
+    // A settings row written before TASK-025 has no thresholds at all.
+    const legacy = { ...createDefaultSettings() } as Record<string, unknown>;
+    delete legacy.healthThresholds;
+    store.getState().applySettings(legacy as unknown as ReturnType<typeof createDefaultSettings>);
+    expect(store.getState().healthThresholds).toEqual(DEFAULT_HEALTH_THRESHOLDS);
+  });
+
+  it('writes thresholds into the settings record', () => {
+    const store = createPreferencesStore(initial);
+    store.getState().setHealthThresholds({ attentionDays: 7, staleDays: 14, dormantDays: 21 });
+
+    expect(store.getState().toSettings().healthThresholds).toEqual({
+      attentionDays: 7,
+      staleDays: 14,
+      dormantDays: 21,
+    });
   });
 
   it('accepts explicit editor preferences', () => {

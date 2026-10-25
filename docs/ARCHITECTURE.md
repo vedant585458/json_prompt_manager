@@ -140,21 +140,21 @@ shares the same landmarks, focus behaviour, and navigation; `*` is a child of th
 URL still gets navigation), while the recovery screen is the layout's `errorElement` and therefore
 renders even if the shell itself throws.
 
-| Path                            | Screen                | State                                                 |
-| ------------------------------- | --------------------- | ----------------------------------------------------- |
-| `/`                             | Dashboard             | **Implemented** (TASK-010)                            |
-| `/library`                      | Library               | **Implemented** (TASK-011)                            |
-| `/prompts/:promptId`            | Prompt workspace      | **Implemented** (014/015; Preview 021, Blueprint 023) |
-| `/prompts/:promptId/history`    | Version history       | **Implemented** (TASK-019)                            |
-| `/prompts/:promptId/playground` | Variable playground   | **Implemented** (TASK-021)                            |
-| `/prompts/:promptId/lab`        | Prompt laboratory     | **Implemented** (TASK-022)                            |
-| `/composer`                     | Composer              | Scaffold → TASK-017                                   |
-| `/templates`                    | Templates             | Template catalog, preview, custom templates           |
-| `/validation`                   | Validation            | Scaffold → TASK-016                                   |
-| `/health`                       | Health                | Scaffold → TASK-025                                   |
-| `/settings`                     | Settings              | **Implemented** (theme, density, autosave)            |
-| `/design`                       | Design system gallery | **Implemented** (TASK-003/004)                        |
-| `*`                             | Not found             | **Implemented** (recovery links)                      |
+| Path                            | Screen                | State                                                  |
+| ------------------------------- | --------------------- | ------------------------------------------------------ |
+| `/`                             | Dashboard             | **Implemented** (TASK-010)                             |
+| `/library`                      | Library               | **Implemented** (TASK-011)                             |
+| `/prompts/:promptId`            | Prompt workspace      | **Implemented** (014/015; Preview 021, Blueprint 023)  |
+| `/prompts/:promptId/history`    | Version history       | **Implemented** (TASK-019)                             |
+| `/prompts/:promptId/playground` | Variable playground   | **Implemented** (TASK-021)                             |
+| `/prompts/:promptId/lab`        | Prompt laboratory     | **Implemented** (TASK-022)                             |
+| `/composer`                     | Composer              | **Implemented** (TASK-017)                             |
+| `/templates`                    | Templates             | Template catalog, preview, custom templates            |
+| `/validation`                   | Validation            | **Implemented** (TASK-016)                             |
+| `/health`                       | Health                | **Implemented** (TASK-025)                             |
+| `/settings`                     | Settings              | **Implemented** (theme, density, autosave, thresholds) |
+| `/design`                       | Design system gallery | **Implemented** (TASK-003/004)                         |
+| `*`                             | Not found             | **Implemented** (recovery links)                       |
 
 - **One navigation model.** `src/components/layout/navigation.ts` declares every destination once
   (path, label, description, icon). The rail, the drawer, the breadcrumbs, and the document title all
@@ -754,6 +754,47 @@ what they find. It is a review, not a score, and it cannot edit anything.
   describes an inconsistency; an unfinished document or a suggestion never appears in "Needs attention".
 - **No mutation, no score.** The actions are "go to the field", "copy", and "dismiss". There is no rewrite, no
   auto-fix, and no number that claims to measure quality.
+
+## Health dashboard (TASK-025)
+
+`/health` is the library's maintenance view: what will not parse, what an attached schema rejects, what has
+gone quiet, how prompts are distributed, and what actually happened here. Every figure is recomputed from
+stored records at the moment printed in the header — there is no cache, no sample, and no polling.
+
+| Piece                                       | Responsibility                                                                            |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `src/domain/health.ts`                      | Every metric, the thresholds and their bounds, the unreadable-document scan, summary text |
+| `src/features/health/activityTimeline.ts`   | Ordering, type filter, day grouping, and limit-based paging over the activity log         |
+| `src/features/health/activityMeta.ts`       | Icon, label, and one-sentence description per activity type, shared with the dashboard    |
+| `src/features/health/useHealthData.ts`      | The report plus the clock the screen recomputes against                                   |
+| `src/components/health/HealthSummaryCards`  | The eight headline numbers; only those with an exact filter are links                     |
+| `src/components/health/HealthDistribution`  | Bars over real counts, a full table beneath, and links into the filtered library          |
+| `src/components/health/HealthAttentionList` | One metric's prompts, each linking to that prompt; the untouched-prompt groups            |
+| `src/components/health/ActivityTimeline`    | Day groups, type filter, "load older", and an honest empty state                          |
+| `src/components/health/StorageUsage`        | `navigator.storage.estimate` when the browser reports it, and what it says when not       |
+| `src/routes/health/HealthRoute.tsx`         | The screen, its definitions, and the timestamps it measured                               |
+
+**Definitions the screen has to live with.**
+
+- **One definition of "invalid document".** `findDocumentProblems` in `domain/health.ts` is the single
+  implementation; the dashboard's attention list delegates to it and a test asserts the two counts agree
+  (ADR-110). A prompt whose stored content will not parse is counted once, listed once, and never also
+  described as having variable problems — there is no document to read.
+- **Archived prompts are counted, then excluded.** They appear in the totals and nowhere else, because the
+  archive is not the working set. The dashboard makes the same exclusion.
+- **Stale is a day count, and cumulative.** `attentionDays` / `staleDays` / `dormantDays` come from the
+  settings record (default 30 / 60 / 90), are clamped to 1–3,650 days on the way in, and are printed in the
+  header, on every untouched group, and in the definitions block. A prompt untouched for 95 days appears in
+  all three groups, and each group says so.
+- **Nothing is decorative.** The distribution bars carry their counts as text, are `aria-hidden` themselves,
+  and are followed by a table with row and column headers; a card without an exact filter is not a link.
+- **The log is capped and says so.** The timeline reads the store's capped activity log
+  (`ACTIVITY_LOG_LIMIT`, 500 events, pruned on write) and pages by extending a prefix of one ordering, which
+  is why a row cannot appear on two pages. Day groups use UTC, so a heading cannot disagree with
+  the stored timestamp beside it.
+- **Storage is reported, not estimated.** `navigator.storage.estimate` is optional and may reject; the card
+  renders the number, "this browser does not report it", or the browser's own message. It never invents a
+  size, and it says the figure covers the whole origin.
 
 ## Commands and keyboard
 

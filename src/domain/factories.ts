@@ -13,6 +13,7 @@ import {
   normalizeTags,
   normalizeTitle,
 } from '@/domain/invariants';
+import { DEFAULT_HEALTH_THRESHOLDS } from '@/domain/health';
 import { createBlankDocument, normalizeDocument } from '@/domain/promptDocument';
 import { documentToJson } from '@/domain/serialization';
 import type {
@@ -22,6 +23,7 @@ import type {
   EditorDensity,
   EntityId,
   Folder,
+  HealthThresholds,
   IndentSize,
   IsoTimestamp,
   JsonObject,
@@ -345,6 +347,7 @@ export interface CreateSettingsInput {
   readonly autosaveEnabled?: boolean;
   readonly autosaveDelayMs?: number;
   readonly density?: EditorDensity;
+  readonly healthThresholds?: HealthThresholds;
   readonly onboardedAt?: IsoTimestamp | null;
   readonly seedVersion?: number;
 }
@@ -358,6 +361,7 @@ export function createDefaultSettings(input: CreateSettingsInput = {}): Settings
     autosaveEnabled: input.autosaveEnabled ?? true,
     autosaveDelayMs: clampAutosaveDelay(input.autosaveDelayMs ?? AUTOSAVE_DELAY.defaultValue),
     density: input.density ?? 'comfortable',
+    healthThresholds: input.healthThresholds ?? DEFAULT_HEALTH_THRESHOLDS,
     onboardedAt: input.onboardedAt ?? null,
     seedVersion: input.seedVersion ?? 0,
   };

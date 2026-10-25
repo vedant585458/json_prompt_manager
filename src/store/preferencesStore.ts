@@ -12,7 +12,8 @@ import { create } from 'zustand';
 
 import { clampAutosaveDelay, AUTOSAVE_DELAY } from '@/domain/invariants';
 import { createDefaultSettings } from '@/domain/factories';
-import type { EditorDensity, IndentSize, Settings } from '@/domain/types';
+import { DEFAULT_HEALTH_THRESHOLDS, normalizeHealthThresholds } from '@/domain/health';
+import type { EditorDensity, HealthThresholds, IndentSize, Settings } from '@/domain/types';
 import {
   getBrowserStorage,
   readThemePreference,
@@ -35,6 +36,8 @@ export interface PreferencesState {
   readonly autosaveEnabled: boolean;
   readonly autosaveDelayMs: number;
   readonly reducedMotion: boolean;
+  /** Ages at which a prompt counts as stale; shared with the health report. */
+  readonly healthThresholds: HealthThresholds;
 
   setTheme: (preference: ThemePreference, resolvedTheme: ResolvedTheme) => void;
   setDensity: (density: EditorDensity) => void;
@@ -43,6 +46,8 @@ export interface PreferencesState {
   /** Clamped to `AUTOSAVE_DELAY` bounds; invalid values fall back to the default. */
   setAutosaveDelay: (milliseconds: number) => void;
   setReducedMotion: (enabled: boolean) => void;
+  /** Out-of-range or unreadable values fall back to the default. */
+  setHealthThresholds: (thresholds: HealthThresholds) => void;
   /** Adopts a persisted settings record (called after hydration). */
   applySettings: (settings: Settings) => void;
   /**
@@ -60,6 +65,7 @@ export interface PreferencesDefaults extends InitialPreferences {
   readonly autosaveEnabled?: boolean;
   readonly autosaveDelayMs?: number;
   readonly reducedMotion?: boolean;
+  readonly healthThresholds?: HealthThresholds;
 }
 
 /** Reads the persisted theme and resolves it against the OS setting. */
@@ -82,6 +88,7 @@ export function createPreferencesStore(initial: PreferencesDefaults = getInitial
     autosaveEnabled: initial.autosaveEnabled ?? defaults.autosaveEnabled,
     autosaveDelayMs: initial.autosaveDelayMs ?? defaults.autosaveDelayMs,
     reducedMotion: initial.reducedMotion ?? defaults.reducedMotion,
+    healthThresholds: initial.healthThresholds ?? DEFAULT_HEALTH_THRESHOLDS,
 
     setTheme: (themePreference, resolvedTheme) => set({ themePreference, resolvedTheme }),
     setDensity: (density) => set({ density }),
@@ -89,6 +96,8 @@ export function createPreferencesStore(initial: PreferencesDefaults = getInitial
     setAutosaveEnabled: (autosaveEnabled) => set({ autosaveEnabled }),
     setAutosaveDelay: (milliseconds) => set({ autosaveDelayMs: clampAutosaveDelay(milliseconds) }),
     setReducedMotion: (reducedMotion) => set({ reducedMotion }),
+    setHealthThresholds: (thresholds) =>
+      set({ healthThresholds: normalizeHealthThresholds(thresholds) }),
 
     applySettings: (settings) =>
       set({
@@ -99,6 +108,7 @@ export function createPreferencesStore(initial: PreferencesDefaults = getInitial
         autosaveEnabled: settings.autosaveEnabled,
         autosaveDelayMs: clampAutosaveDelay(settings.autosaveDelayMs),
         reducedMotion: settings.reducedMotion,
+        healthThresholds: normalizeHealthThresholds(settings.healthThresholds),
       }),
 
     toSettings: (base = createDefaultSettings()) => {
@@ -111,6 +121,7 @@ export function createPreferencesStore(initial: PreferencesDefaults = getInitial
         autosaveEnabled: state.autosaveEnabled,
         autosaveDelayMs: clampAutosaveDelay(state.autosaveDelayMs),
         reducedMotion: state.reducedMotion,
+        healthThresholds: state.healthThresholds,
       };
     },
   }));

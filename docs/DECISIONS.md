@@ -3256,3 +3256,133 @@ dashboard's attention row with its link to the inspector.
 | `npm run check:contrast`    | 64 pairings pass in both themes                                                                                                                                                                                                            |
 | `npm run build`             | exit 0 — CSS 59.89 kB (14.01 kB gzip), app JS 1,111.77 kB (318.32 kB gzip, +39.08 kB over TASK-023's 1,072.69 kB); the pre-existing >500 kB chunk warning remains                                                                          |
 | no mutation check           | the editor test asserts the stored prompt's `version`, `objective`, and `role` are unchanged after a dismissal and a "go to the field" jump                                                                                                |
+
+## ADR-110 — Health figures share the editor's parser, staleness is a stored setting, and the activity log pages by prefix
+
+**Context.** TASK-025 adds a library-wide report. Three things could quietly disagree with the rest of the app:
+what "invalid document" means, when a prompt counts as stale, and what an activity "page" is. The previous
+dashboard already parsed every document to answer the first question, and the activity log was already capped at
+500 events and pruned on write.
+
+**Decision.**
+
+1. **One invalid-document scan.** `findDocumentProblems` and `DocumentProblem` moved to `domain/health.ts`; the
+   dashboard's selector imports them and re-exports the same names, so its imports did not change. The dashboard
+   attention list and the health report therefore cannot disagree about which documents are broken, and a test
+   asserts their counts are equal for the same records. This is a re-factor, not a second implementation.
+2. **Archived prompts are counted in the totals and excluded from the per-prompt metrics.** The archive is not
+   the working set, and a prompt set aside should not keep a "will not parse" job open. The dashboard has made
+   the same exclusion since TASK-010; the health screen now states it in its definitions block.
+3. **Stale thresholds live in the settings record, not in `localStorage` and not in code.** `Settings` gained
+   `healthThresholds: { attentionDays, staleDays, dormantDays }`, defaulted by `createDefaultSettings`, clamped
+   to 1–3,650 days by `normalizeHealthThresholds`, and edited on the Settings screen. Every read normalises, so a
+   settings row written before this task (no field at all) works without a migration and without a schema bump.
+   The thresholds are _read_ by the report and printed on it, so a reader never has to guess what "stale" meant on
+   the day they looked.
+4. **Paging is an extension of one ordering, not an offset query.** The store already holds the capped log, and
+   `ACTIVITY_LOG_LIMIT` (500) is the documented prune limit. `buildActivityView({ pages })` slices the same
+   `capActivityLog` ordering to `pages × 20`, so page _n_ is by construction a prefix of page _n+1_ and an event
+   cannot appear twice. A repository-level `page(offset, limit)` was **not** added: it would have no caller, and
+   it could not return anything the store does not already hold without inviting duplicate rows during a live
+   append. This is recorded as a deviation from the task's "repository pagination" wording — the ordering and the
+   cap stay where they already were, in the repository contract and `domain/invariants.ts`.
+5. **Recompute, do not poll.** The report is a `useMemo` over store slices and the clock is component state. It is
+   re-read when the screen mounts (so navigating back to `/health` shows fresh ages) and when the user presses
+   Recompute. There is no interval, no background fetch, and no "live" claim on the screen.
+6. **No chart without its numbers.** Distribution bars are `aria-hidden` decoration over counts that are already
+   text, and a table with row and column headers repeats them. Cards whose metric has no exact filter are not
+   links. The one async figure — storage — renders the browser's number, or says the browser does not report one,
+   or shows the browser's own error; it never guesses.
+7. **Palette: one destination, one command.** "Filter invalid prompts" is a new `library.invalid-prompts` command.
+   "Open health" is _already_ `navigation.health` ("Go to Health", `G H`), which navigates to the real route;
+   registering a second command for the same destination would show two palette entries that do nothing different.
+   The existing command was verified, not duplicated.
+8. **Activity metadata is shared.** Icons, labels, and the per-type description moved to
+   `features/health/activityMeta.ts`, used by both the dashboard rail and the timeline, so the two surfaces cannot
+   describe "snapshot" differently.
+
+**Consequences.**
+
+- One place to change what "invalid" means, and a test that keeps the dashboard honest.
+- A settings record with one more field; older records keep working through normalisation instead of a migration.
+- Health metrics are O(prompts × document size) per render. Documents are local and small, the report is
+  memoised on the store slices that feed it, and nothing here touches storage during a render.
+- The timeline cannot show more than the capped log holds, and it says so on screen rather than pretending to
+  have complete history.
+
+**Alternatives rejected.** A second parser or a `try/catch` around `JSON.parse` in the health module (two
+definitions of invalid); excluding archived prompts from the totals as well (the totals are inventory, the lists
+are work); thresholds in `localStorage` (settings already travel with the library and are edited in one place);
+an interval-based refresh (a live claim the app cannot keep); a repository paging method with no consumer;
+duplicating `navigation.health` in the palette.
+
+### Known limitations and honesty notes
+
+- **No browser binary exists in this environment**, so the requested **manual cross-check of a metric against raw
+  IndexedDB records was not performed by hand**, and there was no manual accessibility or visual pass. The
+  cross-check is instead an automated read-through: `src/routes/health/HealthRoute.records.test.tsx` writes records
+  through the real IndexedDB adapter (fake IndexedDB), reads them back raw from the repositories, compares the
+  health report with independent counts of those rows, and then renders the screen and asserts the visible number
+  matches. Accessibility claims rest on native controls, labelled `<select>`s, table headers, `aria-live` status
+  lines, and jsdom tests that drive them.
+- **Thresholds are not ordered against each other.** The three fields are independent day counts (default
+  30 / 60 / 90); a user can set attention = 60 and stale = 30, and the screen will then show two groups whose
+  numbers descend. Nothing is silently re-sorted — the groups print their own thresholds — but the settings screen
+  does not prevent the oddity.
+- **The activity log is not complete history.** It is capped at 500 events and pruned on write, so an old mutation
+  is gone. The timeline states the cap; it cannot recover pruned events.
+- **Dashboard and health can differ in _scope_, never in _definition_.** The dashboard counts unreadable documents
+  over live prompts and caps its attention list at five items; health counts the same set without the cap. The
+  counts agree, the visible rows need not.
+- **The dashboard's stale hint uses the default threshold**, not the stored one: its attention row says "not edited
+  in over 30 days" from `STALE_AFTER_DAYS`, which is the default `attentionDays`. Health uses the configured value.
+  This is deliberate (the dashboard's wording is static and tested) but it does mean a reader who changes the
+  setting to 14 days sees 30 in one place and 14 in the other.
+- **Health does not read dismissals.** The quality inspector's dismissed findings are a separate surface; health
+  reports structural facts (invalid documents, variables, descriptions, staleness) that are not dismissible.
+- **Storage figures cannot be attributed per store.** `navigator.storage.estimate` reports the whole origin, and
+  the card says so.
+- **The timeline groups by UTC day.** A reader in a timezone far from UTC may see an event filed under a date that
+  differs from their wall clock near midnight; the stored timestamp is printed beside it with a full date/time
+  title.
+
+## Verification log — TASK-025
+
+**Scope verified:** totals and the archived exclusion; the unreadable-document scan and its agreement with the
+dashboard's count; schema mismatches; undeclared and unused variables including ordering and pluralisation;
+missing descriptions; per-collection and per-folder distribution with multi-collection counts, ties, empty groups,
+orphan collection references, and the "no collection" remainder; cumulative staleness at the default and custom
+thresholds, boundary days, equal-age tie-breaks, and an unreadable timestamp; revisions and activity statistics;
+threshold normalisation (missing, non-numeric, out-of-range, rounded) and the describe helpers; six generated
+libraries compared against an independent recomputation, plus an immutability check; the screen's summary cards
+and their links, both attention lists, the distribution table, the untouched groups, the definitions block, the
+storage states, the recompute control, the empty library, the empty log, timeline paging without duplicates, the
+type filter, the prompt links, and Settings-threshold round-tripping through the real store; the palette command;
+and the raw-IndexedDB read-through.
+
+### Tests added (81 cases)
+
+| File                                             | Cases | Covers                                                                                                                                                                                                            |
+| ------------------------------------------------ | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/health.test.ts`                      | 36    | Every metric, threshold normalisation, describe helpers, six generated libraries against an independent recomputation, immutability                                                                               |
+| `src/features/health/activityTimeline.test.ts`   | 19    | Type metadata completeness, ordering and id tie-breaks, filtering, UTC day grouping and labels, paging as prefix extension, no duplicates, empty states                                                           |
+| `src/routes/health/HealthRoute.test.tsx`         | 17    | Cards and links, stored thresholds, attention lists and their links, distribution table and links, stale groups, revision and activity figures, paging, filter, empty log, definitions, storage states, recompute |
+| `src/routes/health/HealthRoute.records.test.tsx` | 1     | Records written through the IndexedDB adapter, read back raw, compared with the report and with the rendered number                                                                                               |
+| `src/store/preferencesStore.test.ts`             | +4    | Threshold defaults, clamping per field, legacy settings without the field, and writing them into the record                                                                                                       |
+| `src/routes/settings/SettingsRoute.test.tsx`     | +1    | The threshold control persists to the settings record and leaves the other two values alone                                                                                                                       |
+| `src/store/dashboard.test.ts`                    | +1    | Dashboard and health agree on unreadable documents, archived totals, and active totals                                                                                                                            |
+| `src/lib/commands/coreCommands.test.ts`          | +2    | `library.invalid-prompts` destination, and `navigation.health` reaching `/health`                                                                                                                                 |
+| `src/domain/purity.test.ts`                      | +0    | `health.ts` registered as a pure module and exported from the barrel                                                                                                                                              |
+
+### Gates executed
+
+| Gate                        | Result                                                                                                                                                                                                                                      |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npx tsc --noEmit`          | exit 0                                                                                                                                                                                                                                      |
+| `npx eslint .`              | exit 0, 0 warnings                                                                                                                                                                                                                          |
+| `npx vitest run`            | **104 files / 1,680 tests passed, 0 failures**                                                                                                                                                                                              |
+| `npx vitest run --coverage` | thresholds pass — all files 96.43/90.47/97.48/97.36; `src/domain` 96.74/91.49/98.68/97.42 with `health.ts` at 100/92.47/100/100; `src/store` 96.11/89.8/97.59/97.65; `src/data` 96.51/88.88/100/97.22 (statements/branches/functions/lines) |
+| `npx prettier --check .`    | clean                                                                                                                                                                                                                                       |
+| `npm run check:contrast`    | 64 pairings pass in both themes                                                                                                                                                                                                             |
+| `npm run build`             | exit 0 — CSS 60.48 kB (14.11 kB gzip), app JS 1,143.88 kB (326.68 kB gzip, +32.11 kB over TASK-024's 1,111.77 kB); the pre-existing >500 kB chunk warning remains                                                                           |
+| raw-record cross-check      | automated (see limitations): IndexedDB → raw rows → report → rendered number, all equal                                                                                                                                                     |

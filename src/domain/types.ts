@@ -316,6 +316,20 @@ export type EditorDensity = 'comfortable' | 'compact';
 /** Allowed indentation widths for the JSON editor. */
 export type IndentSize = 2 | 4;
 
+/**
+ * When a prompt counts as untouched, in days (TASK-025).
+ *
+ * Lives here rather than in `domain/health.ts` so the settings record can name
+ * it without the two modules importing each other. The health module re-exports
+ * it, and owns the defaults and the bounds.
+ */
+export interface HealthThresholds {
+  /** Prompt surfaced for attention when untouched this long. */
+  readonly attentionDays: number;
+  readonly staleDays: number;
+  readonly dormantDays: number;
+}
+
 /** Singleton settings record. */
 export interface Settings {
   readonly theme: ThemeSetting;
@@ -325,6 +339,8 @@ export interface Settings {
   /** Debounce window after the last edit, in milliseconds. */
   readonly autosaveDelayMs: number;
   readonly density: EditorDensity;
+  /** Ages at which the health report calls a prompt stale (TASK-025). */
+  readonly healthThresholds: HealthThresholds;
   /** ISO timestamp of onboarding completion, or `null` while it is pending. */
   readonly onboardedAt: IsoTimestamp | null;
   /** Applied seed-data version; see the migration rules in `docs/DATA-MODEL.md`. */

@@ -1,3 +1,4 @@
+import { DEFAULT_HEALTH_THRESHOLDS } from '@/domain/health';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -306,6 +307,7 @@ describe('createDefaultSettings', () => {
       autosaveEnabled: true,
       autosaveDelayMs: AUTOSAVE_DELAY.defaultValue,
       density: 'comfortable',
+      healthThresholds: DEFAULT_HEALTH_THRESHOLDS,
       onboardedAt: null,
       seedVersion: 0,
     });
@@ -333,6 +335,7 @@ describe('createDefaultSettings', () => {
       autosaveEnabled: false,
       autosaveDelayMs: AUTOSAVE_DELAY.defaultValue,
       density: 'compact',
+      healthThresholds: DEFAULT_HEALTH_THRESHOLDS,
       onboardedAt: '2026-10-24T00:00:00.000Z',
       seedVersion: 3,
     });

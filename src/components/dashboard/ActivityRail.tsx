@@ -1,35 +1,7 @@
-import {
-  Archive,
-  Download,
-  History,
-  LayoutTemplate,
-  PencilLine,
-  PlusCircle,
-  RotateCcw,
-  Settings as SettingsIcon,
-  ShieldCheck,
-  Trash2,
-  Upload,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
-
 import { DashboardSection, SectionEmpty } from '@/components/dashboard/DashboardSection';
+import { ACTIVITY_TYPE_META } from '@/features/health/activityMeta';
 import { formatDateTime, formatRelativeTime } from '@/lib/dates';
-import type { ActivityEvent, ActivityType } from '@/domain/types';
-
-const TYPE_META: Record<ActivityType, { icon: LucideIcon; label: string }> = {
-  created: { icon: PlusCircle, label: 'Created' },
-  updated: { icon: PencilLine, label: 'Updated' },
-  deleted: { icon: Trash2, label: 'Deleted' },
-  restored: { icon: RotateCcw, label: 'Restored' },
-  archived: { icon: Archive, label: 'Archived' },
-  imported: { icon: Upload, label: 'Imported' },
-  exported: { icon: Download, label: 'Exported' },
-  snapshot: { icon: History, label: 'Snapshot' },
-  validation: { icon: ShieldCheck, label: 'Validation' },
-  template: { icon: LayoutTemplate, label: 'Template' },
-  settings: { icon: SettingsIcon, label: 'Settings' },
-};
+import type { ActivityEvent } from '@/domain/types';
 
 export interface ActivityRailProps {
   readonly events: readonly ActivityEvent[];
@@ -57,7 +29,7 @@ export function ActivityRail({ events, now }: ActivityRailProps) {
       ) : (
         <ol className="divide-y divide-line">
           {events.map((event) => {
-            const meta = TYPE_META[event.type];
+            const meta = ACTIVITY_TYPE_META[event.type];
             const Icon = meta.icon;
 
             return (

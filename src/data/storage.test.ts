@@ -29,6 +29,7 @@ describe('openStorage', () => {
       autosaveEnabled: true,
       autosaveDelayMs: 900,
       density: 'comfortable',
+      healthThresholds: { attentionDays: 30, staleDays: 60, dormantDays: 90 },
       onboardedAt: null,
       seedVersion: 0,
     });
@@ -55,6 +56,7 @@ describe('openStorage', () => {
       autosaveEnabled: false,
       autosaveDelayMs: 1200,
       density: 'compact',
+      healthThresholds: { attentionDays: 30, staleDays: 60, dormantDays: 90 },
       onboardedAt: null,
       seedVersion: 0,
     });

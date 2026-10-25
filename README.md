@@ -88,6 +88,7 @@ src/
   components/layout/  shell, rail, drawer, breadcrumbs, top bar, route chrome, shortcut help
   components/command-palette/  palette dialog and the command layer mounted by the shell
   components/dashboard/  dashboard sections, stat strip, rails, and the first-run guide
+  components/health/   health cards, distribution bars with tables, attention lists, activity timeline, storage
   components/library/  filter bar, ingredient rail, prompt cards and rows, badges
   components/prompts/  prompt create/edit dialog, action menu, delete confirmation, summary card
   components/editor/   CodeMirror host and theme, toolbar, tree view, error panel, status bar,
@@ -99,7 +100,7 @@ src/
   components/playground/  variable form and rendered preview, shared by the route and the editor
   lib/commands/   registry, shortcut parsing/matching, core commands, React bindings
   components/     ui primitives, layout, and domain components
-  features/       feature modules (organization, save pipeline, revisions, diff, lab, blueprint, quality, ...)
+  features/       feature modules (organization, save pipeline, revisions, diff, lab, blueprint, quality, health, ...)
   domain/         pure TypeScript domain logic and types (no React, no storage)
   data/           repository interfaces, IndexedDB + in-memory adapters, migrations,
                   typed storage errors, write queue, cross-tab announcements
@@ -439,6 +440,37 @@ example instead of an empty document.
   no custom templates, and no matches.
 - **Filters are not stored.** They describe the visit. The open preview is in the URL (`?template=<id>`), so
   the dashboard can deep-link into it and Back closes the panel.
+
+## Health dashboard
+
+`/health` is the library's maintenance view, reachable from the rail, the palette (`G H`), and the dashboard.
+Every number is recomputed from the records in this browser at the instant printed in the header; there is no
+polling and no cached figure.
+
+- **What needs attention, exactly.** Documents that will not parse, prompts that fail their attached schema,
+  undeclared placeholders, unused declarations, and prompts without a description — each list is a set of links
+  to those prompts, not a report about anonymous totals. Archived prompts are counted in the totals and kept out
+  of the work lists.
+- **One definition of broken.** The health report and the dashboard's attention list call the same parser and
+  the same unreadable-document scan, so their counts cannot drift apart.
+- **Distribution you can read without a chart.** Prompts per collection and per folder are bars over real
+  counts, each row linking into that filtered library view, followed by a table with the same numbers,
+  row/column headers, and the share of the largest group.
+- **Stale is a setting, not a mystery.** Untouched prompts are grouped at 30 / 60 / 90 days by default; the
+  thresholds live in Settings and the screen prints the values it used. The buckets are cumulative, and they say
+  so. Oldest first, each prompt linked.
+- **An activity timeline from real mutations.** Every event is one the app actually wrote, grouped by day
+  (UTC), with an icon, a type label, and a link to the prompt when one is still attached. The type filter narrows
+  the log, "Load older" extends the same ordering page by page, and the log's cap — the 500 most recent events —
+  is stated on the screen.
+- **Definitions and timestamps are part of the report.** A block explains what "will not parse", "untouched",
+  and each other term means, and prints the oldest edit, newest edit, newest revision, and newest activity it
+  measured.
+- **Storage is what the browser says.** `navigator.storage.estimate` is optional; the card shows the figure
+  with its caveat (it covers the whole origin) or says plainly that this browser does not report it. Nothing is
+  estimated or invented.
+- **Honest empty states.** An empty library says there is nothing to report; an empty log says nothing has been
+  recorded and offers the two real ways to start.
 
 ## Validation studio
 

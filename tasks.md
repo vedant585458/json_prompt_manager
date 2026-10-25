@@ -606,7 +606,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-022 — Prompt laboratory with saved test cases — Medium — deps: 021
 - [x] TASK-023 — Blueprint dependency graph — Medium — deps: 016, 019
 - [x] TASK-024 — Quality inspector — Medium — deps: 016, 021
-- [ ] TASK-025 — Health dashboard and activity timeline — Medium — deps: 016, 019
+- [x] TASK-025 — Health dashboard and activity timeline — Medium — deps: 016, 019
 - [ ] TASK-026 — Import and export — High — deps: 012, 019
 - [ ] TASK-027 — Responsive refinement pass — High — deps: 018, 020, 022, 023, 024, 025, 026
 - [ ] TASK-028 — Accessibility review and remediation — High — deps: 027
@@ -614,7 +614,7 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [ ] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
 - [ ] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 24 of 31 tasks complete. TASK-001 through TASK-022 were completed on 2026-10-24; TASK-023 and TASK-024 on 2026-10-25.
+**Progress:** 25 of 31 tasks complete. TASK-001 through TASK-022 were completed on 2026-10-24; TASK-023, TASK-024, and TASK-025 on 2026-10-25.
 
 ---
 
@@ -1546,7 +1546,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-025 — Health dashboard and activity timeline
 
-- **Status:** Not Started
+- **Status:** Completed
 - **Priority:** Medium
 - **Dependencies:** TASK-016, TASK-019
 - **Objective:** Give an accurate operational view of the library: invalid documents, unresolved variables, stale prompts, collection distribution, and recent activity — all traceable to records.
@@ -1565,6 +1565,21 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Unit tests for metrics with seeded fixtures (0 prompts, mixed valid/invalid, archived excluded/included as specified); integration test for activity pagination; manual cross-check of one metric against raw IndexedDB records; typecheck/lint/tests/build.
 - **Deliverables:** `src/domain/health.ts` + tests, `src/routes/health/*`, activity timeline components/repository pagination, dashboard consistency updates.
 - **Out of scope:** Usage-based "popularity" analytics, cross-device reporting, charts without data.
+
+- **Completion record (2026-10-25):** Completed after explicit user authorization.
+  - **Metrics service (`src/domain/health.ts`):** `computeHealth({ prompts, collections, folders, revisions, schemas, activity, thresholds?, now })` is pure and returns totals (all/active/archived), per-collection and per-folder distributions with the "no collection" / "unfiled" remainders, invalid documents, schema mismatches, undeclared and unused variables, missing descriptions, three cumulative staleness buckets, revision statistics, activity statistics, the oldest/newest edit, the thresholds used, and the instant measured. `findDocumentProblems` and `scanStoredDocuments` are the single definition of "invalid document" in the build and are now shared with the dashboard (ADR-110).
+  - **Thresholds in settings:** `Settings` gained `healthThresholds: { attentionDays, staleDays, dormantDays }` with defaults 30 / 60 / 90, `normalizeHealthThresholds` clamps each field to 1–3,650 days and falls back per field, the preferences store mirrors and writes them, and the Settings screen gained a "Health thresholds" card. A settings row written before this task has no field at all and keeps working through normalisation — no migration and no schema bump.
+  - **Screen (`/health`):** a header that states the thresholds and the measured instant with a Recompute control (no polling), eight summary cards (only those with an exact filter are links), two attention lists with a filter link each, two more for variables, one for descriptions, collection and folder distributions as bars over real counts **with a full table beneath** (headers, share, links into the filtered library), three untouched groups (oldest first, each labelled with its own threshold and marked cumulative), a definitions block that prints the oldest/newest edit, newest revision, and newest activity, the activity timeline, and the storage card. Every empty state is real text with a way forward.
+  - **Activity timeline:** `src/features/health/activityTimeline.ts` orders through `capActivityLog`, filters by type, groups by UTC day with Today/Yesterday labels, and pages by extending a prefix (`20` per page via "Load older"), so an event cannot appear twice; the 500-event cap and its pruning are stated on the screen. `src/features/health/activityMeta.ts` is the shared icon/label/description per type, now used by the dashboard rail too.
+  - **Storage:** `navigator.storage.estimate` is read asynchronously and rendered as a number with its origin-wide caveat, as "this browser does not report storage usage", or as the browser's own error — never as an estimate of our own.
+  - **Palette:** `library.invalid-prompts` opens `/library?validation=unparsable`; "open health" is the existing `navigation.health` command ("Go to Health", `G H`) which was verified rather than duplicated.
+  - **Dashboard consistency:** the dashboard's `findDocumentProblems` is now the domain implementation re-exported, `STALE_AFTER_DAYS` is derived from the default `attentionDays`, and a test asserts the dashboard's invalid-document and archived/active counts equal the health report's.
+  - **Tests added (81 cases; whole suite 104 files / 1,680 tests):** `src/domain/health.test.ts` 36, `src/features/health/activityTimeline.test.ts` 19, `src/routes/health/HealthRoute.test.tsx` 17, `src/routes/health/HealthRoute.records.test.tsx` 1, `src/store/preferencesStore.test.ts` +4, `src/routes/settings/SettingsRoute.test.tsx` +1, `src/store/dashboard.test.ts` +1, `src/lib/commands/coreCommands.test.ts` +2.
+  - **Validation executed:** `npx tsc --noEmit` exit 0; `npx eslint .` exit 0 with 0 warnings; `npx vitest run` — **104 files / 1,680 tests passed, 0 failures**; `npx vitest run --coverage` — thresholds pass (all files 96.43/90.47/97.48/97.36; `src/domain` 96.74/91.49/98.68/97.42 with `health.ts` at 100/92.47/100/100; `src/store` 96.11/89.8/97.59/97.65; `src/data` 96.51/88.88/100/97.22); `npx prettier --check .` clean; `npm run check:contrast` — 64 pairings pass in both themes; `npm run build` exit 0 — CSS 60.48 kB (14.11 kB gzip), app JS 1,143.88 kB (326.68 kB gzip, +32.11 kB over TASK-024's 1,111.77 kB) with the pre-existing >500 kB chunk warning.
+  - **Not performed (stated honestly):** no browser binary exists in this environment, so the requested **manual cross-check of one metric against raw IndexedDB records was not done by hand**, and there was no manual accessibility or visual pass. The cross-check is instead automated: `HealthRoute.records.test.tsx` writes through the real IndexedDB adapter, reads the rows back raw from the repositories, compares them with the health report and with the number the screen renders.
+  - **Deviations recorded:** (1) the deliverable's "repository pagination" is implemented as prefix paging over the store's capped log rather than a new repository offset method — the repository contract already owns the ordering and the 500-event cap, and an offset method would have no caller and could duplicate rows during a live append (ADR-110). (2) "Open health" is the existing `navigation.health` palette command, not a second one for the same destination. (3) Thresholds are independent day counts and are not forced into ascending order; the screen prints each group's own number instead of silently re-sorting.
+  - **Known limitations:** the activity log is capped at 500 events and pruned on write, so older mutations are gone and the timeline says so; the dashboard's stale hint still says 30 days (the default) while health uses the configured value; health does not read the quality inspector's dismissals; storage figures cover the whole origin; day groups are UTC; the dashboard and health agree on definitions but the dashboard caps its attention list at five rows.
+  - **Docs:** `docs/DECISIONS.md` gained ADR-110 and a TASK-025 verification log; `docs/ARCHITECTURE.md` gained a "Health dashboard (TASK-025)" section and updated route rows; `README.md` gained a "Health dashboard" section and two structure entries; `tasks.md` updated.
 
 ---
 

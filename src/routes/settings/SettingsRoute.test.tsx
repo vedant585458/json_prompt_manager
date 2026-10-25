@@ -60,6 +60,20 @@ describe('settings route', () => {
     expect(useDataStore.getState().settings?.autosaveDelayMs).toBe(1500);
   });
 
+  it('saves health thresholds to the settings record', async () => {
+    const { user } = await openSettings();
+
+    const attention = screen.getByLabelText('Attention after');
+    await user.selectOptions(attention, '45');
+
+    expect(usePreferencesStore.getState().healthThresholds.attentionDays).toBe(45);
+
+    await screen.findByText(/Applied for this session only/i);
+    expect(useDataStore.getState().settings?.healthThresholds.attentionDays).toBe(45);
+    // The other two thresholds keep their stored values.
+    expect(useDataStore.getState().settings?.healthThresholds.staleDays).toBe(60);
+  });
+
   it('does not invent a save button: changes are applied as they change', async () => {
     await openSettings();
 

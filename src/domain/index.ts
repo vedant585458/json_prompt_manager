@@ -26,4 +26,5 @@ export * from '@/domain/templates';
 export * from '@/domain/renderDiff';
 export * from '@/domain/lab';
 export * from '@/domain/graph';
+export * from '@/domain/health';
 export * from '@/domain/quality';

@@ -91,7 +91,9 @@ snapshot \| validation \| settings`.
 
 Singleton record: `theme` (`dark \| light \| system`), `reducedMotion`, `indentSize` (`2 \| 4`),
 `autosaveEnabled`, `autosaveDelayMs` (300–5000, default 900), `density` (`comfortable \| compact`),
-`onboardedAt` (`string \| null`), `seedVersion`.
+`healthThresholds` (`{ attentionDays, staleDays, dormantDays }`, days clamped to 1–3650, default 30 / 60 / 90;
+TASK-025), `onboardedAt` (`string \| null`), `seedVersion`. A record written before TASK-025 has no
+`healthThresholds` field; readers normalise it to the defaults rather than migrating the row.
 
 ---
 
@@ -308,7 +310,7 @@ timestamp-based fallback when `crypto` is unavailable. Every factory:
 - normalizes user input (titles, tags, descriptions, folder names);
 - applies documented defaults — prompt `status: 'draft'`, `version: 1`, flags `false`,
   `format: 'json'`; settings `theme: 'system'`, `indentSize: 2`, `autosaveDelayMs: 900`,
-  `density: 'comfortable'`, `seedVersion: 0`;
+  `density: 'comfortable'`, `healthThresholds` 30 / 60 / 90, `seedVersion: 0`;
 - deep-copies documents where a snapshot must be independent (`createRevision`).
 
 ---

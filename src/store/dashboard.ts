@@ -8,7 +8,11 @@
  * "invalid" this build has. Valid syntax is never presented as quality.
  */
 
-import { parseDocument } from '@/domain/serialization';
+import {
+  DEFAULT_HEALTH_THRESHOLDS,
+  findDocumentProblems,
+  type DocumentProblem,
+} from '@/domain/health';
 import { findSchemaProblems, type PromptSchemaProblem } from '@/domain/validation';
 import type {
   ActivityEvent,
@@ -29,18 +33,24 @@ export const DASHBOARD_LIMITS = {
   attention: 5,
 } as const;
 
-/** A prompt untouched for this long is surfaced as "worth a look". */
-export const STALE_AFTER_DAYS = 30;
+/**
+ * A prompt untouched for this long is surfaced as "worth a look".
+ *
+ * The same default the health report uses (TASK-025), so the two screens greet
+ * the same library with the same definition of quiet.
+ */
+export const STALE_AFTER_DAYS = DEFAULT_HEALTH_THRESHOLDS.attentionDays;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-export interface DocumentProblem {
-  readonly promptId: string;
-  readonly title: string;
-  readonly path: string;
-  readonly message: string;
-  readonly updatedAt: string;
-}
+/**
+ * A prompt whose stored content will not read back as a document.
+ *
+ * Defined and computed in `domain/health` (TASK-025) so the dashboard's
+ * attention list and the health report cannot disagree about what is broken.
+ */
+export type { DocumentProblem };
+export { findDocumentProblems };
 
 export type AttentionKind = 'invalid-document' | 'schema-mismatch' | 'quality-findings' | 'stale';
 
@@ -114,29 +124,6 @@ function byUpdatedDesc(left: Prompt, right: Prompt): number {
 function byActivityDesc(left: ActivityEvent, right: ActivityEvent): number {
   if (left.createdAt !== right.createdAt) return right.createdAt.localeCompare(left.createdAt);
   return right.id.localeCompare(left.id);
-}
-
-/** Parses every stored document and returns the ones that will not read back. */
-export function findDocumentProblems(prompts: readonly Prompt[]): DocumentProblem[] {
-  const problems: DocumentProblem[] = [];
-
-  for (const prompt of prompts) {
-    // `content` is typed, but storage is untrusted input: a corrupt or
-    // hand-edited row can contain anything, so parse it as unknown.
-    const parsed = parseDocument(prompt.content as unknown);
-    if (parsed.ok) continue;
-
-    const first = parsed.issues[0];
-    problems.push({
-      promptId: prompt.id,
-      title: prompt.title,
-      path: first && first.path.length > 0 ? first.path : '(document root)',
-      message: first?.message ?? 'The stored document could not be read.',
-      updatedAt: prompt.updatedAt,
-    });
-  }
-
-  return problems.sort((left, right) => left.title.localeCompare(right.title));
 }
 
 function isStale(prompt: Prompt, now: Date): boolean {

@@ -10,16 +10,18 @@ Last refreshed: 2026-10-25 (TASK-030).
 
 ## 1. How to run
 
-| Command                 | What it does                                                            |
-| ----------------------- | ----------------------------------------------------------------------- |
-| `npm run test:run`      | One-shot run of the whole suite (the CI-style command; no watch mode).  |
-| `npm run test`          | Watch mode for local development.                                       |
-| `npm run test:coverage` | `vitest run --coverage`: full suite plus the coverage table and floors. |
-| `npx vitest run <path>` | A single file or directory, e.g. `npx vitest run src/domain/transfer`.  |
-| `npm run typecheck`     | `tsc --noEmit`.                                                         |
-| `npm run lint`          | ESLint, flat config.                                                    |
-| `npm run format:check`  | Prettier check (never runs in watch mode during tests).                 |
-| `npm run build`         | Typecheck plus production build.                                        |
+| Command                  | What it does                                                            |
+| ------------------------ | ----------------------------------------------------------------------- |
+| `npm run test:run`       | One-shot run of the whole suite (the CI-style command; no watch mode).  |
+| `npm run test`           | Watch mode for local development.                                       |
+| `npm run test:coverage`  | `vitest run --coverage`: full suite plus the coverage table and floors. |
+| `npx vitest run <path>`  | A single file or directory, e.g. `npx vitest run src/domain/transfer`.  |
+| `npm run typecheck`      | `tsc --noEmit`.                                                         |
+| `npm run lint`           | ESLint, flat config.                                                    |
+| `npm run format:check`   | Prettier check (never runs in watch mode during tests).                 |
+| `npm run check:links`    | Link and anchor check over the README, `tasks.md`, and `docs/`.         |
+| `npm run check:contrast` | WCAG contrast gate for 88 token pairings, both themes.                  |
+| `npm run build`          | Typecheck plus production build.                                        |
 
 The runner is Vitest 5 with `jsdom` and `@testing-library/react`. There is no browser
 binary in this environment, so nothing here is an end-to-end browser test — see §7.

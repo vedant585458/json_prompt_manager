@@ -72,9 +72,19 @@ stay in §2.
 - **Single browser, single device.** All data lives in this browser’s IndexedDB. There is no
   account, no sync, and no server: exporting is the only backup. In private windows, blocked
   storage, or a refused write, the app runs in **ephemeral mode** and says so.
-- **Not an LLM client.** PromptForge never sends a prompt anywhere and never executes it.
-  Valid JSON is never described as an effective prompt; the quality inspector reports
-  heuristics with reasons, not verdicts.
+- **No provider integration, and no execution of any kind.** There is no API key field, no model
+  picker, no "test against GPT/Claude" button, and no code path that could become one: the app
+  makes no runtime network request at all (a test guard fails the suite if one appears). It can
+  tell you a document is well-formed, consistent, and free of specific smells; it cannot tell you
+  whether a model will follow it. Valid JSON is never described as an effective prompt.
+- **Quality findings are heuristics, not verdicts.** The fifteen rules in
+  [`QUALITY-RULES.md`](./QUALITY-RULES.md) look for concrete, explainable problems — missing
+  objectives, contradictory instructions, undeclared placeholders, and so on — and each states its
+  reason. Nothing is scored, ranked against other prompts, or measured against model output.
+- **No real-time collaboration, sharing, or multi-user features.** Nothing is shared, invited, or
+  synced. Two tabs of the same browser are coordinated (write announcements and stale-write
+  conflicts) and nothing more; there is no presence, no cursors, no comment threads, no roles.
+  Moving a library between people means exporting a file and importing it.
 - **No expression language.** The renderer substitutes `{{name}}` tokens only. There is no
   `eval`, no conditionals, and no arithmetic — decisions recorded in ADR-04.
 - **Import resolves conflicts per record, not per field.** A planned row can be added as new,
@@ -86,6 +96,13 @@ stay in §2.
 - **Translations and RTL** are not implemented. English-only, left-to-right.
 - **No PWA / offline service worker.** The app is a static SPA that works once loaded; it is
   not installable and does not cache itself.
+- **Browser support is a target, not a tested matrix.** The build assumes modern evergreen
+  browsers with IndexedDB, CSS custom properties, and the APIs the bundle uses; Tailwind CSS v4
+  requires Chrome/Edge 111+, Safari 16.4+, or Firefox 128+. No real browser was available during
+  this delivery (see §1–2), so support is a statement about the code the build targets. Old
+  browsers, in-app webviews, and unusual mobile shells are untested. `BroadcastChannel` degrades
+  gracefully when absent — the cross-tab notice simply does not appear — but that degradation was
+  exercised only in jsdom.
 
 ## 4. Environment and deployment limitations
 
@@ -97,6 +114,10 @@ stay in §2.
 - **No browser binary**, so the production bundle was verified by `npm run build` plus HTTP
   checks against `npm run preview` (16/16 route paths return `200 text/html` with the app root,
   and the referenced JS/CSS return 200). No page was executed in a browser during this delivery.
+- **No screenshots or visual record exist.** Every image in a product README would have had to be
+  invented here. The running `/design` gallery is the visual reference instead — see
+  [`DEPLOYMENT.md`](./DEPLOYMENT.md) §5 for the three things worth checking by eye on the target
+  browser.
 
 - No browser binary, so the production build was verified by `npm run build` and route
   assertions, not by loading it in a browser (`npm run preview` was not exercised).

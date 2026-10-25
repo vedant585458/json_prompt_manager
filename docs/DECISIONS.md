@@ -3739,3 +3739,51 @@ manual click-through could not be performed, and a report claiming one would be 
   command that points at a non-existent path fails the suite.
 - The HTTP smoke found no app defect, but it did surface a deployment caveat (SPA fallback also
   answers missing assets), recorded in `docs/LIMITATIONS.md` §4.
+
+---
+
+## ADR-116 — Delivery documentation: one entry point, a link gate, and no invented screenshots
+
+**Date:** 2026-10-25 (TASK-031)
+**Status:** Accepted
+
+**Context.** By the end of the build the documentation had drifted in a specific way: the README
+carried a status banner frozen at TASK-015, and `docs/ARCHITECTURE.md` had become a copy of the
+README from the TASK-009 era — a second, stale product tour whose links were written for the
+repository root and therefore broken (`./docs/ARCHITECTURE.md` inside `docs/`), sitting where the
+architecture document should have been. Nothing checked documentation links, so nothing noticed.
+TASK-031 also asks for a README a new contributor can install from, deployment instructions, and
+screenshots — in an environment with no browser.
+
+**Decision.**
+
+1. **The README is the entry point and the only product tour.** It opens with the delivery status,
+   a quick start that needs no other file, a route-level feature map, the data and privacy
+   statement, the command table, project structure, supported browsers, deployment requirements,
+   the documentation index, and the limitations up front. Detailed per-screen prose stays, under
+   "How each screen works".
+2. **`docs/ARCHITECTURE.md` is rewritten as an architecture document** — layers and the rules
+   between them, enforced boundaries, state and data flow, key modules by layer, extension points,
+   and the path to a backend. It no longer duplicates the feature tour and points to the README
+   for it.
+3. **No screenshots are published.** With no browser binary, any image would have to be fabricated.
+   The README says so and points at the running `/design` gallery as the visual reference instead.
+4. **`npm run check:links` becomes a gate.** `scripts/check-links.mjs` verifies every relative link
+   and heading anchor in the README, `tasks.md`, and `docs/`, and fails if a document is not
+   reachable from the README's index. External URLs are counted and reported, never fetched — the
+   script does not claim a remote page is alive.
+5. **`docs/DEPLOYMENT.md` states the hosting contract** (SPA fallback for extension-less routes,
+   real 404s for `/assets/*`, cache rules, base-path limitation, post-deploy curl checks) without
+   inventing a provider setup.
+
+**Consequences.**
+
+- The link gate immediately found six real problems that had been invisible: four broken links in
+  the stale architecture document and two documents missing from the README index
+  (`IMPORT-EXPORT.md`, `QUALITY-RULES.md`). Both are fixed by this decision.
+- Documentation now has a single tour and a single place per topic, so a feature change has one
+  obvious file to update.
+- The honest absence of screenshots is a visible gap in a product README. It is recorded as a
+  limitation rather than papered over; whoever runs this in a browser can add real ones.
+- Deleting the stale architecture content loses nothing: the accurate technical sections (commands,
+  persistence, lifecycle) were carried into the new document.

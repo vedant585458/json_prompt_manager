@@ -1,138 +1,192 @@
 # PromptForge
 
-**Advanced JSON Prompt Management Studio** — a local-first workspace for creating, organizing, validating, versioning, comparing, and optimizing structured JSON prompts.
+**Advanced JSON Prompt Management Studio** — a local-first workspace for creating, organizing,
+validating, versioning, comparing, and optimizing structured JSON prompts.
 
-> **Status: TASK-015 complete — the save pipeline, autosave, and recovery.**
-> The repository contains the toolchain, the Prompt Observatory token system with dark and light
-> themes, the primitive layer, the overlay/feedback layer demonstrated in a design gallery, the typed
-> domain model, the persistence layer (repository interfaces, IndexedDB with migrations, an in-memory
-> parity adapter, typed storage errors), the application data lifecycle (storage selection with a
-> labelled ephemeral fallback, versioned first-run seeding, data/preferences/UI stores, pure selectors,
-> a hydrating bootstrap, and an error boundary), the application shell (route table, collapsible rail,
-> drawer navigation, breadcrumbs, skip link, route focus/title/scroll behaviour, recovery screens, and a
-> working settings screen for theme, density, and autosave), the command system (declarative registry
-> that rejects duplicate shortcuts, platform-aware single and two-step bindings, a fuzzy-searchable
-> palette at `⌘K` / `Ctrl K`, and a generated shortcut reference), the dashboard, and the **library**:
-> URL-synced search across titles, descriptions, tags, and JSON, tag/folder/collection/status/validation
-> /date filters, three sorts, pinned section, grid and list views, and per-card selection — plus the
-> full prompt lifecycle (create from a template or blank, edit metadata, duplicate, archive with undo,
-> delete with a confirmed cascade), folder/collection management with cycle guards, and multi-select
-> bulk actions with an honest undo, and the **JSON editor**: a CodeMirror 6 host with formatting,
-> minify, find/replace, folding, copy, and undo/redo, a scanner that reports exact syntax locations,
-> a read-only tree view, a document inspector, and a draft that is explicitly not a save — and now a
-> **save pipeline**: debounced autosave from the saved preferences, `Mod+S`, serialized version-guarded
-> writes, a truthful save status, an explicit stale-write conflict dialog, `localStorage` recovery
-> drafts that are cleared only after a confirmed write, cross-tab write notices, and a labelled
-> ephemeral mode that refuses to save instead of pretending. Every declared route is reachable; screens
-> not yet built say so instead of showing mock controls. Each subsequent feature is built in a separate,
-> explicitly authorized task tracked in [`tasks.md`](./tasks.md).
+Everything lives in your browser: there is no account, no server, and no network traffic at
+runtime. Prompt content is never sent anywhere.
+
+**Delivery status:** complete — all 31 planned tasks are implemented and verified (`tasks.md`).
+Version `0.1.0`. The last pass is recorded in [`docs/VERIFICATION.md`](./docs/VERIFICATION.md);
+the known gaps are in [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md), and they are worth reading
+before you rely on this for anything.
 
 ---
 
-## Requirements
-
-- **Node.js** `>= 22.12.0` (verified with v22.22.3)
-- **npm** `>= 10`
-
-## Getting started
+## Quick start
 
 ```bash
-npm install       # install dependencies from package-lock.json
-npm run dev       # start the dev server at http://localhost:5173
+node --version        # needs >= 22.12.0
+npm ci                # install exactly what package-lock.json pins
+npm run dev           # http://localhost:5173
 ```
 
-The dev server binds to `0.0.0.0:5173` and accepts proxied hostnames, so it also works inside
-sandbox/preview environments. It does not use a host allowlist.
+Then:
 
-## Quality gates
+```bash
+npm run test:run      # 123 files, 1,975 tests
+npm run build         # type-check, then a production build in dist/
+npm run preview       # serve that build at http://localhost:4173
+```
 
-| Command                  | Purpose                                                |
-| ------------------------ | ------------------------------------------------------ |
-| `npm run typecheck`      | TypeScript project check (`tsc --noEmit`, strict mode) |
-| `npm run lint`           | ESLint flat config (TypeScript + React hooks)          |
-| `npm run format:check`   | Prettier verification                                  |
-| `npm run check:contrast` | WCAG contrast gate for design-token pairings           |
-| `npm run format`         | Prettier write                                         |
-| `npm test`               | Vitest in watch mode                                   |
-| `npm run test:run`       | Vitest single run (CI style)                           |
-| `npm run test:coverage`  | Domain coverage report + 90% thresholds                |
-| `npm run build`          | Type-check, then production build into `dist/`         |
-| `npm run preview`        | Serve the production build at http://localhost:4173    |
+Nothing else is required: no environment variables, no database, no API keys. If a command
+above fails, [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md) and
+[`docs/TESTING.md`](./docs/TESTING.md) describe the environment this was verified in.
 
-All of the above must pass before a task can be marked complete in `tasks.md`.
+## What it does
 
-## Technology stack
+Fourteen screens, every one a real surface with no mock controls. Each section below explains
+what it does and what it deliberately refuses to claim.
 
-| Area        | Choice                                                                      |
-| ----------- | --------------------------------------------------------------------------- |
-| UI          | React 19, TypeScript (strict), Vite                                         |
-| Styling     | Tailwind CSS v4 via `@tailwindcss/vite`                                     |
-| State       | Zustand (introduced with the data layer)                                    |
-| Routing     | react-router-dom 7 (`createBrowserRouter`, memory router in tests)          |
-| Commands    | Custom registry + palette (`src/lib/commands`), Radix dialog, no extra deps |
-| Persistence | IndexedDB through repository interfaces (`idb`), in-memory parity adapter   |
-| Editor      | CodeMirror 6 (`@uiw/react-codemirror`, `@codemirror/lang-json`), lazy chunk |
-| Validation  | In-house JSON Schema interpreter, no code generation (TASK-016)             |
-| Testing     | Vitest, Testing Library, `jest-dom`, `fake-indexeddb`, jsdom                |
-| Quality     | ESLint (flat config), Prettier                                              |
+| Route                     | Screen                                                  | What you can do there                                                                                              |
+| ------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `/`                       | [Dashboard](#dashboard)                                 | Counts, recents, pinned and favorite rails, needs-attention list, activity timeline, and a first-run guide         |
+| `/library`                | [Library](#library)                                     | Search across titles, descriptions, tags, and stored JSON; filter, sort, select, and act in bulk                   |
+| `/prompts/:id`            | [JSON editor](#json-editor)                             | Edit the document in CodeMirror or the tree view, autosave with recovery, snapshot, inspect quality and validation |
+| `/prompts/:id/compose`    | [Guided composer](#guided-composer)                     | Edit an existing prompt field by field instead of as raw JSON                                                      |
+| `/prompts/:id/history`    | [Version history](#version-history)                     | Browse snapshots, diff one against the document, restore with a safety revision                                    |
+| `/prompts/:id/playground` | [Variable playground](#variable-playground-and-preview) | Fill typed variables, see the rendered prompt, keep values for this tab only                                       |
+| `/prompts/:id/lab`        | [Laboratory](#prompt-laboratory-with-saved-test-cases)  | Save test cases, run them against variants, compare results                                                        |
+| `/diff`                   | [Compare documents](#comparing-documents)               | Structural diff between prompts, snapshots, or a library selection                                                 |
+| `/composer`               | [Guided composer](#guided-composer)                     | Build a new document section by section                                                                            |
+| `/templates`              | [Template catalog](#template-catalog)                   | Start from nine built-in templates or your own; using one always creates a new prompt                              |
+| `/validation`             | [Validation studio](#validation-studio)                 | Check syntax and JSON Schema structure, per-path, with schema management                                           |
+| `/health`                 | [Health dashboard](#health-dashboard)                   | Stale prompts, unparsable documents, undeclared and unused variables, duplicates, storage usage                    |
+| `/settings`               | Settings                                                | Theme, editor density, autosave, health thresholds, backup and import                                              |
+| `/design`                 | [Design system](#design-system)                         | Every primitive in every state — the visual reference, development builds only in the palette                      |
 
-Dependencies for later tasks are already pinned in `package.json` where they define the
-architecture; features are still implemented only when their task is authorized.
+## Data and privacy
+
+- **Local-first, single user.** Prompts, revisions, schemas, snippets, templates, test cases,
+  activity, and settings live in this browser's IndexedDB (database `promptforge`, schema v2).
+- **Nothing leaves the device.** The app makes no runtime network request and integrates no model
+  provider. Prompt text is never uploaded, evaluated, or executed — there is no `eval` and no
+  expression language; variables are replaced by a strict `{{name}}` renderer.
+- **Two deliberate exceptions to IndexedDB:** playground variable values live in this tab's
+  `sessionStorage` (they are often a customer's text), and editor recovery drafts live in
+  `localStorage` until a write is confirmed. Both are documented in
+  [`docs/PERSISTENCE.md`](./docs/PERSISTENCE.md).
+- **Export is the backup.** A bundle holds prompts, history, folders, collections, schemas,
+  snippets, templates, and test cases — not the activity log or preferences, which the file says
+  itself. See [`docs/IMPORT-EXPORT.md`](./docs/IMPORT-EXPORT.md).
+
+## Requirements
+
+- **Node.js** `>= 22.12.0` (developed and verified on v22.x)
+- **npm** `>= 10`
+- A browser with IndexedDB and modern CSS support — see [Supported browsers](#supported-browsers)
+
+## Commands
+
+| Command                  | Purpose                                                            |
+| ------------------------ | ------------------------------------------------------------------ |
+| `npm run dev`            | Vite dev server on `0.0.0.0:5173`                                  |
+| `npm run build`          | `tsc --noEmit`, then a production build into `dist/`               |
+| `npm run preview`        | Serve `dist/` on `0.0.0.0:4173` (SPA fallback included)            |
+| `npm run typecheck`      | TypeScript project check, strict mode                              |
+| `npm run lint`           | ESLint, flat config (TypeScript, React hooks, layer boundaries)    |
+| `npm run format:check`   | Prettier verification (`npm run format` writes)                    |
+| `npm test`               | Vitest in watch mode                                               |
+| `npm run test:run`       | Vitest single run — 123 files, 1,975 tests                         |
+| `npm run test:coverage`  | Same suite with coverage; per-tree floors in `vite.config.ts`      |
+| `npm run check:contrast` | WCAG contrast gate for 88 token pairings, both themes              |
+| `npm run check:links`    | Verifies every relative link and anchor in this README and `docs/` |
+
+All of the above are green at delivery; the exact outputs are in
+[`docs/VERIFICATION.md`](./docs/VERIFICATION.md) §4 and [`docs/TESTING.md`](./docs/TESTING.md) §2.
+
+## Screenshots
+
+There are none, and that is deliberate rather than an oversight: this delivery was built and
+verified in an environment with **no browser binary** (recorded in
+[`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md) §1–2), so any screenshot here would have to be
+fabricated. The visual reference is the running app: `npm run dev` and open `/design`, which
+renders every primitive and state in both themes. When you do have a browser, that gallery is the
+fastest way to see what the interface looks like.
 
 ## Project structure
 
 ```
 src/
-  app/            application root, providers, router (grows in later tasks)
-  routes/         route-level screens (shell scaffolds + settings + design gallery)
-  components/layout/  shell, rail, drawer, breadcrumbs, top bar, route chrome, shortcut help
-  components/command-palette/  palette dialog and the command layer mounted by the shell
-  components/dashboard/  dashboard sections, stat strip, rails, and the first-run guide
-  components/health/   health cards, distribution bars with tables, attention lists, activity timeline, storage
-  components/library/  filter bar, ingredient rail, prompt cards and rows, badges
-  components/prompts/  prompt create/edit dialog, action menu, delete confirmation, summary card
-  components/editor/   CodeMirror host and theme, toolbar, tree view, error panel, status bar,
-                       save status, conflict dialog, inspector
-  features/editor/     draft text, parse debounce, in-app leave guard
-  features/save/       save pipeline, recovery drafts, shared write queue and broadcaster
-  features/playground/ typed inputs, debounced rendering, this tab's remembered values
-  features/testCases/  case editor and list, run results, variant comparison, playground bridge
-  components/playground/  variable form and rendered preview, shared by the route and the editor
-  lib/commands/   registry, shortcut parsing/matching, core commands, React bindings
-  components/     ui primitives, layout, and domain components
-  features/       feature modules (organization, save pipeline, revisions, diff, lab, blueprint, quality, health, ...)
-  domain/         pure TypeScript domain logic and types (no React, no storage)
-  data/           repository interfaces, IndexedDB + in-memory adapters, migrations,
-                  typed storage errors, write queue, cross-tab announcements
+  app/            router, providers, bootstrap, error boundary
+  routes/         one folder per screen (dashboard, library, editor, composer, diff,
+                  validation, history, playground, lab, templates, health, settings, design)
+  components/     ui/ primitives (no domain knowledge), layout/ shell, and per-feature components
+  features/       save pipeline, revisions, diff, quality, health, organization, editor, transfer, ...
+  domain/         pure TypeScript: types, document spec, renderer, diff, graph, quality, schema,
+                  transfer, search — no React, no storage (enforced by a purity test)
+  data/           repository interfaces, IndexedDB adapter with migrations, in-memory parity
+                  adapter, typed storage errors, write queue, cross-tab announcements
   store/          Zustand stores (data, preferences, interface) and pure selectors
-  hooks/          reusable hooks
-  lib/            small framework-agnostic utilities
-  styles/         tokens and global styles
-  test/           test setup and shared fixtures
-docs/             architecture, data model, persistence, validation, testing, limits, accessibility
+  lib/            small framework-agnostic utilities and the command system
+  styles/         tokens, themes, global CSS
+  test/           test setup, fixtures, and the integration matrices in workflows/
+docs/             architecture, data model, persistence, validation, import/export, quality rules,
+                  testing, accessibility, verification, limitations, deployment, decisions
+scripts/          contrast and link gates
 ```
 
-See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for layer rules, the design-system contract,
-and architectural decisions, and [`docs/DECISIONS.md`](./docs/DECISIONS.md) for the decision log and
-the generated contrast table.
+Layer rule: `routes → features/components → store/lib → domain/data`. `domain` imports no React and
+no storage; `data` imports domain types only; everything outside `src/data` imports `@/data`, never
+an adapter. ESLint enforces both. Details in [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md).
 
-Verification has its own record: [`docs/VERIFICATION.md`](./docs/VERIFICATION.md) is the integration pass —
-every route, its title and landmarks, every internal link resolved against the router, every palette
-command and its target, the global keyboard from six screens, and a full backup that survives deleting
-the database and importing into a fresh install — with the two defects it found and fixed, and the
-list of what it could not check without a browser.
+## Supported browsers
 
-Testing and limits have their own pages. [`docs/TESTING.md`](./docs/TESTING.md) records how to run
-the suite (`npm run test:run`, `npm run test:coverage`), the current inventory and measured coverage
-with the per-tree floors that gate it, which test covers each critical workflow, and what the suite
-provably cannot check. [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md) states the gaps plainly —
-including why there is no Playwright suite in this repository and what a jsdom test can never prove.
+The build targets modern evergreen browsers. The application requires **IndexedDB**,
+`BroadcastChannel` (with a graceful path when absent), CSS custom properties, and the JavaScript
+the bundle uses; Tailwind CSS v4 itself requires Chrome 111+, Safari 16.4+, Firefox 128+, or
+Edge 111+ or newer.
 
-Accessibility has its own page: [`docs/ACCESSIBILITY.md`](./docs/ACCESSIBILITY.md) records the
-three gates (an axe-core audit over every route and overlay, a keyboard and semantics suite, and
-the token contrast gate with composited disabled states), the findings that were fixed, the full
-44-pair contrast table, and — in the same detail — what was **not** verified, because this
-environment has no browser or screen reader.
+**Not verified in any real browser during this delivery** — there was no browser binary, so the
+supported set is a statement about the code the build targets, not a tested matrix. See
+[`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md) §2 and §6. Older browsers, unusual mobile shells, and
+in-app webviews are untested.
+
+## Deployment
+
+`npm run build` produces a static site in `dist/` — HTML, one JS bundle plus a lazy CodeMirror
+chunk, CSS, and self-hosted fonts. It needs no server, no environment variables, and no secrets.
+
+The one requirement most hosts get wrong: **serve `index.html` for extension-less routes (the SPA
+fallback) but return 404 for missing `/assets/*`**, otherwise a stale asset reference becomes a
+confusing MIME error instead of a clean failure. Base-path deployment under a subdirectory is not
+currently configurable (the router has no `basename`). Full instructions, caching guidance, and a
+post-deploy check are in [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md).
+
+## Documentation
+
+| Document                                           | What it covers                                                                                      |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)   | Layers, dependency rules, state and data flow, key modules, extension points, the path to a backend |
+| [`docs/DATA-MODEL.md`](./docs/DATA-MODEL.md)       | Entities, relationships, the `PromptDocument` spec with an example, migrations                      |
+| [`docs/PERSISTENCE.md`](./docs/PERSISTENCE.md)     | IndexedDB schema, save semantics, failure handling, recovery, multi-tab behaviour                   |
+| [`docs/VALIDATION.md`](./docs/VALIDATION.md)       | Supported JSON Schema subset, formats actually checked, size and error caps                         |
+| [`docs/IMPORT-EXPORT.md`](./docs/IMPORT-EXPORT.md) | Bundle format, conflict resolution, fidelity notes, what a backup does not contain                  |
+| [`docs/QUALITY-RULES.md`](./docs/QUALITY-RULES.md) | Every heuristic the inspector applies, and what it refuses to claim                                 |
+| [`docs/TESTING.md`](./docs/TESTING.md)             | Inventory, commands, coverage floors, the workflow matrix, E2E status                               |
+| [`docs/ACCESSIBILITY.md`](./docs/ACCESSIBILITY.md) | The three gates, findings and fixes, contrast table, what jsdom cannot check                        |
+| [`docs/VERIFICATION.md`](./docs/VERIFICATION.md)   | The integration pass: routes, links, commands, keyboard, backup round trip, defects                 |
+| [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md)     | Everything the product, the tests, and this delivery do not do                                      |
+| [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md)       | Static hosting, SPA fallback, caching, base paths, post-deploy checks                               |
+| [`docs/DECISIONS.md`](./docs/DECISIONS.md)         | The ADR log — 116 decisions, including deviations from the plan                                     |
+| [`tasks.md`](./tasks.md)                           | The 31-task plan, acceptance criteria, and the completion record for each                           |
+
+## Known limitations, up front
+
+- **One browser, one device.** There is no sync and no account. Export is the only backup, and a
+  bundle does not carry preferences or the activity log.
+- **No provider integration.** PromptForge never calls a model, so it cannot tell you whether a
+  prompt works — only whether it is well-formed, consistent, and free of specific smells.
+- **Heuristic quality rules.** The inspector's findings are rules with written reasons, not a
+  verdict; valid JSON is never presented as an effective prompt.
+- **No real-time collaboration** and no sharing; imports are per file.
+- **No browser-verified layout, contrast on rendered pixels, focus visibility, zoom/reflow, or
+  screen-reader session.** The suite checks structure; see
+  [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md) §2.
+
+---
+
+## How each screen works
 
 ## Dashboard
 
@@ -518,8 +572,8 @@ prompts are checked side by side.
   editorial display — all self-hosted with metric-adjusted fallbacks. No runtime font requests.
 - **Accessible accent.** Chartreuse is the identity color; it is split into `accent` (text/icons,
   light-theme darkening included) and `accent-fill` (surfaces) so both themes meet WCAG AA.
-- **Proof, not promises.** `npm run check:contrast` verifies 26 text/UI pairings in both themes and
-  fails the build threshold on regression.
+- **Proof, not promises.** `npm run check:contrast` verifies 88 token pairings in both themes,
+  including composited disabled states, and fails on regression.
 - **Reduced motion** is honored through the OS preference and a `data-reduced-motion` hook for the
   future in-app setting.
 
@@ -543,10 +597,10 @@ Composite widgets delegate keyboard and screen-reader behavior to Radix UI while
 token-driven styling. Component tests cover roles, accessible names, keyboard interaction, error
 association, and loading announcements.
 
-The **design gallery** (`src/routes/design/DesignGallery.tsx`) renders every primitive in every
-state — including live dialog, confirmation, sheet, menu, toast, and state demos — and is the visual
-reference for later tasks. It becomes the `/design` route in TASK-008 and
-is the temporary application root until then.
+The **design gallery** (`/design`, `src/routes/design/DesignGallery.tsx`) renders every primitive in
+every state — including live dialog, confirmation, sheet, menu, toast, and state demos — and is the
+visual reference for the application. It is reachable from the rail in every build and from the
+palette in development builds.
 
 ## Domain model
 
@@ -605,8 +659,16 @@ model provider in its planned v1 scope. Playground values are the one exception 
 IndexedDB": they live in this tab's `sessionStorage` (reload-safe, gone when the tab closes), because a
 variable's value is often a customer's text rather than document state.
 
-## Roadmap
+## Delivery
 
-The complete, approval-gated plan — 31 tasks with acceptance criteria and validation steps —
-lives in [`tasks.md`](./tasks.md). Planning is complete; implementation proceeds one authorized
-task at a time.
+The complete, approval-gated plan — 31 tasks with acceptance criteria, validation steps, and a
+completion record each — lives in [`tasks.md`](./tasks.md). All 31 are complete. Every task was
+implemented in its own cycle, validated with the gates above, and reported with the commands that
+were actually run; where something could not be verified in this environment, it was written down
+instead of assumed. That record, rather than a claim of completeness, is what
+[`docs/VERIFICATION.md`](./docs/VERIFICATION.md) and [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md)
+are for.
+
+Not included, and outside this delivery: public hosting, a marketing site, CI provider
+configuration, screenshots, and a browser-based end-to-end suite (see
+[`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md) §1).

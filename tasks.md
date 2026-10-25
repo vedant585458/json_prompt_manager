@@ -612,9 +612,9 @@ Execution order is the numeric order; each task's dependencies are also listed i
 - [x] TASK-028 — Accessibility review and remediation — High — deps: 027
 - [x] TASK-029 — Automated test suite expansion — High — deps: 027
 - [x] TASK-030 — Integration verification and defect pass — High — deps: 028, 029
-- [ ] TASK-031 — Documentation and delivery — High — deps: 030
+- [x] TASK-031 — Documentation and delivery — High — deps: 030
 
-**Progress:** 30 of 31 tasks complete. TASK-001 through TASK-022 were completed on 2026-10-24; TASK-023 through TASK-030 on 2026-10-25.
+**Progress:** 31 of 31 tasks complete. TASK-001 through TASK-022 were completed on 2026-10-24; TASK-023 through TASK-031 on 2026-10-25.
 
 ---
 
@@ -1841,7 +1841,7 @@ Each task follows the required template. **No task may begin without explicit us
 
 ### TASK-031 — Documentation and delivery
 
-- **Status:** Not Started
+- **Status:** Completed (2026-10-25)
 - **Priority:** High
 - **Dependencies:** TASK-030
 - **Objective:** Deliver a complete, honest documentation set and a clean final repository state.
@@ -1864,6 +1864,39 @@ Each task follows the required template. **No task may begin without explicit us
 - **Validation:** Follow the README from a clean checkout simulation (`npm ci && npm run build && npm run test:run`); link-check docs; verify git status cleanliness; record results.
 - **Deliverables:** all documentation files, final `tasks.md` updates, `.gitignore` review, final verification record.
 - **Out of scope:** Public hosting, marketing site, CI provider setup (documented as optional future work).
+
+- **Completion record (2026-10-25):** Completed after explicit user authorization ("Start Task 031").
+  Final delivery report in §16.
+  - **README rewritten as the entry point:** delivery status (31 of 31), quick start that needs no other
+    file, a route-level feature map (14 screens), the data and privacy statement, requirements, the full
+    command table (now including `check:links`), an honest "no screenshots and why" section, project
+    structure, supported browsers, deployment requirements, a documentation index covering all twelve
+    docs, and the limitations up front. The stale "TASK-015 complete" banner is gone.
+  - **`docs/ARCHITECTURE.md` rewritten.** It had degenerated into a copy of the TASK-009-era README whose
+    links were written for the repository root, so four of them were broken inside `docs/`. It is now an
+    architecture document: layers and enforced boundaries, state and data flow, key modules per layer,
+    extension points, the path to a backend, gates, and deliberate non-choices.
+  - **`docs/DEPLOYMENT.md` added:** build output inventory, the SPA-fallback-vs-404-asset rule with
+    host-specific snippets, cache and header guidance, the base-path limitation (and exactly what would
+    have to change), post-deploy curl checks, and what is deliberately not included.
+  - **`docs/LIMITATIONS.md` extended:** no provider integration or execution of any kind, heuristic (not
+    scored) quality rules, no real-time collaboration or sharing, browser support as a target rather than
+    a tested matrix, and the absent visual record.
+  - **`npm run check:links` added** (`scripts/check-links.mjs`): verifies every relative link and heading
+    anchor in the README, `tasks.md`, and `docs/`, and fails if a document is not reachable from the README
+    index. External URLs are counted, never fetched. It found six real problems on first run — four broken
+    links in the stale architecture document and two documents (`IMPORT-EXPORT.md`, `QUALITY-RULES.md`)
+    missing from the README — all fixed. Current result: **87 internal links across 14 files, 0 problems.**
+  - **`.gitignore` reviewed:** covers `node_modules/`, `dist/`, `coverage/`, tsbuildinfo, logs, editor
+    files, `.env*` and `*.pem`. Verified with `git ls-files`: **0 tracked build artifacts, 0 secrets.**
+  - **Clean-install validation (executed):** the working tree copied to a fresh directory with no
+    `node_modules`, then `npm ci` → **343 packages, 0 vulnerabilities**; `npm run build` → exit 0;
+    `npm run test:run` → **1,975 tests passing in 123 files, 260.57 s, exit 0**.
+  - **Gates:** `tsc --noEmit` 0; `eslint .` clean (including the new script); `prettier --check .` clean;
+    `check:links` 84/84; `check:contrast` 88 pairings; `npm run build` exit 0.
+  - **Not done, and said so:** no screenshots (no browser binary — every image would be fabricated),
+    no visual/rendered verification, no hosted deployment (out of scope), no CI provider configuration
+    (out of scope; the command list is the gate).
 
 ---
 
@@ -1961,3 +1994,47 @@ All 31 tasks completed through explicit authorization; acceptance criteria verif
 ---
 
 **End of plan. No implementation has been performed. Awaiting explicit authorization to start TASK-001.**
+
+---
+
+## 16. Final delivery report (2026-10-25)
+
+All 31 planned tasks are complete. Each was implemented in its own cycle after explicit
+authorization, validated with the gates that existed at the time, and recorded in its own
+completion record above — including what could not be verified.
+
+### Final state
+
+| Item | Value |
+| --- | --- |
+| Tasks | 31 of 31 completed (TASK-001 … TASK-031) |
+| Version | `0.1.0` |
+| Tests | 123 files, 1,975 tests, all passing; 73 added by the verification pass alone |
+| Coverage | 91.57 % statements, 85.01 % branches, 89.69 % functions, 92.58 % lines over all 258 application source files, with per-tree floors in `vite.config.ts` |
+| Gates | `typecheck`, `lint`, `format:check`, `test:run`, `test:coverage`, `check:contrast` (88 pairings), `check:links` (87 links), `build` — all green |
+| Clean install | `npm ci` → 343 packages, 0 vulnerabilities; `build` exit 0; `test:run` 1,975 passing |
+| Production build | `dist/` 2.0 MB: JS 1.19 MB (341 kB gzip) + lazy CodeMirror 420 kB, CSS 63 kB (15 kB gzip), self-hosted fonts |
+| Serving | 16/16 route paths return `200 text/html` from `npm run preview`; assets resolve |
+| Tracked artifacts / secrets | 0 / 0 |
+| Documentation | README plus 12 documents in `docs/`, all reachable from the README index, all link-checked |
+| ADRs | 116 numbered decisions (109 with full entries) |
+
+### What the project delivers
+
+A local-first JSON prompt studio: a library with URL-synced search and bulk operations, a CodeMirror
+editor with a save pipeline (autosave, version-guarded writes, conflict resolution, recovery
+drafts), snapshots and restore, structural diff, layout validation against document rules and an
+in-house JSON Schema interpreter, a guided composer and template catalogue, a strict variable
+renderer and playground, saved test cases in a laboratory, a blueprint graph, a heuristic quality
+inspector, a health dashboard, import/export of the whole library, full keyboard and palette
+operation, dark and light themes, and an accessibility pass — over one browser's IndexedDB, with
+no server and no network traffic at runtime.
+
+### What it does not deliver (stated, not implied)
+
+No provider integration or prompt execution; no sync, sharing, or real-time collaboration; no
+screenshots or browser-verified rendering; no end-to-end browser suite; no screens-reader session;
+no hosting, CI configuration, or base-path deployment. Each is recorded with its reason in
+[`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md), and the verification pass that backs the claims is
+in [`docs/VERIFICATION.md`](./docs/VERIFICATION.md).
+

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "PromptForge — an advanced JSON prompt management studio.",
+  "description": "PromptForge \u2014 an advanced JSON prompt management studio.",
   "engines": {
     "node": ">=22.12.0"
   },
@@ -16,6 +16,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check:contrast": "node scripts/check-contrast.mjs",
+    "check:links": "node scripts/check-links.mjs",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage"

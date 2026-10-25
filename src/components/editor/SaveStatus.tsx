@@ -30,6 +30,23 @@ export interface SaveStatusProps {
   readonly autosaveEnabled: boolean;
   readonly onSave: () => void;
   readonly onRetry: () => void;
+  /**
+   * Explains an explicit save that had nothing to write.
+   *
+   * Saving a clean draft is a no-op, and saying so is the difference between a
+   * button that appears broken and one that reports it had nothing to do.
+   */
+  readonly notice?: string | null;
+  /**
+   * Whether Retry can plausibly help. A refused document fails the same way
+   * until it is fixed, so the bar asks the user to fix it instead of offering a
+   * control that cannot do anything.
+   */
+  readonly retryable?: boolean;
+  /** Why the explicit save is unavailable; shown as the button's description. */
+  readonly disabledReason?: string | null;
+  /** Re-opens storage when it failed to open; renders "Try storage again". */
+  readonly onReconnect?: (() => void) | null;
 }
 
 const SHORTCUT = '⌘S';
@@ -118,8 +135,14 @@ export function SaveStatus({
   autosaveEnabled,
   onSave,
   onRetry,
+  notice = null,
+  retryable = true,
+  disabledReason = null,
+  onReconnect = null,
 }: SaveStatusProps) {
   const { label, detail, icon: Icon, tone } = present(state, lastSavedAt, error, autosaveEnabled);
+  const reasonId = 'save-status-disabled-reason';
+  const shownDetail = notice ?? detail;
 
   return (
     <div
@@ -137,7 +160,9 @@ export function SaveStatus({
         {label}
       </span>
 
-      {detail ? <span className="text-2xs leading-relaxed text-ink-muted">{detail}</span> : null}
+      {shownDetail ? (
+        <span className="text-2xs leading-relaxed text-ink-muted">{shownDetail}</span>
+      ) : null}
 
       {state === 'error' && error?.detail ? (
         <span className="basis-full font-mono text-2xs break-words text-ink-muted">
@@ -145,17 +170,41 @@ export function SaveStatus({
         </span>
       ) : null}
 
+      {state === 'error' && !retryable ? (
+        <span className="basis-full text-2xs leading-relaxed text-ink-muted">
+          Fix the document above, then save again — retrying the same text would fail the same way.
+        </span>
+      ) : null}
+
       <div className="ml-auto flex items-center gap-2">
-        {state === 'error' ? (
+        {state === 'error' && retryable ? (
           <Button variant="secondary" size="sm" onClick={onRetry}>
             Retry
           </Button>
         ) : null}
-        <Button variant="secondary" size="sm" onClick={onSave} disabled={!canSave}>
+        {state === 'disabled' && onReconnect ? (
+          <Button variant="secondary" size="sm" onClick={onReconnect}>
+            Try storage again
+          </Button>
+        ) : null}
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={onSave}
+          disabled={!canSave}
+          {...(disabledReason && !canSave
+            ? { title: disabledReason, 'aria-describedby': reasonId }
+            : {})}
+        >
           <Save aria-hidden="true" size={12} />
           Save now
           <Kbd aria-hidden="true">{SHORTCUT}</Kbd>
         </Button>
+        {disabledReason && !canSave ? (
+          <span id={reasonId} className="sr-only">
+            {disabledReason}
+          </span>
+        ) : null}
       </div>
     </div>
   );

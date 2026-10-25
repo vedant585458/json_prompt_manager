@@ -389,6 +389,41 @@ describe('save pipeline (TASK-015)', () => {
     });
   });
 
+  it('answers Save now on a clean draft instead of doing nothing', async () => {
+    const user = userEvent.setup();
+    const { repositories } = await openDurable();
+
+    await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
+    await user.click(screen.getByRole('button', { name: 'Minify JSON' }));
+    await user.keyboard('{Control>}s{/Control}');
+
+    expect(await screen.findByText(/^Saved at /)).toBeVisible();
+
+    // The draft is clean now. The explicit button stays available, and pressing it
+    // says there was nothing to write rather than appearing inert.
+    const saveNow = screen.getByRole('button', { name: /Save now/ });
+    expect(saveNow).toBeEnabled();
+    await user.click(saveNow);
+
+    expect(
+      await screen.findByText(/Already saved — this draft matches what is stored/),
+    ).toBeVisible();
+    await expect(repositories.prompts.get('alpha')).resolves.toMatchObject({ version: 2 });
+  });
+
+  it('says why Save now is unavailable when storage did not open', async () => {
+    await openEditor({ prompts: [prompt], mode: 'ephemeral' });
+
+    await screen.findByRole('textbox', { name: 'JSON document for Invoice parser' });
+    const saveNow = screen.getByRole('button', { name: /Save now/ });
+    expect(saveNow).toBeDisabled();
+
+    const describedBy = saveNow.getAttribute('aria-describedby');
+    expect(document.getElementById(describedBy as string)).toHaveTextContent(
+      /storage did not open/,
+    );
+  });
+
   it('offers a conflict instead of overwriting a newer version, and keeps the draft on request', async () => {
     const user = userEvent.setup();
     const mine = draftWithObjective('Mine, typed earlier.');

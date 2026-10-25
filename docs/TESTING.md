@@ -4,7 +4,7 @@ This file records **how the suite is run, what it covers, and what it does not**
 number below comes from a command that was executed in this repository; nothing here is an
 estimate. Where something could not be verified, it says so instead of implying coverage.
 
-Last refreshed: 2026-10-25 (TASK-030).
+Last refreshed: 2026-10-25 (post-delivery FIX-001).
 
 ---
 
@@ -30,15 +30,15 @@ binary in this environment, so nothing here is an end-to-end browser test — se
 
 | Gate                    | Result                                                                                                             |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `npm run test:run`      | **123 files, 1,975 tests, all passing**, no skipped or `todo` tests                                                |
-| `npm run test:coverage` | Same suite; **91.57 % statements, 85.01 % branches, 89.69 % functions, 92.58 % lines** (258 measured source files) |
-| Determinism             | Repeated full runs produced identical counts and identical coverage figures                                        |
+| `npm run test:run`      | **123 files, 1,990 tests, all passing**, no skipped or `todo` tests                                                |
+| `npm run test:coverage` | Same suite; **91.59 % statements, 85.08 % branches, 89.65 % functions, 92.59 % lines** (258 measured source files) |
+| Determinism             | Two consecutive full runs produced identical counts (1,990 / 123) and identical coverage figures                   |
 | `npm run typecheck`     | 0 errors                                                                                                           |
 | `npm run lint`          | Clean                                                                                                              |
 | `npm run format:check`  | Clean                                                                                                              |
 | `npm run build`         | Exit 0                                                                                                             |
 
-Wall time on this machine: **252.79 s for `npm run test:run`** and **299.85 s for
+Wall time on this machine: **266.21 s for `npm run test:run`** and **319.63 s for
 `npm run test:coverage`** (the difference is instrumentation). In both runs the tests
 themselves are only about half of the time — jsdom environment setup and module import per
 file are the rest, which is why the suite is parallelised into workers rather than
@@ -124,17 +124,20 @@ below the measured value of the weakest module in each tree, so a real regressio
 gate while deleting covered code does not. They are not thresholds chosen to make the
 number look good.
 
-| Tree                | Statements | Branches | Functions | Lines | Measured (stmts / branch / funcs / lines) |
-| ------------------- | ---------- | -------- | --------- | ----- | ----------------------------------------- |
-| All files           | 88         | 80       | 85        | 88    | 91.48 / 84.90 / 89.46 / 92.49             |
-| `src/app/**`        | 88         | 76       | 88        | 88    | 94.71 / 82.09 / 94.29 / 94.02             |
-| `src/components/**` | 78         | 75       | 74        | 78    | 84.84 / 81.36 / 80.99 / 84.84             |
-| `src/data/**`       | 90         | 79       | 90        | 90    | 95.85 / 85.00 / 95.68 / 95.85             |
-| `src/domain/**`     | 92         | 87       | 94        | 92    | 97.02 / 91.67 / 98.96 / 97.02             |
-| `src/features/**`   | 82         | 74       | 84        | 82    | 88.89 / 80.77 / 90.05 / 88.89             |
-| `src/lib/**`        | 88         | 81       | 86        | 88    | 93.49 / 87.00 / 91.94 / 93.49             |
-| `src/routes/**`     | 74         | 67       | 71        | 74    | 81.30 / 74.32 / 78.75 / 81.30             |
-| `src/store/**`      | 90         | 83       | 92        | 90    | 95.89 / 89.36 / 97.71 / 95.89             |
+| Tree                | Statements | Branches | Functions | Lines | Measured at TASK-031 (stmts / branch / funcs / lines) |
+| ------------------- | ---------- | -------- | --------- | ----- | ----------------------------------------------------- |
+| All files           | 88         | 80       | 85        | 88    | 91.48 / 84.90 / 89.46 / 92.49                         |
+| `src/app/**`        | 88         | 76       | 88        | 88    | 94.71 / 82.09 / 94.29 / 94.02                         |
+| `src/components/**` | 78         | 75       | 74        | 78    | 84.84 / 81.36 / 80.99 / 84.84                         |
+| `src/data/**`       | 90         | 79       | 90        | 90    | 95.85 / 85.00 / 95.68 / 95.85                         |
+| `src/domain/**`     | 92         | 87       | 94        | 92    | 97.02 / 91.67 / 98.96 / 97.02                         |
+| `src/features/**`   | 82         | 74       | 84        | 82    | 88.89 / 80.77 / 90.05 / 88.89                         |
+| `src/lib/**`        | 88         | 81       | 86        | 88    | 93.49 / 87.00 / 91.94 / 93.49                         |
+| `src/routes/**`     | 74         | 67       | 71        | 74    | 81.30 / 74.32 / 78.75 / 81.30                         |
+| `src/store/**`      | 90         | 83       | 92        | 90    | 95.89 / 89.36 / 97.71 / 95.89                         |
+
+The fix cycle after TASK-031 raised the aggregate to **91.59 / 85.08 / 89.65 / 92.59** (1,990
+tests); the per-tree figures above are from the TASK-031 run and every floor still holds.
 
 Excluded from measurement (and why): `src/**/*.test.{ts,tsx}` (the tests themselves),
 `src/test/**` (harnesses), `src/**/*.d.ts`, and `src/main.tsx` (the entry point plus the
@@ -156,6 +159,7 @@ but not asserted here.
 | TASK-028   | 116   | 1,879 | 96.62 / 90.59 / 97.78 / 97.55 — **domain, data, and store only** |
 | TASK-029   | 119   | 1,902 | 91.48 / 84.90 / 89.46 / 92.49 — **all application source**       |
 | TASK-030   | 123   | 1,975 | 91.57 / 85.01 / 89.69 / 92.58 — same measured set                |
+| FIX-001    | 123   | 1,990 | 91.59 / 85.08 / 89.65 / 92.59 — same measured set                |
 
 The TASK-029 figure is **lower on purpose**: from this task on, the measured set includes
 the UI trees (`components`, `features`, `routes`, `app`, `lib`, `styles`) that earlier tasks
@@ -166,6 +170,11 @@ Test cases added by TASK-029: 23 in 3 files (9 integration flows, 14 variables-e
 plus three shared utilities and the global network guard. One dead module
 (`src/routes/shared/RouteScaffold.tsx`, unreferenced once every route had been built) was
 removed rather than tested.
+
+Test cases added by FIX-001 (the save bar): 15 across five suites — five pipeline cases (no-op
+save, repeated refusal, retryability, storage re-open, held draft), five save-bar cases, two
+editor-route cases (clean press, ephemeral explanation), and three bootstrap cases for the
+recovery context; the composer's blocked-save test gained the reason assertions.
 
 Test cases added by TASK-030: 73 in 4 files — the route matrix (41), the command matrix (22),
 the backup round trip (3), and the navigation unit suite (7). Two defects were found and fixed

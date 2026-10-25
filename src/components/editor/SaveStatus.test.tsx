@@ -85,3 +85,70 @@ describe('SaveStatus', () => {
     expect(props.onSave).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('SaveStatus — the controls always answer', () => {
+  it('keeps Save now available on a clean draft and says nothing was written', async () => {
+    const user = userEvent.setup();
+    const { props } = renderStatus({
+      state: 'clean',
+      canSave: true,
+      notice: 'Already saved — this draft matches what is stored, so nothing was written.',
+    });
+
+    const saveNow = screen.getByRole('button', { name: /Save now/ });
+    expect(saveNow).toBeEnabled();
+    expect(
+      screen.getByText(
+        'Already saved — this draft matches what is stored, so nothing was written.',
+      ),
+    ).toBeVisible();
+
+    await user.click(saveNow);
+    expect(props.onSave).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers Retry only when a retry can help, and otherwise says to fix the document', () => {
+    renderStatus({
+      state: 'error',
+      error: { message: 'This text is not valid JSON, so it was not saved.', detail: null },
+      canSave: true,
+      retryable: false,
+    });
+
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    expect(screen.getByText(/retrying the same text would fail the same way/)).toBeVisible();
+    expect(screen.getByRole('button', { name: /Save now/ })).toBeEnabled();
+  });
+
+  it('explains a disabled save instead of leaving a silent dead control', () => {
+    renderStatus({
+      state: 'disabled',
+      canSave: false,
+      disabledReason:
+        'Saving is off: storage did not open, so nothing can be written in this mode.',
+    });
+
+    const saveNow = screen.getByRole('button', { name: /Save now/ });
+    expect(saveNow).toBeDisabled();
+
+    const describedBy = saveNow.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    const description = document.getElementById(describedBy as string);
+    expect(description).toHaveTextContent(/storage did not open/);
+    expect(saveNow).toHaveAttribute('title', expect.stringContaining('storage did not open'));
+  });
+
+  it('offers to re-open storage when storage is the thing that failed', async () => {
+    const user = userEvent.setup();
+    const onReconnect = vi.fn();
+    renderStatus({ state: 'disabled', canSave: false, onReconnect });
+
+    await user.click(screen.getByRole('button', { name: 'Try storage again' }));
+    expect(onReconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows no reconnect action when there is nothing to reconnect to', () => {
+    renderStatus({ state: 'disabled', canSave: false });
+    expect(screen.queryByRole('button', { name: 'Try storage again' })).not.toBeInTheDocument();
+  });
+});

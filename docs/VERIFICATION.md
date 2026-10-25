@@ -175,3 +175,40 @@ npx vitest run --coverage            # floors in vite.config.ts
 npm run test:run -- src/test/workflows   # the three new verification suites only
 npm run build && npm run preview     # then curl the route list in §5
 ```
+
+## 9. Post-delivery fix FIX-001 (the save bar)
+
+Reported after delivery: "save now button and retry button is not working". Diagnosis and the
+decision are recorded in `docs/DECISIONS.md` ADR-117; this is what was verified.
+
+**Not a wiring fault.** The happy path — press Save now, the write fails, Retry, the write lands
+— was already covered by `src/test/workflows/durableFailure.test.tsx` against the real IndexedDB
+adapter, and still passes unchanged.
+
+**What was wrong.** Both controls were dead in the states a user is in when they press them:
+the explicit save was disabled whenever autosave had already written the draft (the normal
+case), Retry re-ran a refusal that could not change and produced identical text, and ephemeral
+mode offered no way to ask storage to try again.
+
+**Executed for this fix**
+
+| Check                                | Result                                                                            |
+| ------------------------------------ | --------------------------------------------------------------------------------- |
+| `npx tsc --noEmit`                   | 0 errors                                                                          |
+| `npx eslint .`                       | clean                                                                             |
+| `npx prettier --check .`             | clean                                                                             |
+| `npm run check:links`                | 87 internal links, 0 problems                                                     |
+| `npx vitest run` (full suite, twice) | **123 files / 1,990 tests passing**, identical counts both runs                   |
+| `npx vitest run --coverage`          | 91.59 / 85.08 / 89.65 / 92.59, all floors hold                                    |
+| `npm run build`                      | exit 0 — JS 1,196.11 kB (341.24 kB gzip), editor chunk 427.66 kB, CSS 62.81 kB    |
+| Preview smoke (`npm run preview`)    | all 15 route paths return `200` with the SPA root; all 17 built files serve `200` |
+
+**Behaviour pinned by the new tests** (`docs/TESTING.md` §6): an explicit save of an unchanged
+draft writes nothing and says so; a repeated refusal is marked not retryable and says the text
+is unchanged; a failed write is marked retryable; Retry re-opens storage in ephemeral mode
+instead of repeating a save that cannot land; a held draft reports its reason without being
+called an error; every disabled save carries a sentence in `title` and `aria-describedby`.
+
+**Still not verified:** none of this was reproduced or observed in a real browser — there is
+still no browser binary in this environment (§7). The defect was diagnosed from the code and
+the fix is asserted in jsdom; the rendered appearance of the new buttons is unverified.

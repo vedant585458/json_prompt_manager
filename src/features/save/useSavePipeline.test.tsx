@@ -100,6 +100,7 @@ interface HarnessOptions {
   readonly storage?: Storage;
   readonly prompt?: Prompt;
   readonly blockedReason?: string | null;
+  readonly onReconnectStorage?: (() => void) | null;
 }
 
 const DRAFT_TEXT = (() => {
@@ -141,6 +142,7 @@ async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
       recoveryDelayMs: 10,
       parseDebounceMs: 5,
       blockedReason: control.blockedReason,
+      onReconnectStorage: options.onReconnectStorage ?? null,
     }),
   );
 
@@ -555,5 +557,92 @@ describe('a caller-held write gate (TASK-017)', () => {
     expect((await harness.repositories.prompts.get('alpha'))?.content.objective).toBe(
       'Extract the invoice total.',
     );
+  });
+});
+
+/**
+ * The two controls in the save bar were reported as broken.
+ *
+ * They were not mis-wired: they were dead in the states a user actually sees —
+ * disabled whenever autosave had already written the draft, and a Retry that
+ * re-ran a refusal that could not change. These tests pin the behaviour that
+ * replaced it: every press answers, and the answer is always true.
+ */
+describe('the save bar always answers', () => {
+  it('reports an explicit save of an unchanged draft as a no-op, without writing', async () => {
+    const harness = await createHarness({ autosaveEnabled: false });
+
+    await edit(harness, DRAFT_TEXT);
+    expect(await save(harness)).toBe(true);
+    expect(harness.store.getState().prompts[0]?.version).toBe(2);
+    expect(harness.result.current.notice).toBeNull();
+
+    // Pressing Save now again, with nothing to write: no second version, no
+    // "Saved" claim, and a sentence saying so.
+    expect(await save(harness)).toBe(true);
+    expect(harness.store.getState().prompts[0]?.version).toBe(2);
+    expect(harness.result.current.state).toBe('clean');
+    expect(harness.result.current.notice).toMatch(/Already saved/);
+  });
+
+  it('says the same text failed twice instead of looking frozen', async () => {
+    const harness = await createHarness({ autosaveEnabled: false });
+
+    await edit(harness, '{ "name": ');
+    expect(await save(harness)).toBe(false);
+    expect(harness.result.current.error?.detail).not.toMatch(/same text as the last attempt/);
+
+    // Retrying the identical text cannot work, so it is not advertised as a
+    // retry — and the second refusal says why nothing changed.
+    expect(await save(harness)).toBe(false);
+    expect(harness.result.current.retryable).toBe(false);
+    expect(harness.result.current.error?.detail).toMatch(/same text as the last attempt/);
+  });
+
+  it('marks a refused document as not retryable and a failed write as retryable', async () => {
+    const refused = await createHarness({ autosaveEnabled: false });
+    await edit(refused, '{ "name": ');
+    expect(await save(refused)).toBe(false);
+    expect(refused.result.current.retryable).toBe(false);
+
+    const failed = await createHarness({ autosaveEnabled: false });
+    failed.repositories.prompts.update = async () => {
+      throw new QuotaExceededError('This browser refused the write.');
+    };
+    await edit(failed, DRAFT_TEXT);
+    expect(await save(failed)).toBe(false);
+    expect(failed.result.current.retryable).toBe(true);
+  });
+
+  it('re-opens storage on retry instead of repeating a save that cannot land', async () => {
+    const reconnect = vi.fn();
+    const harness = await createHarness({ mode: 'ephemeral', onReconnectStorage: reconnect });
+
+    expect(harness.result.current.durable).toBe(false);
+    expect(harness.result.current.canReconnect).toBe(true);
+
+    await edit(harness, DRAFT_TEXT);
+    await act(async () => {
+      await harness.result.current.retry();
+    });
+
+    expect(reconnect).toHaveBeenCalledTimes(1);
+    expect(harness.store.getState().prompts[0]?.version).toBe(1);
+  });
+
+  it('reports a draft the route is holding back instead of swallowing the press', async () => {
+    const harness = await createHarness({
+      autosaveEnabled: false,
+      blockedReason: 'Fix the duplicate variable first.',
+    });
+
+    await edit(harness, DRAFT_TEXT);
+    expect(await save(harness)).toBe(false);
+
+    // No error — nothing failed — but the reason is on screen, not silence.
+    expect(harness.result.current.state).toBe('dirty');
+    expect(harness.result.current.error).toBeNull();
+    expect(harness.result.current.notice).toBe('Fix the duplicate variable first.');
+    expect(harness.store.getState().prompts[0]?.version).toBe(1);
   });
 });

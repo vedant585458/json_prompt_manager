@@ -93,6 +93,13 @@ export interface UseSavePipelineOptions {
    * pipeline stays honest about the draft being dirty and unsaved.
    */
   readonly blockedReason?: string | null;
+  /**
+   * Re-opens storage after it failed to open (TASK-015 follow-up).
+   *
+   * In ephemeral mode there is nothing a save can do, so Retry asks this to
+   * boot storage again instead of repeating a write that cannot land.
+   */
+  readonly onReconnectStorage?: (() => void) | null;
 }
 
 export interface SavePipeline {
@@ -110,6 +117,12 @@ export interface SavePipeline {
   readonly durable: boolean;
   readonly lastSavedAt: string | null;
   readonly error: { readonly message: string; readonly detail: string | null } | null;
+  /** True when pressing Retry can plausibly help (not for a refused document). */
+  readonly retryable: boolean;
+  /** Explains an explicit save that had nothing to write; `null` otherwise. */
+  readonly notice: string | null;
+  /** True when storage can be re-opened from the save bar. */
+  readonly canReconnect: boolean;
   readonly saveNow: (reason?: SaveReason) => Promise<boolean>;
   readonly retry: () => Promise<boolean>;
 
@@ -145,7 +158,27 @@ interface Baseline {
 
 type SaveResult =
   | { readonly kind: 'saved' }
-  | { readonly kind: 'error'; readonly message: string; readonly detail: string | null };
+  /** An explicit save of a draft that already matches storage: nothing was written. */
+  | { readonly kind: 'unchanged' }
+  /**
+   * A save the caller asked the pipeline to hold back (TASK-017).
+   *
+   * The draft stays dirty and no error is raised — the reason belongs to the
+   * route — but the attempt is reported rather than swallowed, so pressing the
+   * shortcut on a held draft says why nothing happened.
+   */
+  | { readonly kind: 'held'; readonly message: string | null }
+  | {
+      readonly kind: 'error';
+      readonly message: string;
+      readonly detail: string | null;
+      /**
+       * Whether pressing Retry could plausibly change anything. A refused
+       * document or a blocked draft fails the same way until the text or the
+       * reason changes, so offering "Retry" there would be a dead control.
+       */
+      readonly retryable: boolean;
+    };
 
 /** What a queued write produced; the caller decides what the UI says. */
 type SaveAttempt =
@@ -158,6 +191,36 @@ type SaveAttempt =
   | { readonly kind: 'saved'; readonly text: string; readonly saved: Prompt };
 
 const RECOVERY_DELAY_MS = 400;
+
+/**
+ * Marks a refusal that is identical to the previous one.
+ *
+ * Pressing Save now twice on the same broken document produces the same words;
+ * without this note the screen would look frozen. It is a statement about the
+ * draft, not a success message.
+ */
+function describeRepeated(detail: string | null, repeated: boolean): string | null {
+  if (!repeated) return detail;
+  const note = 'This is the same text as the last attempt, so nothing changed.';
+  return detail ? `${detail} — ${note}` : note;
+}
+
+/**
+ * Why the explicit save cannot run right now, in words.
+ *
+ * A disabled control with no explanation reads as a broken control, which is
+ * exactly how the save bar was reported. Every disabled state has a sentence.
+ */
+export function describeSaveDisabled(
+  save: Pick<SavePipeline, 'durable' | 'saving' | 'conflict'>,
+): string | null {
+  if (!save.durable) {
+    return 'Saving is off: storage did not open, so nothing can be written in this mode.';
+  }
+  if (save.saving) return 'A save is already in progress.';
+  if (save.conflict) return 'Resolve the version conflict before saving.';
+  return null;
+}
 
 /**
  * The editor's save pipeline.
@@ -178,10 +241,15 @@ export function useSavePipeline({
   parseDebounceMs,
   indent = 2,
   blockedReason = null,
+  onReconnectStorage = null,
 }: UseSavePipelineOptions): SavePipeline {
   const blocked = blockedReason !== null && blockedReason.length > 0;
   const blockedRef = useRef(blocked);
   blockedRef.current = blocked;
+  const blockedReasonRef = useRef(blockedReason);
+  blockedReasonRef.current = blockedReason;
+  const reconnectRef = useRef(onReconnectStorage);
+  reconnectRef.current = onReconnectStorage;
 
   const promptId = prompt?.id ?? '';
   const mode = store((state) => state.mode);
@@ -475,32 +543,55 @@ export function useSavePipeline({
           message: 'Saving is off in ephemeral mode.',
           detail:
             'Storage did not open, so nothing can be written. Your draft is still kept in this browser.',
+          // Re-opening storage is the only retry that can change this.
+          retryable: reconnectRef.current !== null,
         });
         return false;
       }
 
-      if (blockedRef.current) return false;
+      if (blockedRef.current) {
+        // Pressing the shortcut on a draft the route refused to write says why,
+        // instead of doing nothing. The state stays "unsaved changes": nothing
+        // failed, the write is being held back on purpose.
+        setResult({ kind: 'held', message: blockedReasonRef.current });
+        return false;
+      }
+
       if (conflictRef.current) return false;
 
       const inFlight = inFlightRef.current;
       if (inFlight) return inFlight;
 
       // Nothing changed since the last confirmed write: do not bump a version for
-      // an empty save.
+      // an empty save, and do not claim a write happened.
       if (textRef.current === baselineRef.current.text) {
-        setResult({ kind: 'saved' });
+        setResult({ kind: 'unchanged' });
         return true;
       }
 
+      // Any new attempt leaves the previous failure behind, so the status region
+      // visibly changes even when the attempt fails the same way again.
+      setResult(null);
+
       // Fail fast on the text as it is now, so a syntax error is reported on the
       // keystroke instead of after a round trip.
-      const prepared = prepareContent(textRef.current);
+      const text = textRef.current;
+      const prepared = prepareContent(text);
       if (!prepared.ok) {
-        failedTextRef.current = textRef.current;
-        setResult({ kind: 'error', message: prepared.message, detail: prepared.detail });
+        // The same text cannot start working on its own: mark it not retryable,
+        // and say so when the same refusal happens twice.
+        const repeated = failedTextRef.current === text;
+        failedTextRef.current = text;
+        setResult({
+          kind: 'error',
+          message: prepared.message,
+          detail: describeRepeated(prepared.detail, repeated),
+          retryable: false,
+        });
         return false;
       }
 
+      failedTextRef.current = null;
       savingReasonRef.current = reason;
       setSaving(true);
 
@@ -532,8 +623,14 @@ export function useSavePipeline({
         })
         .then((outcome) => {
           if (outcome.kind === 'invalid') {
+            const repeated = failedTextRef.current === outcome.text;
             failedTextRef.current = outcome.text;
-            setResult({ kind: 'error', message: outcome.message, detail: outcome.detail });
+            setResult({
+              kind: 'error',
+              message: outcome.message,
+              detail: describeRepeated(outcome.detail, repeated),
+              retryable: false,
+            });
             return false;
           }
 
@@ -575,6 +672,7 @@ export function useSavePipeline({
             kind: 'error',
             message: 'The prompt was not saved.',
             detail: describeDataError(caught),
+            retryable: true,
           });
           return false;
         })
@@ -599,7 +697,19 @@ export function useSavePipeline({
     ],
   );
 
-  const retry = useCallback(() => saveNow('retry'), [saveNow]);
+  const retry = useCallback(async (): Promise<boolean> => {
+    const reconnect = reconnectRef.current;
+
+    // With storage closed there is nothing to write to: retrying the save would
+    // repeat a doomed call. Re-opening storage is the retry that can work.
+    if (!durable && reconnect) {
+      setResult(null);
+      reconnect();
+      return false;
+    }
+
+    return saveNow('retry');
+  }, [durable, saveNow]);
 
   // `Mod+S` / `Ctrl+S` writes immediately, from anywhere on the screen.
   useEffect(() => {
@@ -655,6 +765,7 @@ export function useSavePipeline({
           kind: 'error',
           message: 'The stored version could not be read.',
           detail: 'The prompt may have been deleted in another tab.',
+          retryable: false,
         });
         return false;
       }
@@ -676,6 +787,7 @@ export function useSavePipeline({
         kind: 'error',
         message: 'The stored version could not be read.',
         detail: describeDataError(caught),
+        retryable: true,
       });
       return false;
     }
@@ -692,6 +804,7 @@ export function useSavePipeline({
         kind: 'error',
         message: 'Your draft is not valid JSON, so it could not be saved over the stored version.',
         detail: `Line ${scanned.error.line}, column ${scanned.error.column}: ${scanned.error.message}`,
+        retryable: false,
       });
       return false;
     }
@@ -703,6 +816,7 @@ export function useSavePipeline({
         kind: 'error',
         message: 'Your draft is not a valid prompt, so it could not be saved.',
         detail: issue ? `${issue.path || 'document'}: ${issue.message}` : null,
+        retryable: false,
       });
       return false;
     }
@@ -745,6 +859,7 @@ export function useSavePipeline({
           kind: 'error',
           message: 'Your draft was not saved over the stored version.',
           detail: describeDataError(caught),
+          retryable: true,
         });
       }
       return false;
@@ -814,7 +929,12 @@ export function useSavePipeline({
         return { ok: true, revision };
       } catch (caught) {
         const detail = describeDataError(caught);
-        setResult({ kind: 'error', message: 'The snapshot was not created.', detail });
+        setResult({
+          kind: 'error',
+          message: 'The snapshot was not created.',
+          detail,
+          retryable: true,
+        });
         return { ok: false, reason: detail };
       }
     },
@@ -848,6 +968,14 @@ export function useSavePipeline({
     durable,
     lastSavedAt,
     error: result?.kind === 'error' ? { message: result.message, detail: result.detail } : null,
+    retryable: result?.kind === 'error' ? result.retryable : false,
+    notice:
+      result?.kind === 'unchanged'
+        ? 'Already saved — this draft matches what is stored, so nothing was written.'
+        : result?.kind === 'held'
+          ? (result.message ?? 'This draft is not being saved yet.')
+          : null,
+    canReconnect: onReconnectStorage !== null,
     saveNow,
     retry,
 

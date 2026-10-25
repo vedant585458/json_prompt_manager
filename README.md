@@ -24,7 +24,7 @@ npm run dev           # http://localhost:5173
 Then:
 
 ```bash
-npm run test:run      # 123 files, 1,975 tests
+npm run test:run      # 123 files, 1,990 tests
 npm run build         # type-check, then a production build in dist/
 npm run preview       # serve that build at http://localhost:4173
 ```

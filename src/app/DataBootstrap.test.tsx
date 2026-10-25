@@ -12,6 +12,7 @@ import {
 } from '@/data';
 import { createDataStore, type DataStore } from '@/store/dataStore';
 import { createPreferencesStore } from '@/store/preferencesStore';
+import { useStorageRecovery } from '@/store/storageRecoveryContext';
 
 function storageResult(
   repositories: Repositories,
@@ -146,5 +147,60 @@ describe('DataBootstrap', () => {
     // Retrying hydration (not the whole boot) is the offered action.
     await waitFor(() => expect(store.getState().status).toBe('error'));
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+});
+
+/** Renders what the save bar would see, so the published recovery is observable. */
+function RecoveryProbe() {
+  const recovery = useStorageRecovery();
+  return <p>{recovery ? `recovery:${String(recovery.canRetry)}` : 'recovery:none'}</p>;
+}
+
+describe('DataBootstrap — storage recovery for the save bar', () => {
+  it('publishes a re-open action in ephemeral mode', async () => {
+    const repositories = await createInMemoryRepositories();
+    const store = createDataStore();
+
+    render(
+      <DataBootstrap store={store} boot={bootWith(repositories, 'ephemeral', 'No storage.')}>
+        <RecoveryProbe />
+      </DataBootstrap>,
+    );
+
+    expect(await screen.findByText('recovery:true')).toBeInTheDocument();
+  });
+
+  it('publishes nothing in durable mode', async () => {
+    const repositories = await createInMemoryRepositories();
+    const store = createDataStore();
+
+    render(
+      <DataBootstrap store={store} boot={bootWith(repositories)}>
+        <RecoveryProbe />
+      </DataBootstrap>,
+    );
+
+    expect(await screen.findByText('recovery:none')).toBeInTheDocument();
+  });
+
+  it('re-runs the boot sequence when the published retry is used', async () => {
+    const user = userEvent.setup();
+    const repositories = await createInMemoryRepositories();
+    const store = createDataStore();
+    const boot = vi.fn(bootWith(repositories, 'ephemeral', 'No storage.'));
+
+    function RetryProbe() {
+      const recovery = useStorageRecovery();
+      return <button onClick={recovery?.retry}>reconnect</button>;
+    }
+
+    render(
+      <DataBootstrap store={store} boot={boot}>
+        <RetryProbe />
+      </DataBootstrap>,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'reconnect' }));
+    await waitFor(() => expect(boot).toHaveBeenCalledTimes(2));
   });
 });

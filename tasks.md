@@ -1866,7 +1866,7 @@ Each task follows the required template. **No task may begin without explicit us
 - **Out of scope:** Public hosting, marketing site, CI provider setup (documented as optional future work).
 
 - **Completion record (2026-10-25):** Completed after explicit user authorization ("Start Task 031").
-  Final delivery report in §16.
+  Final delivery report in §19.
   - **README rewritten as the entry point:** delivery status (31 of 31), quick start that needs no other
     file, a route-level feature map (14 screens), the data and privacy statement, requirements, the full
     command table (now including `check:links`), an honest "no screenshots and why" section, project
@@ -1997,7 +1997,7 @@ All 31 tasks completed through explicit authorization; acceptance criteria verif
 
 ---
 
-## 16. Final delivery report (2026-10-25)
+## 19. Final delivery report (2026-10-25)
 
 All 31 planned tasks are complete. Each was implemented in its own cycle after explicit
 authorization, validated with the gates that existed at the time, and recorded in its own
@@ -2037,4 +2037,40 @@ screenshots or browser-verified rendering; no end-to-end browser suite; no scree
 no hosting, CI configuration, or base-path deployment. Each is recorded with its reason in
 [`docs/LIMITATIONS.md`](./docs/LIMITATIONS.md), and the verification pass that backs the claims is
 in [`docs/VERIFICATION.md`](./docs/VERIFICATION.md).
+
+---
+
+## 20. Post-delivery fixes
+
+Work requested after the plan was complete. Each entry records what was reported, what was
+actually wrong, and what changed — including the parts that were *not* bugs.
+
+### FIX-001 — "Save now" and "Retry" appeared to do nothing (2026-10-25)
+
+- **Reported:** "save now button and retry button is not working so please fix it".
+- **What was actually wrong:** neither control was mis-wired — the happy path (write, fail,
+  retry, succeed) was already covered over the real IndexedDB adapter. Both were dead in the
+  states a user is in when they press them:
+  1. With autosave on, the draft is clean seconds after typing, and the explicit save required a
+     dirty draft, so the button was **disabled** — and a disabled button with no explanation
+     reads as broken.
+  2. In the error state, **Retry** re-ran a save that fails deterministically (an unparsable
+     document, or a draft the composer holds back) and produced an identical label and detail.
+     Nothing changed on screen, so the press looked inert.
+  3. In ephemeral mode (storage did not open — blocked origin, sandboxed preview iframe) saving
+     is off by design, and there was **no way to ask storage to try again**.
+- **Fix:** the explicit save is now available whenever a save is possible and reports an
+  unchanged draft as a no-op (no version bump, no false "Saved"); every attempt clears the
+  previous result so the bar visibly moves; a refusal is marked not retryable and says so when
+  the same text fails twice; a held draft reports its reason without being called an error;
+  ephemeral mode offers "Try storage again", wired to the bootstrap's re-boot through a new
+  `StorageRecoveryContext`; every disabled save carries a sentence in `title` and
+  `aria-describedby`. Recorded as ADR-117.
+- **Files:** `src/features/save/useSavePipeline.ts`, `src/components/editor/SaveStatus.tsx`,
+  `src/routes/editor/EditorRoute.tsx`, `src/routes/composer/ComposerEditRoute.tsx`,
+  `src/app/DataBootstrap.tsx`, `src/store/storageRecoveryContext.ts` (new), plus five test files.
+- **Verification:** `tsc` 0, `eslint` 0, `prettier` clean, build exit 0; the full suite passes
+  with the 16 new cases that pin each fixed behaviour (see `docs/TESTING.md` §6).
+- **Not verified:** the behaviour was not reproduced in a real browser — there is still no
+  browser binary here. The fix is reasoned from the code and asserted in jsdom.
 

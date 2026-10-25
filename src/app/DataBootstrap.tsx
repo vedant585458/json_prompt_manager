@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { bootData, type BootOutcome } from '@/app/dataBoot';
 import { DataStoreProvider } from '@/app/providers/DataStoreProvider';
@@ -8,6 +8,7 @@ import { ErrorState } from '@/components/ui/ErrorState';
 import { SkeletonCard, SkeletonText } from '@/components/ui/Skeleton';
 import { useDataStore, type DataStore } from '@/store/dataStore';
 import { describeDataError } from '@/store/dataStore';
+import { StorageRecoveryContext, type StorageRecovery } from '@/store/storageRecoveryContext';
 
 export interface DataBootstrapProps {
   children: ReactNode;
@@ -75,6 +76,7 @@ export function DataBootstrap({
   const [failure, setFailure] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [ephemeral, setEphemeral] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,6 +88,7 @@ export function DataBootstrap({
         const outcome = await boot(store);
         if (cancelled) return;
         setNotice(outcome.notice);
+        setEphemeral(outcome.mode === 'ephemeral');
         setPhase('ready');
       } catch (caught) {
         if (cancelled) return;
@@ -100,6 +103,13 @@ export function DataBootstrap({
   }, [boot, store, attempt]);
 
   const retryBoot = useCallback(() => setAttempt((value) => value + 1), []);
+
+  // Ephemeral mode is the one state where a save retry has nothing to retry, so
+  // the bootstrap publishes its own re-open action for the save bar to offer.
+  const recovery = useMemo<StorageRecovery | null>(
+    () => (ephemeral ? { canRetry: true, retry: retryBoot } : null),
+    [ephemeral, retryBoot],
+  );
 
   if (phase === 'failed') {
     return (
@@ -138,11 +148,13 @@ export function DataBootstrap({
   }
 
   return (
-    <DataStoreProvider store={store}>
-      <div className="flex min-h-dvh flex-col bg-canvas">
-        {notice ? <EphemeralBanner notice={notice} /> : null}
-        {children}
-      </div>
-    </DataStoreProvider>
+    <StorageRecoveryContext.Provider value={recovery}>
+      <DataStoreProvider store={store}>
+        <div className="flex min-h-dvh flex-col bg-canvas">
+          {notice ? <EphemeralBanner notice={notice} /> : null}
+          {children}
+        </div>
+      </DataStoreProvider>
+    </StorageRecoveryContext.Provider>
   );
 }

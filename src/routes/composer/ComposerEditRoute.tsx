@@ -31,9 +31,10 @@ import {
 import { documentToJson, formatDocumentJson, parseJson } from '@/domain/serialization';
 import type { Snippet } from '@/domain/types';
 import { useComposerDraft } from '@/features/composer/useComposerDraft';
-import { useSavePipeline } from '@/features/save/useSavePipeline';
+import { describeSaveDisabled, useSavePipeline } from '@/features/save/useSavePipeline';
 import { cn } from '@/lib/cn';
 import { useDataStoreApi } from '@/store/dataStoreContext';
+import { useStorageRecovery } from '@/store/storageRecoveryContext';
 import { usePreferencesStore } from '@/store/preferences';
 
 /**
@@ -87,6 +88,8 @@ export function ComposerEditRoute() {
   );
   const blocked = hasComposerErrors(issues) || invalidJson.size > 0;
 
+  const storageRecovery = useStorageRecovery();
+
   const save = useSavePipeline({
     prompt,
     store,
@@ -94,7 +97,13 @@ export function ComposerEditRoute() {
     blockedReason: blocked
       ? 'This draft has problems that would be normalized or dropped on write, so it is not being saved yet.'
       : null,
+    onReconnectStorage: storageRecovery?.canRetry ? storageRecovery.retry : null,
   });
+
+  const saveDisabledReason =
+    blocked && save.durable
+      ? 'Fix the highlighted fields first: this draft is not being saved while they are wrong.'
+      : describeSaveDisabled(save);
 
   const lastPushed = useRef(composer.text);
 
@@ -330,10 +339,14 @@ export function ComposerEditRoute() {
         state={save.state}
         lastSavedAt={save.lastSavedAt}
         error={save.error}
-        canSave={save.durable && save.dirty && !save.saving && !save.conflict && !blocked}
+        canSave={save.durable && !save.saving && !save.conflict && !blocked}
         autosaveEnabled={autosaveEnabled}
         onSave={() => void save.saveNow('manual')}
         onRetry={() => void save.retry()}
+        notice={save.notice}
+        retryable={save.retryable}
+        disabledReason={saveDisabledReason}
+        onReconnect={save.canReconnect ? () => void save.retry() : null}
       />
 
       <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">

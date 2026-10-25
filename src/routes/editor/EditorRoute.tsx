@@ -39,7 +39,7 @@ import { parseDocument } from '@/domain/serialization';
 import { validateJsonText } from '@/domain/validation';
 import { applyDismissals, inspectQuality, type QualityReport } from '@/domain/quality';
 import { revisionsForPrompt } from '@/domain/revisions';
-import { useSavePipeline } from '@/features/save/useSavePipeline';
+import { describeSaveDisabled, useSavePipeline } from '@/features/save/useSavePipeline';
 import { useTransfer } from '@/features/transfer/useTransfer';
 import { findLineForPath, type ValidationIssue } from '@/domain/validation';
 import { offsetAtLineColumn } from '@/domain/jsonText';
@@ -51,6 +51,7 @@ import { cn } from '@/lib/cn';
 import { describeDataError } from '@/store/dataStore';
 import { useDataStoreApi } from '@/store/dataStoreContext';
 import { usePreferencesStore } from '@/store/preferences';
+import { useStorageRecovery } from '@/store/storageRecoveryContext';
 
 /**
  * Prompt workspace (TASK-014).
@@ -132,9 +133,15 @@ export function EditorRoute() {
   const [caret, setCaret] = useState(EMPTY_CARET);
   const editorRef = useRef<JsonEditorHandle>(null);
 
+  const storageRecovery = useStorageRecovery();
+
   // The pipeline keeps the draft, so the canonical indent lives there; the indent
   // preference still belongs to the Format action.
-  const save = useSavePipeline({ prompt, store });
+  const save = useSavePipeline({
+    prompt,
+    store,
+    onReconnectStorage: storageRecovery?.canRetry ? storageRecovery.retry : null,
+  });
 
   const blocker = useBlocker(save.dirty && Boolean(prompt));
 
@@ -658,10 +665,14 @@ export function EditorRoute() {
             state={save.state}
             lastSavedAt={save.lastSavedAt}
             error={save.error}
-            canSave={save.durable && save.dirty && !save.saving && !save.conflict}
+            canSave={save.durable && !save.saving && !save.conflict}
             autosaveEnabled={autosaveEnabled}
             onSave={() => void save.saveNow('manual')}
             onRetry={() => void save.retry()}
+            notice={save.notice}
+            retryable={save.retryable}
+            disabledReason={describeSaveDisabled(save)}
+            onReconnect={save.canReconnect ? () => void save.retry() : null}
           />
 
           <Tabs

@@ -3787,3 +3787,59 @@ screenshots — in an environment with no browser.
   limitation rather than papered over; whoever runs this in a browser can add real ones.
 - Deleting the stale architecture content loses nothing: the accurate technical sections (commands,
   persistence, lifecycle) were carried into the new document.
+
+---
+
+## ADR-117 — The save bar always answers: no silent disabled control, no dead retry
+
+**Date:** 2026-10-25 (post-delivery fix)
+**Status:** Accepted
+**Supersedes in part:** the "explicit save only when dirty" wiring of TASK-015.
+
+**Context.** The user reported that **Save now** and **Retry** "are not working". They were not
+mis-wired — the happy path is covered by tests over the real IndexedDB adapter. They were _dead
+in the states a user actually sees_:
+
+1. With autosave on (the default), the draft is clean almost immediately, and `canSave` required
+   `dirty`, so the button was disabled whenever anyone thought to press it. A disabled button with
+   no attached reason reads as a broken button.
+2. In the error state, **Retry** re-ran a save that fails deterministically — an unparsable
+   document, or a draft the composer is holding back — and produced the identical label and
+   detail. Nothing on screen changed, so the press looked inert.
+3. In ephemeral mode (storage did not open: a blocked origin, a sandboxed iframe, privacy
+   settings) saving is off by design, and there was no way to ask storage to try again.
+
+**Decision.**
+
+1. **An explicit save is available whenever a save is possible** — `durable && !saving &&
+!conflict` — not only while dirty. A press with nothing to write reports
+   `unchanged` ("Already saved — this draft matches what is stored, so nothing was written")
+   and **does not bump a version or claim a write**.
+2. **Every attempt clears the previous result first**, so the status region always visibly
+   leaves the failure state and comes back to it if it fails again.
+3. **A refusal is marked not retryable.** An unparsable or invalid document fails identically
+   until the text changes, so the bar says "fix the document above, then save again" instead of
+   offering a control that cannot help. When the same text is refused twice, the detail adds
+   "this is the same text as the last attempt", so the second press is not silent.
+4. **A held draft reports its reason without an error** (new `held` result): the composer's
+   blocked state stays `dirty` — the TASK-017 decision that nothing has failed is preserved —
+   but pressing the shortcut now says why nothing was written.
+5. **Ephemeral mode offers "Try storage again".** `DataBootstrap` publishes its own re-boot
+   through a new `StorageRecoveryContext`; the save pipeline calls it instead of repeating a
+   write that cannot land. Outside a bootstrap (route-level tests) the context is `null` and
+   nothing changes.
+6. **Every disabled save carries a sentence**, exposed as both `title` and an
+   `aria-describedby` target, from one function (`describeSaveDisabled`).
+
+**Consequences.**
+
+- No control in the save bar can be pressed and produce nothing. That is the property the
+  tests pin, not the individual wording.
+- The bar no longer shows "Saved at …" after a no-op press, because nothing was saved; it shows
+  "No unsaved changes" plus the explanation. This is a deliberate wording change, and cheaper
+  than teaching users to distrust a green check.
+- `SaveResult` gained two variants (`unchanged`, `held`), and every error result now states
+  whether retrying can help. The union is exhaustive, so a new result kind cannot be added
+  without deciding that.
+- One new module (`src/store/storageRecoveryContext.ts`) and one new provider value; the routes
+  stay unaware of how storage is opened.

@@ -142,11 +142,22 @@ describe('composer — editing a stored prompt (TASK-017)', () => {
 
     expect(screen.getByText('Saving is held back')).toBeInTheDocument();
     expect(checks().getByText(/already declared at position 1/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save now' })).toBeDisabled();
 
-    // An explicit shortcut save is refused for the same reason.
+    // The disabled button carries the reason, so it does not read as broken.
+    const saveNow = screen.getByRole('button', { name: 'Save now' });
+    expect(saveNow).toBeDisabled();
+    expect(
+      document.getElementById(saveNow.getAttribute('aria-describedby') as string),
+    ).toHaveTextContent(/Fix the highlighted fields first/);
+
+    // An explicit shortcut save is refused for the same reason — and the bar says
+    // so, instead of the press disappearing.
     await user.keyboard('{Meta>}s{/Meta}');
     await new Promise((resolve) => setTimeout(resolve, 500));
+
+    expect(
+      await screen.findByText(/This draft has problems that would be normalized or dropped/),
+    ).toBeVisible();
 
     expect(stored(harness).content.variables).toHaveLength(1);
     expect(stored(harness).version).toBe(1);
